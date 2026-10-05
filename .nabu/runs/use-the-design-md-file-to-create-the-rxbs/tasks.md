@@ -1,4 +1,4 @@
-- [ ] Hygiene: .gitignore and .gitattributes
+- [x] Hygiene: .gitignore and .gitattributes
   Add `.gitignore` (same patterns as nabu's: local.properties, .gradle/, build/, .kotlin/, .idea/, *.iml) and `.gitattributes` (* text=auto eol=lf, *.bat text eol=crlf, *.jar binary). Verify with `git add -n` that ignored files are excluded.
 
 - [ ] Gradle project setup: wrapper and build files
