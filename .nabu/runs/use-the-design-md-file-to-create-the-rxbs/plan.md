@@ -1,133 +1,190 @@
-# Plan — Fundamentals for Liftoff
+# Plan: Liftoff project fundamentals
 
-This plan covers everything needed to turn the empty repo (DESIGN.md + brief.md) into a working project scaffold: CI, Gradle project, architecture docs, coach workspace template, validator, schemas, prompt builder, and LiveCoachTest. This is essentially M0 from §14 of DESIGN.md, plus CI and architecture scaffolding that enable every subsequent milestone.
+The brief asks for "the fundamentals required to start this project: ci, project setup,
+architecture docs, etc", based on DESIGN.md. Right now the repo holds only `DESIGN.md` and
+`brief.md`. This plan adds three things:
 
----
+- a Gradle/Android project that builds and passes the project gate (§13)
+- a GitHub Actions CI workflow that runs the gate
+- the architecture and convention docs that later milestones build against
 
-## 1. Approach and Why It Fits
+**Out of scope.** This plan adds no feature code. The following are milestone work (§14),
+not fundamentals, and are left for their milestones:
 
-The design doc is thorough and the codebase doesn't yet exist, so the approach is sequential: scaffold → coach tools → CI → architecture docs. Each step produces a compilable state and can be merged independently.
+- the `coach/` template, the JSON schemas, the validator, the prompt builder, the fixtures and `LiveCoachTest` (M0)
+- Room entities, DataStore settings, `AppContainer`, the theme and navigation (M1)
 
-**Why this order:**
-- The Gradle project must exist before anything else compiles.
-- Coach tools (schemas, validator, prompt builder) are pure Kotlin functions/resources — no UI, no device needed — so they can be built first and tested immediately with JVM unit tests.
-- CI is a single file that runs the project gate command from §13, so it only makes sense once the Gradle project exists.
-- Architecture docs describe decisions already made in DESIGN.md; writing them after the scaffold ensures they reflect actual file names and module structure.
-
-This matches the design's milestone ordering (M0 → M1→…) while collapsing M0's pieces into one fundaments pass, because they're all prerequisites for any further work.
-
----
-
-## 2. Files and Parts of Code Involved
-
-### A. Gradle Project Setup
-| File | Purpose |
-|---|---|
-| `settings.gradle.kts` | Root project name, include `:app`, enable version catalogs |
-| `build.gradle.kts` (root) | Plugin declarations, buildscript dependencies |
-| `gradle/libs.versions.toml` | Version catalog for all dependencies (Compose, Room, WorkManager, OkHttp, JSON Schema validator, JUnit, MockWebServer, Robolectric) |
-| `app/build.gradle.kts` | Android app module: minSdk 26 (nabu client baseline), compileSdk 34, AGP config, Compose BOM, Room compiler, WorkManager, dependency injection setup |
-| `gradle.properties` | AndroidX flags, org.gradle.jvmargs |
-| `.gitignore` | Standard Android + Gradle ignores |
-
-### B. Coach Workspace Template (`coach/`)
-| File | Purpose |
-|---|---|
-| `coach/README.md` | One-time setup instructions (copy to workspace, git init, nabu config tweak — from §3 and §7.1) |
-| `coach/COACH.md` | Coach standing instructions (§7.1.1): role, never ask questions, JSON-only final message, programming principles, exercise names, memory/notes rules, no writes outside notes and memory |
-
-### C. JSON Schema Resources (`app/src/main/res/raw/`)
-| File | Purpose |
-|---|---|
-| `schema_outline.json` | Outline schema (§7.5.1) |
-| `schema_lift_flight_plan.json` | Lift Flight Plan schema (§7.5.2) |
-| `schema_run_flight_plan.json` | Run Flight Plan schema (§7.5.3) |
-
-### D. Validator (`app/src/main/java/liftoff/validator/`)
-| File | Purpose |
-|---|---|
-| `JsonSchemaValidator.kt` | In-house validator for the JSON Schema subset used (Decision #14: small in-house validator, not a full library). Supports: object type, required, additionalProperties, string minLength/maxLength, integer minimum/maximum, number minimum/maximum, enum, const, array minItems/maxItems/items, nested objects. No $ref, no anyOf/oneOf (not needed for these schemas). |
-| `ValidationResult.kt` | Data class: `valid: Boolean`, `errors: List<String>` with specific messages per error type |
-
-### E. Prompt Builder (`app/src/main/java/liftoff/generation/`)
-| File | Purpose |
-|---|---|
-| `PromptBuilder.kt` | Pure function building prompt text from inputs (§7.4). Same inputs → same text (deterministic). Builds sections in order: Task, Instructions, Athlete profile, Equipment, This week (pattern + outline), History (last 28 days, newest first), Exercises used before (sorted), Output schema (read from resource JSON). |
-| `PromptBuilderTest.kt` | Golden-file tests: same inputs give byte-identical prompts. Tests history formatting, 28-day window, sorted exercise names. |
-
-### F. Fixtures (`app/src/test/fixtures/`)
-| Directory/File | Purpose |
-|---|---|
-| `fixtures/valid_outline.json` | Valid outline for validator |
-| `fixtures/invalid_prose_around_json.json` | Prose before/after JSON object |
-| `fixtures/invalid_code_fence.json` | JSON wrapped in ```json ... ``` |
-| `fixtures/invalid_schema_violation.json` | Schema violation (e.g., unknown equipment, both reps and seconds on one set) |
-| `fixtures/invalid_unknown_equipment.json` | Equipment id not in prompt's equipment list |
-| `fixtures/invalid_pattern_mismatch.json` | Outline sorties don't match mission pattern |
-| `fixtures/invalid_reps_and_seconds.json` | Set with both reps and seconds |
-| `fixtures/valid_lift_plan.json` | Valid lift Flight Plan |
-| `fixtures/valid_run_plan.json` | Valid run Flight Plan |
-
-### G. LiveCoachTest (`app/src/androidTest/java/liftoff/coach/`)
-| File | Purpose |
-|---|---|
-| `LiveCoachTest.kt` | Runs real generations against the real nabu daemon and local model. Skipped unless `LIFTOFF_LIVE_HOST`, `LIFTOFF_LIVE_PORT`, `LIFTOFF_LIVE_TOKEN`, `LIFTOFF_LIVE_WORKSPACE` environment variables are set. Tests 10 outline + 10 lift Flight Plan generations with representative fixture profiles and history. Records each reply as a fixture. Pass criteria from §14 M0: all 20 valid within 2-repair budget, ≥7 of each 10 valid on first try. |
-
-### H. CI (`/.github/workflows/ci.yml`)
-| File | Purpose |
-|---|---|
-| `.github/workflows/ci.yml` | GitHub Actions workflow: on push/PR to any branch, run `./gradlew :app:assembleDebug :app:testDebugUnitTest`. Uses Android SDK setup action. Caches Gradle dependencies. |
-
-### I. Architecture Docs (`.nabu/docs/`)
-| File | Purpose |
-|---|---|
-| `.nabu/docs/architecture.md` | High-level architecture overview: module structure, data flow (Room → UI, WorkManager → nabu daemon), key classes and their responsibilities. References DESIGN.md for detailed specs. |
-| `.nabu/docs/conventions.md` | Code conventions: naming (space-themed vocabulary from §2), comment style (one or two lines, why not what), test structure (golden-file for prompt builder, fixture-based for validator). |
-
-### J. Misc
-| File | Purpose |
-|---|---|
-| `README.md` | Project overview, how to set up the coach workspace, how to run tests |
+Do not create any of them here.
 
 ---
 
-## 3. Order of Work
+## 1. Approach
 
-1. **Gradle project scaffold** — settings.gradle.kts, build files, version catalog, app/build.gradle.kts, .gitignore, README.md. Result: `./gradlew :app:assembleDebug` succeeds (with no source files yet).
-2. **Coach workspace template** — `coach/README.md`, `coach/COACH.md`. No compilation dependency; copy-paste from DESIGN.md §7.1.
-3. **JSON Schema resources** — three schema files in `app/src/main/res/raw/`. Copy from DESIGN.md §7.5.
-4. **Validator** — `JsonSchemaValidator.kt`, `ValidationResult.kt`, fixtures directory, fixture JSON files, validator tests. Tests verify each error class produces the correct message.
-5. **Prompt builder** — `PromptBuilder.kt`, golden-file tests. The prompt builder reads schema resources from step 3 for the "Output schema" section.
-6. **LiveCoachTest** — `LiveCoachTest.kt`. Skipped by default; only runs with env vars set.
-7. **CI** — `.github/workflows/ci.yml`. Only makes sense after Gradle project exists.
-8. **Architecture docs** — `.nabu/docs/architecture.md`, `.nabu/docs/conventions.md`. Written last so they reference actual file names and module structure.
+**Copy the build setup from nabu's Android client. Do not invent a new one.** DESIGN.md §11
+says the stack matches `nabu/clients/android/app/build.gradle.kts` "so the copied code
+compiles unchanged and both apps age together". That project builds on this machine with a
+pinned toolchain:
 
-Each step is self-contained and builds on the previous. Steps 2–5 can be tested with `./gradlew :app:testDebugUnitTest` after the Gradle scaffold.
+- Gradle 8.11.1, JDK and Android SDK under `C:/Users/corpo/android-toolchain/`
+- AGP 8.7.3, Kotlin 2.1.0, KSP 2.1.0-1.0.29
 
----
+The files to copy from live in `C:/Users/corpo/Documents/projects/nabu/clients/android/`.
 
-## 4. Testing
+**Inline dependency versions, as nabu does.** Use no version catalog. Two clients that are
+meant to age together are easier to compare line by line when they use the same format.
 
-**Project gate (§13):**
-```
-./gradlew :app:assembleDebug :app:testDebugUnitTest
-```
+**The docs follow the owner's convention in the nabu repo:**
 
-This must pass at every step. Specifically:
-
-- **Validator tests:** Run each fixture through `JsonSchemaValidator`. Valid fixtures return `valid = true`; invalid ones return `valid = false` with the expected specific error message (bad JSON, prose around JSON, code fence, schema violation, unknown equipment, pattern mismatch, both reps and seconds on one set, over-length sessions).
-- **Prompt builder golden tests:** Build prompts from fixture inputs, compare against stored golden output files byte-for-byte. Test history formatting, 28-day window truncation, sorted exercise names.
-- **LiveCoachTest:** Skipped unless env vars are set. When enabled, runs 20 real generations and checks pass criteria.
-
-No device is needed for steps 1–7. The project gate uses only JVM tests and debug APK assembly.
+- `ARCHITECTURE.md` at the root is the map and the invariants.
+- `CLAUDE.md` at the root covers "read first", build and test, and conventions.
+- `DESIGN.md` stays the authority on decisions; the new docs point to it and do not repeat it.
 
 ---
 
-## 5. Risks and Uncertainties
+## 2. Files
 
-| Risk | Impact | Mitigation |
-|---|---|---|
-| Nabu DaemonClient copy — DESIGN.md §3 says "copied nabu DaemonClient" but the nabu repo isn't in this workspace. LiveCoachTest needs a working nabu connection, which requires the nabu daemon to be reachable over Tailscale. | M0 live test may fail if nabu protocol changes or Tailscale isn't configured. | The live test is skipped by default (gate stays hermetic). If it fails, the design says to move to approach B (§3 rejected alternatives table) for the final JSON step only — the rest stands. For now, we build the scaffold and assume the daemon connection works when env vars are set. |
-| In-house JSON Schema validator scope | Building a validator from scratch vs using a library. DESIGN.md Decision #14 chooses in-house because the subset is small. | We only support the features actually needed by the three schemas: object, required, additionalProperties, string minLength/maxLength, integer minimum/maximum, number minimum/maximum, enum, const, array minItems/maxItems/items, nested objects. If we find we need more features, we reconsider. |
-| Gradle version compatibility | The owner's machine may have a specific Gradle wrapper version pinned by other projects (farthing, nabu). | Use the latest stable AGP 8.x and Gradle 8.x that matches nabu's Android client baseline. Pin versions in libs.versions.toml so they're explicit and changeable. |
-| Coach workspace path on Windows | The design uses `C:/Users/corpo/liftoff-coach` as an example (§7.1). The owner's machine is Windows (from git log: `corpo`). | COACH.md should use Windows-style paths. README.md setup instructions should account for this. |
+### A. Repo hygiene
+| File | Content |
+|---|---|
+| `.gitignore` | Same as nabu's (`local.properties`, `.gradle/`, `build/`, `.kotlin/`), plus `.idea/` and `*.iml`. |
+| `.gitattributes` | `* text=auto eol=lf`, `*.bat text eol=crlf`, `*.jar binary`. Line endings are LF, as in nabu. |
+
+### B. Gradle project
+| File | Content |
+|---|---|
+| `settings.gradle.kts` | Copy of nabu's, with `rootProject.name = "liftoff"` and `include(":app")`. |
+| `build.gradle.kts` | Copy of nabu's root file: the same plugin block and versions, `apply false`, and the same header comment about pinned versions. |
+| `gradle.properties` | Copy of nabu's. |
+| `gradlew.sh` | Copy of nabu's. It is the local entry point because the JDK, SDK and Gradle are not on PATH. |
+| `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, `gradle/wrapper/gradle-wrapper.properties` | The Gradle wrapper for Gradle 8.11.1 (§3 step 2). CI needs it, and it is the gate command DESIGN.md §13 names. |
+| `app/build.gradle.kts` | Copy of nabu's `app/build.gradle.kts` (see the notes after this table). |
+
+The changes to nabu's `app/build.gradle.kts`:
+
+- Set `namespace` and `applicationId` to `com.liftoff.app` (§11).
+- Keep `minSdk 26`, `compileSdk`/`targetSdk 35` and JVM 17.
+- Keep the Compose, serialization and KSP plugins.
+- Keep the debug-signed release build, because the app is installed directly onto one phone.
+- Keep the `testOptions` block and the full dependency list unchanged. That list is the §11
+  stack: Compose/M3, kotlinx.serialization, coroutines, OkHttp 4, Room with KSP, DataStore,
+  WorkManager, JUnit 4, Robolectric, coroutines-test, MockWebServer, room-testing and
+  work-testing. With it in place, later milestones do not have to touch the build.
+- Add no dependency-injection library (§11: "No dependency-injection framework").
+
+### C. Minimal app source
+
+The goal is only that `assembleDebug` has something to build.
+
+| File | Content |
+|---|---|
+| `app/src/main/AndroidManifest.xml` | `INTERNET` and `ACCESS_NETWORK_STATE` permissions, and `android:usesCleartextTraffic="true"` (the daemon speaks plain ws over Tailscale, as in nabu's manifest, including its comment). Set `android:label="@string/app_name"` and `android:theme="@android:style/Theme.Material.Light.NoActionBar"`. Leave out the icon attributes, so no mipmap assets are needed yet. Declare one exported launcher activity, `.MainActivity`. |
+| `app/src/main/res/values/strings.xml` | `app_name` = `Liftoff`. |
+| `app/src/main/java/com/liftoff/app/MainActivity.kt` | A `ComponentActivity` whose `setContent { MaterialTheme { Surface { Text("Liftoff") } } }` is a placeholder. Give it a one-line comment saying M1 replaces it with the navigation shell. |
+
+Add no tests in this plan. `testDebugUnitTest` still runs and passes with no test sources.
+
+### D. CI
+`.github/workflows/ci.yml`, modelled on nabu's workflow:
+
+- `on: pull_request` and `push` to `main`.
+- `concurrency` keyed on the workflow and ref, with `cancel-in-progress: true`.
+- `permissions: contents: read`.
+- One job, `gate`, on `ubuntu-latest` with `timeout-minutes: 20`. The build is
+  platform-independent, so there is no OS matrix. The steps:
+  1. `actions/checkout@v4`
+  2. `actions/setup-java@v4` with `distribution: temurin` and `java-version: 17`
+  3. `gradle/actions/setup-gradle@v4`, which handles caching
+  4. `./gradlew :app:assembleDebug :app:testDebugUnitTest`
+
+  The ubuntu runner already ships the Android SDK with `ANDROID_HOME` set and its licenses
+  accepted. If platform 35 is missing, AGP downloads it.
+- Add a comment noting that the live coach test (when it exists, M0) skips itself because
+  the `LIFTOFF_LIVE_*` variables are never set in CI.
+
+### E. Docs
+| File | Content |
+|---|---|
+| `ARCHITECTURE.md` | The map, kept short (see below). |
+| `CLAUDE.md` | The working instructions (see below). |
+| `README.md` | A short overview: what Liftoff is, in one paragraph from §1. Then how to build: the gate, and `bash gradlew.sh …` locally. How to install: `adb install app/build/outputs/apk/debug/app-debug.apk`. Pointers to `DESIGN.md`, `ARCHITECTURE.md` and `CLAUDE.md`. Note that the coach workspace setup will live in `coach/README.md` (M0). |
+
+`ARCHITECTURE.md` should cover:
+
+- The topology diagram and a one-paragraph summary from §3.
+- The package layout under `com.liftoff.app`, from §12: `nabu/`, `data/`, `settings/`,
+  `domain/`, `coach/`, `ui/`. Give each one line of responsibility. Mark which ones exist
+  yet: only `MainActivity` does, and the rest arrive by milestone.
+- Resource locations: schemas in `src/main/resources/schemas/` and fixtures in
+  `src/test/resources/fixtures/`.
+- The data flow: UI ↔ Room as the source of truth; WorkManager `GenerationWorker` → nabu
+  daemon → validate → Room.
+- The invariants, each in one line with its section reference:
+  - The phone is the source of truth, and every prompt carries the history it needs (§3).
+  - `domain/` and `coach/` are pure Kotlin with no Android imports (§12).
+  - Nothing in nabu changes (§3).
+  - The nabu code is copied, with a header recording the nabu commit it came from (§11).
+  - There is no DI framework; a single `AppContainer` builds everything (§11).
+  - Generations are resumable from the `Generation` row (§7.3).
+  - Session labels never start with `run:` (§7.3).
+  - The phone validates every coach reply (§7.6).
+- The milestone list from §14, with M0–M6 marked not started.
+
+`CLAUDE.md` should cover:
+
+- **Read first:** `DESIGN.md` holds every decision. Do not re-litigate decisions; propose
+  changes as an amendment at the end of DESIGN.md. Also read `ARCHITECTURE.md`.
+- **Build and test:**
+  - The gate, `./gradlew :app:assembleDebug :app:testDebugUnitTest`, which must pass before
+    work is called done.
+  - On this machine, run it as `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`,
+    since the toolchain is not on PATH.
+- **Conventions:**
+  - Commit messages are `area: lowercase summary`, not conventional-commits.
+  - Stage named files, never `git add -A`.
+  - Use the §2 vocabulary in code (`Mission`, `Sortie`, `FlightPlan`, `Generation`), and
+    never "session" for a sortie.
+  - Field names in coach JSON are snake_case.
+  - Line endings are LF.
+  - Comments are short and say why, not what.
+
+---
+
+## 3. Order of work
+
+1. **Hygiene.** Add `.gitignore` and `.gitattributes`.
+2. **Wrapper.** With `JAVA_HOME=C:/Users/corpo/android-toolchain/jdk`, run
+   `C:/Users/corpo/android-toolchain/gradle/bin/gradle wrapper --gradle-version 8.11.1 --distribution-type bin`
+   in the repo root. Do this before `settings.gradle.kts` exists, so no project needs
+   configuring; an empty `settings.gradle.kts` is fine too.
+   - Then run `git update-index --chmod=+x gradlew` after staging, so `./gradlew` is
+     executable on the Linux runner.
+   - Confirm that `gradle-wrapper.properties` points at `gradle-8.11.1-bin.zip`.
+3. **Gradle files and `gradlew.sh`.** Add the files in §2B.
+4. **App source.** Add the manifest, `strings.xml` and `MainActivity.kt` (§2C).
+5. **Local gate.** Run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`. It
+   must pass. `local.properties` is not needed, because `gradlew.sh` exports `ANDROID_HOME`.
+6. **CI.** Add `.github/workflows/ci.yml`.
+7. **Docs.** Write `ARCHITECTURE.md`, `CLAUDE.md` and `README.md`. Write them last, so the
+   file names they mention match what was actually created.
+
+---
+
+## 4. Verification
+
+- The local gate (step 5) passes.
+- `git ls-files -s gradlew` shows mode `100755`.
+- `gradle/wrapper/gradle-wrapper.jar` is committed as binary, and the `.gitattributes`
+  rule takes effect.
+- The CI workflow cannot be run locally. Its first real run is on the first push or PR,
+  and the report should say so rather than claim CI passes.
+
+---
+
+## 5. Risks
+
+| Risk | Mitigation |
+|---|---|
+| `./gradlew` locally needs to download Gradle 8.11.1 (`~/.gradle/wrapper/dists` is empty), and the toolchain's `JAVA_HOME` is not on PATH | Local verification goes through `gradlew.sh`, which uses the pinned toolchain exactly as nabu does. The wrapper exists for CI and for the gate command DESIGN.md names. |
+| The plugins are not in the local Gradle cache | nabu builds with identical plugin and dependency versions on this machine, so they are cached. Do not change any version. |
+| KSP and room-compiler with no `@Database` yet | KSP runs and generates nothing, so it is harmless. Keeping it now means M1 does not touch the build. |
+| The `gradlew` exec bit is lost when committing from Windows | `git update-index --chmod=+x gradlew` (step 2), checked in §4. |
