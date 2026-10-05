@@ -7,7 +7,7 @@
 - [x] App source: manifest, strings, MainActivity
   Add app/src/main/AndroidManifest.xml (INTERNET + ACCESS_NETWORK_STATE permissions, cleartextTraffic=true, Material.Light.NoActionBar theme, exported MainActivity), app/src/main/res/values/strings.xml (app_name = "Liftoff"), and app/src/main/java/com/liftoff/app/MainActivity.kt (ComponentActivity with a MaterialTheme Surface Text placeholder). Then run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` — it must pass. Verify `git ls-files -s gradlew` shows mode 100755.
 
-- [ ] CI workflow
+- [x] CI workflow
   Add .github/workflows/ci.yml modelled on nabu's: on pull_request and push to main, concurrency group with cancel-in-progress, one gate job on ubuntu-latest (timeout 20m) that checks out, sets up Java 17, runs setup-gradle, then executes `./gradlew :app:assembleDebug :app:testDebugUnitTest`. Include a comment about live coach test skipping in CI.
 
 - [ ] Docs: ARCHITECTURE.md, CLAUDE.md, README.md
