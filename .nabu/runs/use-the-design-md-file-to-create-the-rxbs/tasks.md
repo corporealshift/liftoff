@@ -4,7 +4,7 @@
 - [x] Gradle project setup: wrapper and build files
   Generate the Gradle 8.11.1 wrapper using the pinned toolchain (`JAVA_HOME=C:/Users/corpo/android-toolchain/jdk`, `C:/Users/corpo/android-toolchain/gradle/bin/gradle wrapper --gradle-version 8.11.1 --distribution-type bin`). Then add settings.gradle.kts (rootProject.name = "liftoff"), build.gradle.kts (copy of nabu's root with same plugins and versions), gradle.properties (copy of nabu's), and gradlew.sh (copy of nabu's). Stage gradlew and run `git update-index --chmod=+x gradlew`. Confirm gradle-wrapper.properties points at gradle-8.11.1-bin.zip.
 
-- [ ] App source: manifest, strings, MainActivity
+- [x] App source: manifest, strings, MainActivity
   Add app/src/main/AndroidManifest.xml (INTERNET + ACCESS_NETWORK_STATE permissions, cleartextTraffic=true, Material.Light.NoActionBar theme, exported MainActivity), app/src/main/res/values/strings.xml (app_name = "Liftoff"), and app/src/main/java/com/liftoff/app/MainActivity.kt (ComponentActivity with a MaterialTheme Surface Text placeholder). Then run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` — it must pass. Verify `git ls-files -s gradlew` shows mode 100755.
 
 - [ ] CI workflow
