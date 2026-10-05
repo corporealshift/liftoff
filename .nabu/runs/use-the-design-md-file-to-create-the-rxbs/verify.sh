@@ -1,53 +1,60 @@
 #!/usr/bin/env bash
+# Done means the project gate passes through the committed Gradle wrapper, exactly as CI
+# runs it, and the APK it builds is the Liftoff app.
+# Run from the repo root with bash (Git Bash on Windows).
 set -euo pipefail
 
-# Verify the brief is done: fundamentals required to start this project.
-# Run from repo root with bash (Windows Git Bash).
+# The JDK and SDK are not on PATH on this machine; CI's runner provides its own.
+export JAVA_HOME="${JAVA_HOME:-C:/Users/corpo/android-toolchain/jdk}"
+export ANDROID_HOME="${ANDROID_HOME:-C:/Users/corpo/android-toolchain/sdk}"
 
-# ── Gate: build and run unit tests ──────────────────────────────────────
-# Proves the Gradle project compiles, dependencies resolve, and testDebugUnitTest passes.
-# This is the same command CI runs (DESIGN.md §13). No test sources yet; a clean pass
-# with zero tests proves the build infrastructure is correct.
+apk=app/build/outputs/apk/debug/app-debug.apk
+rm -f "$apk"
+
+# ── Gate: the command CI runs (DESIGN.md §13), through the wrapper ──────
 echo "=== gate ==="
-bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
+bash ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
 
-# ── gradlew executable bit ──────────────────────────────────────────────
-# The plan (§4) explicitly requires git update-index --chmod=+x so Linux CI runners can execute it.
+# ── The wrapper must be executable on the Linux CI runner ───────────────
 echo "=== gradlew executable bit ==="
 mode=$(git ls-files -s gradlew | awk '{print $1}')
-if [[ "$mode" != "100755"* ]]; then
-    echo "FAIL: gradlew has mode $mode, expected 100755"
+if [[ "$mode" != "100755" ]]; then
+    echo "FAIL: gradlew is tracked with mode '${mode:-untracked}', CI's ./gradlew needs 100755"
     exit 1
 fi
 
-# ── CI workflow exists and is valid YAML ────────────────────────────────
-# DESIGN.md §13 names a CI pipeline; the plan requires .github/workflows/ci.yml.
-echo "=== ci workflow ==="
-test -f .github/workflows/ci.yml
-python3 -c "import yaml, sys; yaml.safe_load(open('.github/workflows/ci.yml'))" 2>/dev/null || \
-    python -c "import yaml, sys; yaml.safe_load(open('.github/workflows/ci.yml'))" 2>/dev/null || \
-    echo "WARN: could not parse ci.yml as YAML (python not available)"
+# ── The built APK is the Liftoff app (DESIGN.md §11) ────────────────────
+echo "=== apk ==="
+if [[ ! -s "$apk" ]]; then
+    echo "FAIL: assembleDebug did not produce $apk"
+    exit 1
+fi
 
-# ── Documentation files exist ───────────────────────────────────────────
-# The brief requires architecture docs; the plan names these three deliverables.
-echo "=== docs ==="
-test -f ARCHITECTURE.md
-test -f CLAUDE.md
-test -f README.md
+aapt2=""
+for d in $(ls -d "$ANDROID_HOME"/build-tools/*/ 2>/dev/null | sort -V -r); do
+    for f in "$d"aapt2.exe "$d"aapt2; do
+        if [[ -x "$f" ]]; then aapt2="$f"; break 2; fi
+    done
+done
+if [[ -z "$aapt2" ]]; then
+    echo "FAIL: no aapt2 found under $ANDROID_HOME/build-tools"
+    exit 1
+fi
 
-# ── Project setup files exist ───────────────────────────────────────────
-# The brief requires project setup; these are the Gradle fundamentals.
-echo "=== project setup ==="
-test -f settings.gradle.kts
-test -f build.gradle.kts
-test -f app/build.gradle.kts
-test -f gradle.properties
-test -f gradlew.sh
+badging=$("$aapt2" dump badging "$apk" | tr -d '\r')
 
-# ── Hygiene files exist ─────────────────────────────────────────────────
-# The brief requires project hygiene.
-echo "=== hygiene ==="
-test -f .gitignore
-test -f .gitattributes
+expect() {
+    if ! grep -qE "$1" <<<"$badging"; then
+        echo "FAIL: APK $2"
+        echo "$badging" | head -40
+        exit 1
+    fi
+}
+expect "^package: name='com\.liftoff\.app'" "package is not com.liftoff.app"
+expect "^application-label:'Liftoff'" "label is not Liftoff"
+expect "^launchable-activity: name='com\.liftoff\.app\." "has no launcher activity in com.liftoff.app"
+expect "^uses-permission: name='android\.permission\.INTERNET'" "does not request INTERNET"
+expect "^sdkVersion:'26'" "minSdk is not 26"
+expect "^targetSdkVersion:'35'" "targetSdk is not 35"
 
 echo "All checks passed."
