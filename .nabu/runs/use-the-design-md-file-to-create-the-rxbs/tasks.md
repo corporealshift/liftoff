@@ -10,5 +10,5 @@
 - [x] CI workflow
   Add .github/workflows/ci.yml modelled on nabu's: on pull_request and push to main, concurrency group with cancel-in-progress, one gate job on ubuntu-latest (timeout 20m) that checks out, sets up Java 17, runs setup-gradle, then executes `./gradlew :app:assembleDebug :app:testDebugUnitTest`. Include a comment about live coach test skipping in CI.
 
-- [ ] Docs: ARCHITECTURE.md, CLAUDE.md, README.md
+- [x] Docs: ARCHITECTURE.md, CLAUDE.md, README.md
   Write ARCHITECTURE.md with the topology diagram summary, package layout (com.liftoff.app.*), resource locations, data flow, invariants (phone is source of truth, domain/coach are pure Kotlin, no DI, resumable generations, etc.), and milestone list. Write CLAUDE.md with read-first instructions, build/test gate commands, and conventions (commit message format, named files only, §2 vocabulary, snake_case JSON fields, LF endings, short comments). Write README.md with a one-paragraph overview, how to build/install, and pointers to the other docs.
