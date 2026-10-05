@@ -54,7 +54,8 @@ expect "^package: name='com\.liftoff\.app'" "package is not com.liftoff.app"
 expect "^application-label:'Liftoff'" "label is not Liftoff"
 expect "^launchable-activity: name='com\.liftoff\.app\." "has no launcher activity in com.liftoff.app"
 expect "^uses-permission: name='android\.permission\.INTERNET'" "does not request INTERNET"
-expect "^sdkVersion:'26'" "minSdk is not 26"
+# aapt2 prints minSdkVersion; legacy aapt printed sdkVersion.
+expect "^(minSdkVersion|sdkVersion):'26'$" "minSdk is not 26"
 expect "^targetSdkVersion:'35'" "targetSdk is not 35"
 
 echo "All checks passed."
