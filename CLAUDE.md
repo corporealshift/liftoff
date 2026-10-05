@@ -39,5 +39,5 @@ bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
 - **§2 vocabulary in code.** Use `Mission`, `Sortie`, `FlightPlan`, `Generation`. Never
   "session" for a sortie.
 - **snake_case JSON fields** in coach output.
-- **LF line endings.** All files, always.
+- **LF line endings** except `*.bat` (see `.gitattributes`).
 - **Short comments.** Say why, not what. One or two lines max.

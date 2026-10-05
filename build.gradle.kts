@@ -1,6 +1,4 @@
-// Versions are the ones already proven to build on this machine. Newer is not
-// better here: the toolchain is pinned and offline-ish, so matching what works
-// beats chasing releases.
+// Pinned versions matching this machine's toolchain.
 plugins {
     id("com.android.application") version "8.7.3" apply false
     id("org.jetbrains.kotlin.android") version "2.1.0" apply false

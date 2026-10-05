@@ -27,12 +27,13 @@ All source lives under `com.liftoff.app`.
 
 | Package | Responsibility | Exists yet? |
 |---|---|---|
-| `com.liftoff.app` (root) | `MainActivity`, app entry point — placeholder until M1 replaces it with the navigation shell. | ✅ (`MainActivity.kt`) |
+| `com.liftoff.app` (root) | `MainActivity`, `AppContainer.kt`, app entry point — placeholder until M1 replaces it with the navigation shell. | ✅ (`MainActivity.kt`) |
 | `com.liftoff.app.nabu` | Copied nabu `DaemonClient` and protocol types. No changes to upstream nabu. | — |
-| `com.liftoff.app.data` | Room entities, DAOs, database builder, DataStore settings. | — |
-| `com.liftoff.app.settings` | App-level configuration (equipment list, units, run-toggle). | — |
+| `com.liftoff.app.data` | Room entities (including Equipment), DAOs, database builder, export/import helpers. | — |
+| `com.liftoff.app.settings` | App-level configuration backed by DataStore (equipment list, units, run-toggle). | — |
 | `com.liftoff.app.domain` | State machines for Mission and Sortie lifecycle. Pure Kotlin, no Android imports. | — |
 | `com.liftoff.app.coach` | Prompt builder, validator, JSON schemas. Pure Kotlin, no Android imports. | — |
+| `com.liftoff.app.work` | Android-side workers (`GenerationWorker`). Uses WorkManager and Android APIs. | — |
 | `com.liftoff.app.ui` | Compose screens: Launchpad, Draft/Confirm, In-Flight, Landed history, Mission Control. | — |
 
 ---
@@ -76,7 +77,7 @@ Each milestone ends with the project gate (`./gradlew :app:assembleDebug :app:te
 | Milestone | Title | Status |
 |---|---|---|
 | M0 | Coach reliability spike — coach workspace, validator, schemas, prompt builder, `LiveCoachTest` | Not started |
-| M1 | Skeleton and data — Room schema, settings, `AppContainer`, theme, navigation shell | Not started |
+| M1 | Skeleton and data — Room schema, settings, `AppContainer`, theme, navigation shell, Mission Control including the equipment list | Not started |
 | M2 | Missions and sorties — domain state machines, draft/confirm UI, Launchpad, Scrub | Not started |
 | M3 | Generation — nabu client copy, `GenerationWorker`, outline + lift plan end to end | Not started |
 | M4 | In flight — In-Flight screen, Launch, Land, resume after process kill | Not started |
