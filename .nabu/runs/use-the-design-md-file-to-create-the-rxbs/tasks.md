@@ -1,7 +1,7 @@
 - [x] Hygiene: .gitignore and .gitattributes
   Add `.gitignore` (same patterns as nabu's: local.properties, .gradle/, build/, .kotlin/, .idea/, *.iml) and `.gitattributes` (* text=auto eol=lf, *.bat text eol=crlf, *.jar binary). Verify with `git add -n` that ignored files are excluded.
 
-- [ ] Gradle project setup: wrapper and build files
+- [x] Gradle project setup: wrapper and build files
   Generate the Gradle 8.11.1 wrapper using the pinned toolchain (`JAVA_HOME=C:/Users/corpo/android-toolchain/jdk`, `C:/Users/corpo/android-toolchain/gradle/bin/gradle wrapper --gradle-version 8.11.1 --distribution-type bin`). Then add settings.gradle.kts (rootProject.name = "liftoff"), build.gradle.kts (copy of nabu's root with same plugins and versions), gradle.properties (copy of nabu's), and gradlew.sh (copy of nabu's). Stage gradlew and run `git update-index --chmod=+x gradlew`. Confirm gradle-wrapper.properties points at gradle-8.11.1-bin.zip.
 
 - [ ] App source: manifest, strings, MainActivity
