@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to a branch cancels the run still going for it: an in-flight run
+# against superseded code tells nobody anything.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The live coach test skips itself unless LIFTOFF_LIVE_* env vars are set,
+      # and they never are in CI (they need the local model server on the desktop).
+      - name: build and test
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest
