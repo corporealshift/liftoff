@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
 <rect width="108" height="108" fill="#E3A72F"/>
-<g transform="translate(54 58) rotate(-25) scale(0.86)">
+<g transform="translate(54 58) rotate(-25) scale(0.68)">
 <path d="M-23 0 H-19 M19 0 H23" stroke="#1D1B19" style="stroke-width: 3.6"/>
 <rect x="-43" y="-8" width="20" height="16" fill="#1F5F6B" stroke="#1D1B19" style="stroke-width: 3; stroke-linejoin: round"/>
 <path d="M-38 -8 V8 M-33 -8 V8 M-28 -8 V8 M-43 0 H-23" stroke="#F2EADB" style="stroke-width: 1.35"/>

@@ -9,8 +9,8 @@
         android:translateX="54"
         android:translateY="58"
         android:rotation="-25"
-        android:scaleX="0.86"
-        android:scaleY="0.86">
+        android:scaleX="0.68"
+        android:scaleY="0.68">
         <path
             android:pathData="M-23,0 H-19 M19,0 H23"
             android:strokeColor="#1D1B19"

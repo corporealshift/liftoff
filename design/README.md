@@ -155,6 +155,6 @@ either side, and a dish sits on top. It is tilted 25° on a mustard field.
   from the SVG), the background color `ic_launcher_background` (`#E3A72F`), and
   `res/mipmap-anydpi-v26/ic_launcher{,_round}.xml`. `minSdk` is 26, so no raster
   fallbacks are needed.
-- The panel tips reach just past the 72 dp safe zone, which was a deliberate choice. A
-  circular launcher mask may clip a sliver of them.
+- Everything sits inside the 66 dp safe zone with room to spare (the panel tips reach a 30 dp radius), so no
+  launcher mask clips it.
 - There is no monochrome (themed-icon) layer yet.
