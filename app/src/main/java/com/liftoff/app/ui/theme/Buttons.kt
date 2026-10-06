@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -12,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -23,12 +25,13 @@ fun PrimaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    icon: androidx.compose.ui.graphics.vector.VectorPainter? = null,
+    icon: Painter? = null,
     iconAtEnd: Boolean = false,
     height: Dp = 72.dp,
     labelStyle: TextStyle = LiftoffType.launchLabel(),
 ) {
-    var isPressed by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed = interactionSource.collectIsPressedAsState()
 
     OffsetShadowBox(
         color = Ink,
@@ -39,10 +42,11 @@ fun PrimaryButton(
     ) {
         Box(
             modifier = Modifier
-                .background(if (isPressed) RedPressed else Red, ButtonShape)
+                .fillMaxSize()
+                .background(if (isPressed.value) RedPressed else Red, ButtonShape)
                 .border(BorderStroke(2.dp, Ink), ButtonShape)
                 .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
+                    interactionSource = interactionSource,
                     indication = null,
                     role = Role.Button,
                     onClick = { onClick() },
@@ -85,14 +89,15 @@ fun InkButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    icon: androidx.compose.ui.graphics.vector.VectorPainter? = null,
+    icon: Painter? = null,
     iconAtEnd: Boolean = false,
     height: Dp = 64.dp,
 ) {
-    var isPressed by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed = interactionSource.collectIsPressedAsState()
 
     OffsetShadowBox(
-        color = if (isPressed) RedPressed else Red,
+        color = if (isPressed.value) RedPressed else Red,
         offset = 4.dp,
         modifier = modifier
             .fillMaxWidth()
@@ -100,10 +105,11 @@ fun InkButton(
     ) {
         Box(
             modifier = Modifier
+                .fillMaxSize()
                 .background(Ink, ButtonShape)
                 .border(BorderStroke(2.dp, Ink), ButtonShape)
                 .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
+                    interactionSource = interactionSource,
                     indication = null,
                     role = Role.Button,
                     onClick = { onClick() },
