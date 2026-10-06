@@ -2,7 +2,7 @@
   Bring design/, DESIGN.md, AndroidManifest.xml changes, and launcher icon resources onto this branch unchanged. If design/README.md already exists the merge is a no-op.
   Check: `git diff origin/design/space-age-icon HEAD -- design DESIGN.md app/src/main/AndroidManifest.xml app/src/main/res` is empty.
 
-- [ ] Bundle fonts and licenses
+- [x] Bundle fonts and licenses
   Download static TTF instances of Big Shoulders Display (700/800/900) and Work Sans (400/500/600) via the Google Fonts CSS2 API, write OFL license texts to assets/licenses/, add `*.ttf binary` to .gitattributes.
   Check: each TTF starts with TrueType magic `00 01 00 00`, both OFL files are present, and .gitattributes contains the line.
 
