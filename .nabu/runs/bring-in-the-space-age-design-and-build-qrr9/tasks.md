@@ -10,7 +10,7 @@
   Write Color.kt (LiftoffColors + lightColorScheme), Type.kt (FontFamilies + LiftoffType + M3 Typography mapping), Shape.kt (RoundedCornerShape(4dp) for buttons/checkboxes, RectangleShape for cards), LiftoffTheme.kt, and ColorTokensTest.kt which reads design/README.md to pin all 12 hex values.
   Check: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes; the test finds exactly 12 tokens and all match.
 
-- [ ] Build components and stroke icons
+- [x] Build components and stroke icons
   Add five vector drawables (rocket, planet, flag, sliders, check), then OffsetShadow.kt, Stripes.kt, Buttons.kt, Headings.kt, PatternTrack.kt, InkRuledListRow.kt, and Icons.kt — each with previews on a Cream background.
   Check: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes; all seven source files compile with no errors.
 
