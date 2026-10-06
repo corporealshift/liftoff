@@ -6,7 +6,7 @@
   Download static TTF instances of Big Shoulders Display (700/800/900) and Work Sans (400/500/600) via the Google Fonts CSS2 API, write OFL license texts to assets/licenses/, add `*.ttf binary` to .gitattributes.
   Check: each TTF starts with TrueType magic `00 01 00 00`, both OFL files are present, and .gitattributes contains the line.
 
-- [ ] Build theme foundation (colors, typography, shapes, LiftoffTheme, color test)
+- [x] Build theme foundation (colors, typography, shapes, LiftoffTheme, color test)
   Write Color.kt (LiftoffColors + lightColorScheme), Type.kt (FontFamilies + LiftoffType + M3 Typography mapping), Shape.kt (RoundedCornerShape(4dp) for buttons/checkboxes, RectangleShape for cards), LiftoffTheme.kt, and ColorTokensTest.kt which reads design/README.md to pin all 12 hex values.
   Check: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes; the test finds exactly 12 tokens and all match.
 
