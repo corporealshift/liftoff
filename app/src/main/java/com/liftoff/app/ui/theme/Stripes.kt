@@ -20,9 +20,9 @@ fun TriStripe(
     teal: Color = Teal,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.height(6.dp).background(red))
-        Box(modifier = Modifier.height(6.dp).background(mustard))
-        Box(modifier = Modifier.height(6.dp).background(teal))
+        Box(modifier = Modifier.height(6.dp).fillMaxWidth().background(red))
+        Box(modifier = Modifier.height(6.dp).fillMaxWidth().background(mustard))
+        Box(modifier = Modifier.height(6.dp).fillMaxWidth().background(teal))
     }
 }
 
@@ -33,8 +33,8 @@ fun DuoStripe(
     red: Color = Red,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.height(5.dp).background(mustard))
-        Box(modifier = Modifier.height(5.dp).background(red))
+        Box(modifier = Modifier.height(5.dp).fillMaxWidth().background(mustard))
+        Box(modifier = Modifier.height(5.dp).fillMaxWidth().background(red))
     }
 }
 
