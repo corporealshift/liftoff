@@ -555,6 +555,9 @@ The data lives in **Room**. Settings live in **DataStore Preferences**.
 Built with Compose and Material 3. Navigation is a bottom bar: **Launchpad · Mission ·
 Landed**. Mission Control opens from a top-bar icon.
 
+The visual design is direction B, "Space Age": colors, type, components and mockups are in
+`design/` (start at `design/README.md`). (amended 2026-10-06)
+
 - **Launchpad** (home). The current sortie, shown according to its state:
   - **PLANNED:** the plan summary (title, the exercise list or run summary, estimated time),
     with **Launch**, Regenerate and Scrub.
@@ -622,6 +625,7 @@ Package: `com.liftoff.app`.
 ```
 DESIGN.md                     this document
 brief.md                      the original brief
+design/                       visual design: tokens, mockups, icon source (amended 2026-10-06)
 coach/                        template for the coach workspace (§7.1)
   README.md
   COACH.md
@@ -781,6 +785,9 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
+- **2026-10-06 — §9 and §12 point at `design/`.** The visual direction was chosen (B,
+  "Space Age") and its tokens, mockups and launcher icon were added under `design/`, so the
+  screens in §9 have a concrete look to build to.
 - **2026-10-05 — §12 `GenerationWorker` moved from `coach/` to a new `work/` package.**
   `coach/` is pure Kotlin with no Android imports (§12, ARCHITECTURE.md invariant 2), but
   `GenerationWorker` is a WorkManager worker. The `work/` package holds the worker; the
