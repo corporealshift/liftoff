@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -30,11 +31,14 @@ class MainActivity : ComponentActivity() {
             LiftoffTheme {
                 Box(modifier = Modifier.fillMaxSize().background(Cream)) {
                     Column(
-                        modifier = Modifier
-                            .padding(top = 16.dp, start = 20.dp, end = 20.dp),
+                        modifier = Modifier.systemBarsPadding(),
                     ) {
                         TriStripe()
-                        Wordmark()
+                        Box(
+                            modifier = Modifier.padding(top = 16.dp, start = 20.dp, end = 20.dp),
+                        ) {
+                            Wordmark()
+                        }
                     }
                 }
             }
