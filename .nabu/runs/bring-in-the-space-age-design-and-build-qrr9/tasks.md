@@ -20,7 +20,7 @@
 
 ## Blockers from the final review
 
-- [ ] Make the offset shadow actually offset and match the button shape
+- [x] Make the offset shadow actually offset and match the button shape
   OffsetShadow.kt: OffsetShadowBox fills its own bounds with an unshaped rectangle (drawRect on matchParentSize). The private `Modifier.offset(offset: Dp)` just returns `this`, so the shadow is never moved 4 dp right and down and sits hidden behind the content. The brief asks for a solid 4 dp offset shadow. As written, none appears on either button. Implement it as planned: `Modifier.offsetShadow(color, shape, offset)` using drawBehind, translate(offset, offset) and drawOutline of shape.createOutline.
 - [ ] Fix PrimaryButton/InkButton press state, fill size and icon type
   Buttons.kt has three problems. (1) `isPressed` is a `mutableStateOf(false)` that nothing ever sets. The new `MutableInteractionSource()` is never collected with collectIsPressedAsState, so the red_pressed fill and the ink button's red_pressed shadow never appear. (2) The inner Box with the background, border and clickable has no fillMaxSize. It wraps only the label, so the button draws as an ink block with a small red box around the text, and only that box responds to taps. (3) `icon` is typed `VectorPainter?`, but LiftoffIcons returns `painterResource(...)`, whose static type is Painter. `PrimaryButton(icon = LiftoffIcons.rocket())` therefore will not compile. Use `Painter?`.
