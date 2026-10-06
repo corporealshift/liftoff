@@ -30,7 +30,7 @@ All source lives under `com.liftoff.app`.
 | `com.liftoff.app` (root) | `MainActivity`, `AppContainer.kt`, app entry point — placeholder until M1 replaces it with the navigation shell. | ✅ (`MainActivity.kt`) |
 | `com.liftoff.app.nabu` | Copied nabu `DaemonClient` and protocol types. No changes to upstream nabu. | — |
 | `com.liftoff.app.data` | Room entities (including Equipment), DAOs, database builder, export/import helpers. | — |
-| `com.liftoff.app.settings` | App-level configuration backed by DataStore (equipment list, units, run-toggle). | — |
+| `com.liftoff.app.settings` | App-level configuration backed by DataStore (units, run-toggle). | — |
 | `com.liftoff.app.domain` | State machines for Mission and Sortie lifecycle. Pure Kotlin, no Android imports. | — |
 | `com.liftoff.app.coach` | Prompt builder, validator, JSON schemas. Pure Kotlin, no Android imports. | — |
 | `com.liftoff.app.work` | Android-side workers (`GenerationWorker`). Uses WorkManager and Android APIs. | — |
