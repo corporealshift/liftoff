@@ -1,171 +1,223 @@
 #!/usr/bin/env bash
 # Verify the Space Age design and theme brief is done.
-# Run from repository root with bash (Git Bash on Windows).
-set -euo pipefail
+# Run from the repository root with bash (Git Bash on Windows).
+set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$ROOT" || exit 1
+
+DESIGN_REF=origin/design/space-age-icon
+RESULTS="$ROOT/app/build/test-results/testDebugUnitTest"
+WORK="$(mktemp -d)"
+README="$ROOT/design/README.md"
+README_BACKUP="$WORK/README.md.orig"
+
+restore_readme() {
+  if [ -f "$README_BACKUP" ]; then cp "$README_BACKUP" "$README" && rm -f "$README_BACKUP"; fi
+}
+trap 'restore_readme; rm -rf "$WORK"' EXIT
 
 PASS=0
 FAIL=0
-
 ok()   { echo "✓ $1"; PASS=$((PASS + 1)); }
 fail() { echo "✗ $1"; FAIL=$((FAIL + 1)); }
-
 check() {
   local name="$1"; shift
   if "$@"; then ok "$name"; else fail "$name"; fi
 }
 
+# Prints pass, fail, skipped or missing for one test method in the JUnit XML.
+case_status() {
+  local f="$RESULTS/TEST-$1.xml"
+  [ -f "$f" ] || { echo missing; return; }
+  awk -v n="$2" '
+    !open && (index($0, "<testcase name=\"" n "\"") || index($0, "<testcase name=\"" n "[")) {
+      found = 1
+      if ($0 !~ /\/>[[:space:]]*$/) open = 1
+      next
+    }
+    open && /<(failure|error)/ { bad = 1 }
+    open && /<skipped/ { skipped = 1 }
+    open && /<\/testcase>/ { open = 0 }
+    END {
+      if (!found) print "missing"
+      else if (bad) print "fail"
+      else if (skipped) print "skipped"
+      else print "pass"
+    }
+  ' "$f"
+}
+
+# A named test must have run and passed; missing or skipped counts as failure.
+t() {
+  local cls="$1" method="$2" status
+  status="$(case_status "$cls" "$method")"
+  if [ "$status" = pass ]; then ok "test: ${cls##*.}.$method"; else fail "test: ${cls##*.}.$method ($status)"; fi
+}
+
+BASE="$(git merge-base HEAD origin/main)"
+
 # ─── 1. Merge ────────────────────────────────────────────────────────
-# design/ and the launcher icon must be on this branch, identical to
-# origin/design/space-age-icon.
+# design/, the launcher icon and the manifest wiring come from the design
+# branch unchanged. DESIGN.md may only grow (amendments go at the end).
 
-check "merge: design/README.md present" \
-  test -f "$ROOT/design/README.md"
+design_branch_merged() {
+  git merge-base --is-ancestor "$DESIGN_REF" HEAD
+}
 
-check "merge: content matches origin/design/space-age-icon exactly" \
-  bash -c 'cd "'"$ROOT"'" && [ -z "$(git diff origin/design/space-age-icon HEAD -- design DESIGN.md app/src/main/AndroidManifest.xml app/src/main/res)" ]'
+design_files_unchanged() {
+  local dbase paths
+  dbase="$(git merge-base origin/main "$DESIGN_REF")" || return 1
+  paths="$(git diff --name-only "$dbase" "$DESIGN_REF" | grep -vx 'DESIGN.md')"
+  [ -n "$paths" ] || return 1
+  echo "$paths" | while IFS= read -r p; do
+    git cat-file -e "HEAD:$p" 2>/dev/null || exit 1
+    git diff --quiet "$DESIGN_REF" HEAD -- "$p" || exit 1
+  done
+}
 
-# ─── 2. Build gate ───────────────────────────────────────────────────
-# The CI command: assembleDebug + unit tests.
-# Proves: fonts are valid, theme compiles, components compile,
-# MainActivity renders in LiftoffTheme, no Gradle changes broke the build.
+design_md_kept() {
+  local want have
+  want="$(git show "$DESIGN_REF:DESIGN.md")" || return 1
+  have="$(git show HEAD:DESIGN.md)" || return 1
+  [ "${have:0:${#want}}" = "$want" ]
+}
+
+check "merge: $DESIGN_REF is merged into HEAD" design_branch_merged
+check "merge: design/, launcher icon and manifest match $DESIGN_REF exactly" design_files_unchanged
+check "merge: DESIGN.md keeps the design branch text (amendments only appended)" design_md_kept
+
+# ─── 2. Build gate (what CI runs) ────────────────────────────────────
+# Old results are removed so every named test below comes from this run.
 
 echo ""
 echo "─── Build gate ─────────────────────────────────────────────────────"
-cd "$ROOT/app"
-bash ../gradlew.sh :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee /tmp/liftoff-build.log
-cd "$ROOT"
+rm -rf "$RESULTS"
+bash "$ROOT/gradlew.sh" :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee "$WORK/gate.log"
+GATE_RC=${PIPESTATUS[0]}
+check "gate: :app:assembleDebug :app:testDebugUnitTest succeeds" [ "$GATE_RC" -eq 0 ]
 
-check "build gate: BUILD SUCCESSFUL" \
-  grep -q "BUILD SUCCESSFUL" /tmp/liftoff-build.log
+# ─── 3. Named tests of the new behavior ──────────────────────────────
+P=com.liftoff.app.ui.theme
 
-# ─── 3. Test results ─────────────────────────────────────────────────
-# ColorTokensTest must have run and passed — pins all 12 hex values.
+# Brief: a unit test pins all 12 color tokens to the hex values in the
+# design/README.md color table (by token name).
+t $P.ColorTokensTest tokensMatchDesignReadme
 
-check "test: ColorTokensTest ran and passed (0 failures, 0 errors)" \
-  bash -c '
-    found=0; ok=0
-    for f in "'"$ROOT"'/app/build/test-results/testDebugUnitTest/"*.xml; do
-      if grep -q "ColorTokensTest" "$f"; then
-        found=1
-        tests=$(sed -n "s/.*tests=\"\([0-9]*\)\".*/\1/p" "$f" | head -1)
-        failures=$(sed -n "s/.*failures=\"\([0-9]*\)\".*/\1/p" "$f" | head -1)
-        errors=$(sed -n "s/.*errors=\"\([0-9]*\)\".*/\1/p" "$f" | head -1)
-        [ "${failures:-0}" = "0" ] && [ "${errors:-0}" = "0" ] && ok=1
-      fi
-    done
-    [ "$found" = "1" ] && [ "$ok" = "1" ]
-  '
+# Decision: the M3 color scheme maps every surface and container slot to a token.
+# Every Color in the theme's ColorScheme is one of the 12 tokens (no M3 purple or tonal default).
+t $P.ColorSchemeTest everySchemeSlotIsADesignToken
 
-# ─── 4. Decisions (each decision gets a named check) ────────────────
+# Decision: typography is exposed as named roles and also mapped into M3 Typography.
+# Each README type role has its README font, size, weight and letter spacing.
+t $P.TypographyTest namedRolesMatchReadmeTypeTable
+# Display, headline and title slots use Big Shoulders Display; body and label slots use Work Sans.
+t $P.TypographyTest materialSlotsUseDesignFonts
 
-# Decision: Composables live in com.liftoff.app.ui.theme
-# The build compiles MainActivity with LiftoffTheme, proving the package
-# exists and is wired correctly.
-check "decision: composables in ui.theme" \
-  grep -rq "LiftoffTheme" "$ROOT/app/src/main/java/com/liftoff/app/"
+# Brief: shapes are 4 dp corners on buttons and checkboxes, square cards.
+t $P.ShapesTest buttonsAndCheckboxesHaveFourDpCornersAndCardsAreSquare
 
-# Decision: No Gradle file changes
-# The CI command passes without touching build files.
-check "decision: no Gradle file changes" \
-  test -f /tmp/liftoff-build.log && grep -q "BUILD SUCCESSFUL" /tmp/liftoff-build.log
+# Brief: Big Shoulders Display 700/800/900 and Work Sans 400/500/600 are bundled.
+# Each of the six font resources loads as a real font and carries its weight.
+t $P.FontResourcesTest bundlesStaticBigShouldersAndWorkSansWeights
 
-# Decision: Licenses ship in app/src/main/assets/licenses/
-# The APK includes them; aapt2 would strip them if they were missing.
-check "decision: licenses in assets/licenses/" \
-  test -f "$ROOT/app/src/main/assets/licenses/OFL-BigShouldersDisplay.txt" && \
-  test -f "$ROOT/app/src/main/assets/licenses/OFL-WorkSans.txt"
+# Decision: licenses ship in app/src/main/assets/licenses/, one file per family.
+# The APK's assets hold an OFL text for Big Shoulders Display and one for Work Sans.
+t $P.FontLicenseTest oflTextShipsInApkAssetsPerFamily
 
-# Decision: Button icon can sit before or after the label (iconAtEnd)
-check "decision: button icon position configurable" \
-  grep -q "iconAtEnd" "$ROOT/app/src/main/java/com/liftoff/app/ui/theme/Buttons.kt"
+# Decision: composables live in com.liftoff.app.ui.theme.
+# Fails if the theme or any building block is declared outside that package.
+t $P.ThemePackageTest buildingBlocksAreDeclaredInUiTheme
 
-# Decision: Press feedback without ripples (color change, indication = null)
-check "decision: press feedback via color change, not ripples" \
-  bash -c '
-    grep -q "indication = null" "'"$ROOT"'/app/src/main/java/com/liftoff/app/ui/theme/Buttons.kt" && \
-    grep -q "red_pressed\|RedPressed" "'"$ROOT"'/app/src/main/java/com/liftoff/app/ui/theme/Buttons.kt"'
+# Decision: a check-mark drawable (ic_check) is added beside the four named icons.
+# Rocket, ringed planet, flag, sliders and check each load as 24 dp vector drawables.
+t $P.IconsTest strokeIconsAre24dpVectorDrawables
 
-# Decision: Offset shadow takes no layout space (drawBehind)
-check "decision: offset shadow takes no layout space" \
-  grep -q "drawBehind" "$ROOT/app/src/main/java/com/liftoff/app/ui/theme/OffsetShadow.kt"
+# Brief: a solid offset shadow, 4 dp right and down, no blur, color configurable.
+t $P.OffsetShadowTest shadowIsSolidAndOffsetFourDp
+# Decision: the offset shadow takes no layout space (like CSS box-shadow).
+t $P.OffsetShadowTest shadowTakesNoLayoutSpace
 
-# Decision: Underline drawn by hand, 1 dp, 4 dp below baseline
-check "decision: underline drawn by hand" \
-  grep -q "Line\|lineTo" "$ROOT/app/src/main/java/com/liftoff/app/ui/theme/Buttons.kt"
+# Brief: 3-band red/mustard/teal 6 dp stripe and 2-band mustard/red 5 dp stripe.
+t $P.StripesTest triStripeIsRedMustardTealSixDpBands
+t $P.StripesTest duoStripeIsMustardRedFiveDpBands
 
-# Decision: M3 color scheme maps every surface and container slot
-# Proven by ColorTokensTest passing — if any slot fell back to purple
-# defaults, the test would fail.
-check "decision: M3 color scheme fully mapped (no tonal purple)" \
-  bash -c 'for f in "'"$ROOT"'/app/build/test-results/testDebugUnitTest/"*.xml; do grep -q "ColorTokensTest" "$f"; done'
+# Decision: the button icon can sit before or after the label, default before.
+t $P.ButtonsTest primaryButtonIconLeadsLabelByDefault
+t $P.ButtonsTest primaryButtonIconTrailsLabelWithIconAtEnd
 
-# Decision: Typography exposed as named roles and M3 Typography
-check "decision: typography has named roles (LiftoffType)" \
-  grep -rq "object LiftoffType" "$ROOT/app/src/main/java/com/liftoff/app/ui/theme/"
+# Decision: press feedback without ripples.
+# The red button's fill is exactly red_pressed while pressed (no ripple overlay).
+t $P.ButtonsTest primaryButtonFillsRedPressedWhilePressedWithNoRipple
+# The ink button's red shadow becomes red_pressed while pressed.
+t $P.ButtonsTest inkButtonShadowTurnsRedPressedWhilePressed
+# The text button's label and underline turn red while pressed.
+t $P.ButtonsTest textButtonTurnsRedWhilePressed
 
-# Decision: Placeholder draws edge to edge with dark system-bar icons
-check "decision: placeholder uses enableEdgeToEdge" \
-  grep -q "enableEdgeToEdge" "$ROOT/app/src/main/java/com/liftoff/app/MainActivity.kt"
+# Decision: the underline is drawn by hand, 1 dp thick, 4 dp below the baseline.
+t $P.ButtonsTest textButtonUnderlineIsOneDpFourDpBelowBaseline
 
-# Decision: Placeholder follows mockup top bar (stripe at top, wordmark left)
-check "decision: placeholder shows TriStripe and Wordmark in Column" \
-  bash -c '
-    grep -q "TriStripe" "'"$ROOT"'/app/src/main/java/com/liftoff/app/MainActivity.kt" && \
-    grep -q "Wordmark" "'"$ROOT"'/app/src/main/java/com/liftoff/app/MainActivity.kt"'
+# Brief: the pattern track shows one chip per R/L in landed, current or upcoming
+# style, joined by a 2 dp ink line.
+t $P.PatternTrackTest drawsOneChipPerLetterInItsStateStyle
 
-# Decision: Color test reads design/README.md itself (no copied hex values)
-check "decision: color test reads README.md, not hardcoded values" \
-  grep -q "README" "$ROOT/app/src/test/java/com/liftoff/app/ui/theme/ColorTokensTest.kt"
+# Decision: the placeholder draws edge to edge with dark system-bar icons.
+t com.liftoff.app.MainActivityTest drawsEdgeToEdgeWithDarkSystemBarIcons
 
-# Decision: Check-mark drawable added for landed pattern chip
-check "decision: ic_check drawable exists" \
-  test -f "$ROOT/app/src/main/res/drawable/ic_check.xml"
+# Decision: the placeholder follows the mockup's top bar.
+# Cream screen, the 3-band stripe at the top, LIFTOFF at the left with 16 dp top and 20 dp side padding.
+t com.liftoff.app.MainActivityTest showsStripeThenWordmarkAtTopLeftOnCream
 
-# Decision: *.ttf binary in .gitattributes
-check "decision: *.ttf binary in .gitattributes" \
-  grep -q '\*\.ttf binary' "$ROOT/.gitattributes"
+# Decision: the color test reads design/README.md itself, not copied hex values.
+# Changing cream's hex in the README must make ColorTokensTest fail.
+readme_drives_color_test() {
+  [ -f "$README" ] || return 1
+  cp "$README" "$README_BACKUP" || return 1
+  sed -i 's/^\(| `cream` | `\)#[0-9A-Fa-f]\{6\}`/\1#0A0B0C`/' "$README"
+  if cmp -s "$README" "$README_BACKUP"; then restore_readme; return 1; fi
+  bash "$ROOT/gradlew.sh" :app:testDebugUnitTest --tests "$P.ColorTokensTest" --rerun \
+    > "$WORK/mutant.log" 2>&1
+  local rc=$?
+  restore_readme
+  [ "$rc" -ne 0 ] && [ "$(case_status "$P.ColorTokensTest" tokensMatchDesignReadme)" = fail ]
+}
+check "decision: ColorTokensTest fails when the README hex changes" readme_drives_color_test
 
-# ─── 5. Font artifacts ───────────────────────────────────────────────
-# All 6 TTF instances present and valid TrueType files.
+# ─── 4. Repository decisions ─────────────────────────────────────────
 
-check "font: all 6 TTF files present" \
-  bash -c '
-    for f in big_shoulders_display_bold.ttf \
-             big_shoulders_display_extrabold.ttf \
-             big_shoulders_display_black.ttf \
-             work_sans_regular.ttf \
-             work_sans_medium.ttf \
-             work_sans_semibold.ttf; do
-      test -f "'"$ROOT"'/app/src/main/res/font/$f"
-    done'
+# Decision: no Gradle file changes (committed or uncommitted).
+no_gradle_changes() {
+  git diff --quiet "$BASE" -- build.gradle.kts settings.gradle.kts gradle.properties \
+    app/build.gradle.kts gradle gradlew gradlew.bat
+}
+check "decision: no Gradle file changes since $(git rev-parse --short "$BASE")" no_gradle_changes
 
-check "font: TTF files have TrueType magic (00 01 00 00)" \
-  bash -c '
-    for f in "'"$ROOT"'/app/src/main/res/font/"*.ttf; do
-      head -c4 "$f" | od -A n -t x1 | grep -q "00 01 00 00" || exit 1
-    done'
+# Decision: *.ttf binary, so git never normalizes a font's line endings.
+ttf_is_binary() {
+  [ "$(git check-attr text -- app/src/main/res/font/probe.ttf)" = "app/src/main/res/font/probe.ttf: text: unset" ]
+}
+check "decision: git treats .ttf files as binary" ttf_is_binary
 
-# ─── 6. APK launcher icon ────────────────────────────────────────────
-# The APK must carry the dumbbell-satellite icon (mipmap/ic_launcher).
+# CLAUDE.md: LF line endings except *.bat, for every file this branch changed.
+lf_endings() {
+  ! git diff --name-only -z "$BASE" HEAD | xargs -0 git ls-files --eol -- \
+    | grep -v '\.bat$' | grep -Eq '^i/(crlf|mixed)'
+}
+check "convention: changed files are stored with LF endings" lf_endings
 
-check "apk: launcher icon is @mipmap/ic_launcher" \
-  bash -c '
-    SDK="$HOME/android-toolchain/sdk"
-    AAPT="$SDK/build-tools/latest/aapt"
-    [ -f "$AAPT" ] || exit 1
-    "$AAPT" dump badging "'"$ROOT"'/app/build/outputs/apk/debug/app-debug.apk" 2>/dev/null | \
-      grep -q "application-icon-mipmap/"
-  '
+# ─── 5. Built APK carries the launcher icon ──────────────────────────
 
-# ─── 7. LF endings for new text files ────────────────────────────────
-
-check "format: all new text files use LF endings" \
-  bash -c '
-    cr=$(find "'"$ROOT"'/app/src/main/java/com/liftoff/app/ui/theme" -name "*.kt" 2>/dev/null | xargs grep -rl $'"'\r'"' 2>/dev/null || true)
-    [ -z "$cr" ]
-  '
+apk_uses_launcher_icon() {
+  local sdk="${ANDROID_HOME:-C:/Users/corpo/android-toolchain/sdk}" aapt2="" d
+  for d in "$sdk"/build-tools/*/; do
+    [ -f "${d}aapt2" ] && aapt2="${d}aapt2"
+    [ -f "${d}aapt2.exe" ] && aapt2="${d}aapt2.exe"
+  done
+  [ -n "$aapt2" ] || return 1
+  "$aapt2" dump badging "$ROOT/app/build/outputs/apk/debug/app-debug.apk" 2>/dev/null \
+    | grep -Eq "^application: .*icon='res/mipmap[^']*/ic_launcher\.xml'"
+}
+check "apk: application icon is the adaptive mipmap/ic_launcher" apk_uses_launcher_icon
 
 # ─── Summary ─────────────────────────────────────────────────────────
 
