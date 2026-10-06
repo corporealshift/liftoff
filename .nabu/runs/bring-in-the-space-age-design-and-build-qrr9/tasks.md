@@ -14,6 +14,6 @@
   Add five vector drawables (rocket, planet, flag, sliders, check), then OffsetShadow.kt, Stripes.kt, Buttons.kt, Headings.kt, PatternTrack.kt, InkRuledListRow.kt, and Icons.kt — each with previews on a Cream background.
   Check: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes; all seven source files compile with no errors.
 
-- [ ] Wire MainActivity into LiftoffTheme with placeholder screen
+- [x] Wire MainActivity into LiftoffTheme with placeholder screen
   Call enableEdgeToEdge, wrap setContent in LiftoffTheme, render a Cream Box with a Column containing TriStripe() and Wordmark() at the mockup's padding (16 dp top, 20 dp sides). Keep the "M1 replaces this with the navigation shell" comment.
   Check: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes; APK installs on a device showing cream screen with stripes and LIFTOFF wordmark.
