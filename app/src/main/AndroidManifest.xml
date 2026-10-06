@@ -7,7 +7,9 @@
     <!-- The daemon speaks plain ws over Tailscale or a LAN, never the public internet, and there is no certificate to verify. -->
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="true">
 
