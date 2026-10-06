@@ -12,8 +12,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -153,46 +156,44 @@ fun UnderlinedTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var isPressed by remember { mutableStateOf(false) }
-    var underlineY by remember { mutableStateOf(0f) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed = interactionSource.collectIsPressedAsState()
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .heightIn(min = 44.dp)
             .padding(horizontal = 8.dp)
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interactionSource,
                 indication = null,
                 role = Role.Button,
                 onClick = { onClick() },
             ),
         contentAlignment = Alignment.CenterStart,
     ) {
-        Column {
-            Text(
-                text = text.uppercase(),
-                style = LiftoffType.textButton().copy(color = if (isPressed) Red else Ink),
-                onTextLayout = { result ->
-                    if (result.lineCount > 0) {
-                        val lastLineBaseline = result.getLineBaseline(result.lineCount - 1)
-                        underlineY = lastLineBaseline + 4f
-                    }
-                },
-            )
-            androidx.compose.foundation.Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp),
-            ) {
-                drawLine(
-                    color = if (isPressed) Red else Ink,
-                    strokeWidth = 1f,
-                    start = androidx.compose.ui.geometry.Offset(0f, underlineY.coerceAtMost(size.height)),
-                    end = androidx.compose.ui.geometry.Offset(size.width, underlineY.coerceAtMost(size.height)),
-                )
-            }
-        }
+        var baselinePx by remember { mutableStateOf(0f) }
+
+        Text(
+            text = text.uppercase(),
+            style = LiftoffType.textButton().copy(color = if (isPressed.value) Red else Ink),
+            modifier = Modifier.drawBehind {
+                val y = baselinePx + 4.dp.toPx()
+                if (baselinePx > 0) {
+                    drawLine(
+                        color = if (isPressed.value) Red else Ink,
+                        strokeWidth = 1.dp.toPx(),
+                        start = Offset(0f, y),
+                        end = Offset(size.width, y),
+                    )
+                }
+            },
+            onTextLayout = { result ->
+                if (result.lineCount > 0) {
+                    baselinePx = result.getLineBaseline(result.lineCount - 1)
+                }
+            },
+        )
     }
 }
 
