@@ -635,7 +635,8 @@ app/
     settings/                 DataStore settings
     domain/                   pure logic: mission/sortie state machines,
                               next-sortie selection, rollover, re-fly selection
-    work/                     Android-side workers: GenerationWorker
+    coach/                    prompt builder, schemas, validator
+    work/                     Android-side workers: GenerationWorker (amended 2026-10-05)
     ui/                       launchpad/ inflight/ mission/ landed/ control/ theme/
   src/main/resources/schemas/ outline.json, lift-plan.json, run-plan.json
   src/test/...                unit and Robolectric tests
@@ -780,7 +781,7 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
-- **2026-10-06:** `GenerationWorker` moved from `coach/` to a new `work/` line (§12).
-  `coach/` is pure Kotlin with no Android imports (invariant §12, ARCHITECTURE.md invariant 2),
-  but `GenerationWorker` uses WorkManager and Android APIs. The work tree in `work/` holds the
-  worker; domain logic it depends on stays in `coach/`.
+- **2026-10-05 — §12 `GenerationWorker` moved from `coach/` to a new `work/` package.**
+  `coach/` is pure Kotlin with no Android imports (§12, ARCHITECTURE.md invariant 2), but
+  `GenerationWorker` is a WorkManager worker. The `work/` package holds the worker; the
+  prompt builder, schemas and validator it calls stay in `coach/`.
