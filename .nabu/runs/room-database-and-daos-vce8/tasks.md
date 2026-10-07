@@ -4,7 +4,7 @@
 - [x] Add Mission, Sortie, relations, and their DAOs
   Create Entity classes Mission (with unique weekStart index) and Sortie (FK to Mission CASCADE, index on missionId). Create relation MissionWithSorties. Write abstract MissionDao (insert, update, observeWeek via observeRaw + sorting by index). Write interface SortieDao (insert, insertAll, update, get, observeHistory ordering by weekStart DESC then index DESC for LANDED/SCRUBBED). Register all new entities and DAOs in LiftoffDatabase. Compile and confirm success.
 
-- [ ] Add flight-plan entities, draft/detail types, and FlightPlanDao
+- [x] Add flight-plan entities, draft/detail types, and FlightPlanDao
   Create Entity classes FlightPlan (unique sortieId FK CASCADE), PlannedExercise (FK to FlightPlan CASCADE, FK to Exercise, index on both), PlannedSet (FK to PlannedExercise CASCADE), RunSegment (FK to FlightPlan CASCADE). Create relation and input types: PlannedExerciseRow, FlightPlanDetail, PlannedExerciseDetail, FlightPlanDraft, ExerciseDraft, SetDraft, RunSegmentDraft. Write abstract FlightPlanDao with insertPlan/insertExercise/insertSet/insertSegment, deleteForSortie, writePlan (cascade replace in one transaction), getPlan (assembles detail from ordered queries), updateSetActuals, addExtraSet, updateExercise. Register all new entities and DAOs in LiftoffDatabase. Compile and confirm success.
 
 - [ ] Wire the database into AppContainer
