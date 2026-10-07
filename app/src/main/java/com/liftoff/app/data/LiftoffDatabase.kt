@@ -3,7 +3,13 @@ package com.liftoff.app.data
 import androidx.room.*
 
 @Database(
-    entities = [Exercise::class, Equipment::class, Generation::class],
+    entities = [
+        Exercise::class,
+        Equipment::class,
+        Generation::class,
+        Mission::class,
+        Sortie::class
+    ],
     version = 1,
     exportSchema = true
 )
@@ -14,4 +20,6 @@ abstract class LiftoffDatabase : RoomDatabase() {
     abstract fun exerciseDao(): ExerciseDao
     abstract fun equipmentDao(): EquipmentDao
     abstract fun generationDao(): GenerationDao
+    abstract fun missionDao(): MissionDao
+    abstract fun sortieDao(): SortieDao
 }
