@@ -8,7 +8,11 @@ import androidx.room.*
         Equipment::class,
         Generation::class,
         Mission::class,
-        Sortie::class
+        Sortie::class,
+        FlightPlan::class,
+        PlannedExercise::class,
+        PlannedSet::class,
+        RunSegment::class
     ],
     version = 1,
     exportSchema = true
@@ -22,4 +26,5 @@ abstract class LiftoffDatabase : RoomDatabase() {
     abstract fun generationDao(): GenerationDao
     abstract fun missionDao(): MissionDao
     abstract fun sortieDao(): SortieDao
+    abstract fun flightPlanDao(): FlightPlanDao
 }
