@@ -1,4 +1,4 @@
-- [ ] Add enums, converters, and the first three entities with their DAOs
+- [x] Add enums, converters, and the first three entities with their DAOs
   Create data/Enums.kt (MissionStatus, SortieType, SortieState, FlightPlanSource, SetStatus, GenerationKind, GenerationStatus). Create data/Converters.kt (LocalDate ↔ Long, List<String> ↔ JSON). Add Entity classes Exercise, Equipment, Generation. Write abstract DAOs ExerciseDao (insert, findByNormalizedName, getAll, resolve), EquipmentDao (add with key validation via Regex, edit, observeActive, observeAll, deactivate, reactivate, get; no delete method), and GenerationDao interface (insert, get, update, delete). Add them to a minimal LiftoffDatabase with only these three entities. Register the ksp schemaLocation argument in app/build.gradle.kts. Compile with `bash gradlew.sh :app:compileDebugKotlin` and confirm success.
 
 - [ ] Add Mission, Sortie, relations, and their DAOs
