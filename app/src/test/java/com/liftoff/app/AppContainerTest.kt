@@ -44,4 +44,10 @@ class AppContainerTest {
             assertEquals("192.168.1.1", store.settings.first().daemonHost)
         }
     }
+
+    @Test
+    fun containerReturnsSameDatabase() {
+        val app = ApplicationProvider.getApplicationContext<Context>() as LiftoffApplication
+        assertSame(app.container.database, app.container.database)
+    }
 }
