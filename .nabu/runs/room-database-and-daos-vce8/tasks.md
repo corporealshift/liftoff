@@ -7,7 +7,7 @@
 - [x] Add flight-plan entities, draft/detail types, and FlightPlanDao
   Create Entity classes FlightPlan (unique sortieId FK CASCADE), PlannedExercise (FK to FlightPlan CASCADE, FK to Exercise, index on both), PlannedSet (FK to PlannedExercise CASCADE), RunSegment (FK to FlightPlan CASCADE). Create relation and input types: PlannedExerciseRow, FlightPlanDetail, PlannedExerciseDetail, FlightPlanDraft, ExerciseDraft, SetDraft, RunSegmentDraft. Write abstract FlightPlanDao with insertPlan/insertExercise/insertSet/insertSegment, deleteForSortie, writePlan (cascade replace in one transaction), getPlan (assembles detail from ordered queries), updateSetActuals, addExtraSet, updateExercise. Register all new entities and DAOs in LiftoffDatabase. Compile and confirm success.
 
-- [ ] Wire the database into AppContainer
+- [x] Wire the database into AppContainer
   Add a lazily-initialized `database: LiftoffDatabase` property to AppContainer next to settingsStore, using Room.databaseBuilder. Add a test to AppContainerTest verifying the database property returns the same instance twice. Compile and confirm success.
 
 - [ ] Write all DAO tests and run the full gate
