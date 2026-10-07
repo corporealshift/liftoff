@@ -10,7 +10,7 @@
 - [x] Wire the database into AppContainer
   Add a lazily-initialized `database: LiftoffDatabase` property to AppContainer next to settingsStore, using Room.databaseBuilder. Add a test to AppContainerTest verifying the database property returns the same instance twice. Compile and confirm success.
 
-- [ ] Write all DAO tests and run the full gate
+- [x] Write all DAO tests and run the full gate
   Create test classes in app/src/test/java/com/liftoff/app/data/: MissionDaoTest (insert + sorties ordered, null for other week, update visibility, unique constraint), SortieDaoTest (history ordering across weeks, filtering by state), FlightPlanDaoTest (writePlan/getPlan round-trip with order, cascade replacement, unique constraint, updateSetActuals, addExtraSet, updateExercise, null for missing plan), ExerciseResolverTest (resolve normalizes and deduplicates, blank name rejection, duplicate insert throws), GenerationDaoTest (CRUD), EquipmentDaoTest (add with key validation, edit, active/all filtering, deactivate/reactivate, no delete method via reflection), AppContainerTest (single instance). Run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` and confirm all pass.
 
 - [ ] Update ARCHITECTURE.md and commit the schema
