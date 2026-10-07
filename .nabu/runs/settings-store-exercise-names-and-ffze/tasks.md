@@ -17,6 +17,6 @@
   Create `app/src/main/java/com/liftoff/app/AppContainer.kt` (lazy `SettingsStore` from application context) and `app/src/main/java/com/liftoff/app/LiftoffApplication.kt` (`lateinit var container`, created in `onCreate`). Edit `app/src/main/AndroidManifest.xml` to add only `android:name=".LiftoffApplication"` to the `<application>` element. Write `app/src/test/java/com/liftoff/app/AppContainerTest.kt` with `@Config(sdk = [34])` proving: app context is `LiftoffApplication`, container is a singleton, and `settingsStore` is a singleton on repeated access.
   Done when the test compiles (Robolectric SDK 34), runs, and all assertions pass.
 
-- [ ] Task 4: ARCHITECTURE.md update + build gate
+- [x] Task 4: ARCHITECTURE.md update + build gate
   Update the package table in `ARCHITECTURE.md`: root → mark as existing with AppContainer.kt and LiftoffApplication.kt listed; `settings` → mark as existing with SettingsStore.kt; `coach` → mark as Started with ExerciseNames.kt. Then run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` and confirm it passes with every existing test still green.
   Done when the gate command exits 0 and the ARCHITECTURE.md table matches the plan's specification.
