@@ -13,5 +13,5 @@
 - [x] Write all DAO tests and run the full gate
   Create test classes in app/src/test/java/com/liftoff/app/data/: MissionDaoTest (insert + sorties ordered, null for other week, update visibility, unique constraint), SortieDaoTest (history ordering across weeks, filtering by state), FlightPlanDaoTest (writePlan/getPlan round-trip with order, cascade replacement, unique constraint, updateSetActuals, addExtraSet, updateExercise, null for missing plan), ExerciseResolverTest (resolve normalizes and deduplicates, blank name rejection, duplicate insert throws), GenerationDaoTest (CRUD), EquipmentDaoTest (add with key validation, edit, active/all filtering, deactivate/reactivate, no delete method via reflection), AppContainerTest (single instance). Run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` and confirm all pass.
 
-- [ ] Update ARCHITECTURE.md and commit the schema
+- [x] Update ARCHITECTURE.md and commit the schema
   Change the com.liftoff.app.data row's "Exists yet?" to ✅ (Room entities, DAOs, LiftoffDatabase). Commit the generated app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json along with all new data files.
