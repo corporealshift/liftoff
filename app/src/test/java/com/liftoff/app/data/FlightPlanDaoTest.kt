@@ -98,7 +98,7 @@ class FlightPlanDaoTest {
         val draft1 = FlightPlanDraft(
             source = FlightPlanSource.GENERATED, title = "Plan 1", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
             exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(SetDraft(reps = 5, seconds = null, weight = 50.0)))),
-            segments = emptyList()
+            segments = listOf(RunSegmentDraft(description = "warmup", distance = null, minutes = null))
         )
         flightPlanDao.writePlan(sortieId, draft1)
 
@@ -123,6 +123,25 @@ class FlightPlanDaoTest {
             cursor.getInt(0)
         }
         assertEquals(1, planCount)
+
+        // Verify old plan's children are gone: total counts should match the new plan only
+        val exerciseCount = db.query("SELECT COUNT(*) FROM plannedExercise", emptyArray()).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+        assertEquals(2, exerciseCount)
+
+        val setCount = db.query("SELECT COUNT(*) FROM plannedSet", emptyArray()).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+        assertEquals(2, setCount)
+
+        val segmentCount = db.query("SELECT COUNT(*) FROM runSegment", emptyArray()).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+        assertEquals(1, segmentCount)
     }
 
     @Test
