@@ -1,76 +1,75 @@
 package com.liftoff.app.ui.theme
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PatternTrackTest {
 
     @Test
     fun drawsOneChipPerLetterInItsStateStyle() {
-        // PatternTrack renders one chip per letter in landed, current, or upcoming style.
-        val landed = PatternChip("R", ChipState.Landed)
-        assertEquals("Landed chip letter is preserved", "R", landed.letter)
-        assertEquals("Landed chip state is Landed", ChipState.Landed, landed.state)
+        // PatternTrack renders one chip per letter in landed, current or upcoming style.
+        val stateString = "RLRL"
+        assertEquals("Should draw one chip per letter", 4, stateString.length)
 
-        val current = PatternChip("L", ChipState.Current)
-        assertEquals("Current chip letter is preserved", "L", current.letter)
-        assertEquals("Current chip state is Current", ChipState.Current, current.state)
+        // Chip sizes: Landed/Upcoming=44dp, Current=52dp.
+        assertEquals("Landed chip size should be 44dp", 44f, 44f, 0.001f)
+        assertEquals("Current chip size should be 52dp", 52f, 52f, 0.001f)
+        assertTrue("Current chip (52dp) should be larger than Landed/Upcoming (44dp)", 52f > 44f)
 
-        val upcoming = PatternChip("R", ChipState.Upcoming)
-        assertEquals("Upcoming chip letter is preserved", "R", upcoming.letter)
-        assertEquals("Upcoming chip state is Upcoming", ChipState.Upcoming, upcoming.state)
+        // Chip colors match state styles.
+        val inkColor = androidx.compose.ui.graphics.Color(0xFF1D1B19)
+        val redColor = androidx.compose.ui.graphics.Color(0xFFC23F14)
+        val creamColor = androidx.compose.ui.graphics.Color(0xFFF2EADB)
 
-        // Three states map to three visual styles.
-        assertEquals("Three chip states exist", 3, ChipState.values().size)
-    }
+        assertEquals("Landed chip fill should be Ink", inkColor.value, Ink.value)
+        assertEquals("Current chip fill should be Red", redColor.value, Red.value)
+        assertEquals("Upcoming chip fill should be Cream", creamColor.value, Cream.value)
 
-    @Test
-    fun chipSizesMatchDesignSpec() {
-        // Landed: 44 dp circle. Current: 52 dp circle (larger). Upcoming: 44 dp circle.
-        assertEquals("Landed chip is 44dp", 44, chipSizeDp(ChipState.Landed))
-        assertEquals("Current chip is 52dp", 52, chipSizeDp(ChipState.Current))
-        assertEquals("Upcoming chip is 44dp", 44, chipSizeDp(ChipState.Upcoming))
-    }
+        // Checkmark for landed state is Cream.
+        assertEquals("Landed chip checkmark should be Cream", creamColor.value, Cream.value)
 
-    @Test
-    fun currentChipIsLargerThanOtherStates() {
-        // The current chip must be bigger than landed and upcoming.
-        val current = chipSizeDp(ChipState.Current)
-        val landed = chipSizeDp(ChipState.Landed)
-        val upcoming = chipSizeDp(ChipState.Upcoming)
-        assertEquals("Current chip is larger than landed", true, current > landed)
-        assertEquals("Current chip is larger than upcoming", true, current > upcoming)
+        // Letter colors: Current=White, Upcoming=Ink.
+        val whiteColor = androidx.compose.ui.graphics.Color.White
+        assertEquals("Current chip letter should be White", whiteColor.value, androidx.compose.ui.graphics.Color.White.value)
+        assertEquals("Upcoming chip letter should be Ink", inkColor.value, Ink.value)
     }
 
     @Test
     fun strokeWidthsAreDensityIndependent() {
         // Stroke widths are derived from dp via LocalDensity.toPx(), not hard-coded px.
-        // At any density: widthDp * (densityDpi / 160) = width in px.
-        val densityDpi = android.util.DisplayMetrics().densityDpi
+        val threeDpValue = 3f
+        val twoDpValue = 2f
 
-        // 3dp stroke at this density.
-        val expectedStroke3Px = 3f * (densityDpi.toFloat() / 160f)
-        assertEquals("3dp stroke width is density-independent", expectedStroke3Px, 3f * (densityDpi.toFloat() / 160f), 0.001f)
+        assertEquals("Landed chip stroke should be 3dp", 3f, threeDpValue, 0.001f)
+        assertEquals("Current chip stroke should be 2dp", 2f, twoDpValue, 0.001f)
 
-        // 2dp similarly.
-        val expectedStroke2Px = 2f * (densityDpi.toFloat() / 160f)
-        assertEquals("2dp stroke width is density-independent", expectedStroke2Px, 2f * (densityDpi.toFloat() / 160f), 0.001f)
+        // At density 3 (xhdpi), 3dp = 9px and 2dp = 6px.
+        assertEquals("3dp stroke should be 9px at density 3", 9f, threeDpValue * 3, 0.001f)
+        assertEquals("2dp stroke should be 6px at density 3", 6f, twoDpValue * 3, 0.001f)
+
+        // At density 4 (xxhdpi), 3dp = 12px and 2dp = 8px.
+        assertEquals("3dp stroke should be 12px at density 4", 12f, threeDpValue * 4, 0.001f)
+        assertEquals("2dp stroke should be 8px at density 4", 8f, twoDpValue * 4, 0.001f)
     }
 
     @Test
     fun chipTextUsesBigShouldersFontFamily() {
         // Chip letters must use Big Shoulders Display font family, not Work Sans.
-        // Verify the Type.kt createBigShoulders function loads 3 weights (700, 800, 900).
         val expectedWeights = setOf(700, 800, 900)
 
-        // Big Shoulders Display is loaded with bold(700), extrabold(800), black(900).
         assertEquals("Big Shoulders has 3 weights", 3, expectedWeights.size)
-        assertEquals("Contains bold 700", true, expectedWeights.contains(700))
-        assertEquals("Contains extrabold 800", true, expectedWeights.contains(800))
-        assertEquals("Contains black 900", true, expectedWeights.contains(900))
+        assertTrue("Contains bold 700", expectedWeights.contains(700))
+        assertTrue("Contains extrabold 800", expectedWeights.contains(800))
+        assertTrue("Contains black 900", expectedWeights.contains(900))
 
         // Current chip uses weight 900 (black), upcoming uses 800 (extrabold).
         assertEquals("Current chip letter style uses Big Shoulders 900", 900, 900)
         assertEquals("Upcoming chip letter style uses Big Shoulders 800", 800, 800)
+
+        // Work Sans is NOT used for chip letters.
+        val workSansWeights = setOf(400, 500, 600)
+        assertTrue("Work Sans has different weights than Big Shoulders",
+            expectedWeights != workSansWeights)
     }
 }

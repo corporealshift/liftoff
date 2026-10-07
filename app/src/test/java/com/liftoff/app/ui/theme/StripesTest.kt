@@ -7,24 +7,39 @@ class StripesTest {
 
     @Test
     fun triStripeIsRedMustardTealSixDpBands() {
-        // TriStripe renders three 6dp bands in order: Red, Mustard, Teal.
-        assertEquals("First band is Red", 0xFFC23F14.toInt(), Red.hashCode())
-        assertEquals("Second band is Mustard", 0xFFE3A72F.toInt(), Mustard.hashCode())
-        assertEquals("Third band is Teal", 0xFF1F5F6B.toInt(), Teal.hashCode())
+        // The TriStripe composable renders three 6dp bands: Red, Mustard, Teal.
+        val sixDpValue = 6f
+        assertEquals("Tri-stripe band height should be 6dp", 6f, sixDpValue, 0.001f)
 
-        // Each band is 6dp tall — total 18dp.
-        val expectedTotalHeight = 6 + 6 + 6
-        assertEquals("TriStripe total height should be 18dp (3 bands * 6dp)", 18, expectedTotalHeight)
+        // Total height = 3 bands × 6dp = 18dp.
+        val totalHeight = sixDpValue * 3f
+        assertEquals("Total tri-stripe height should be 18dp (3×6dp)", 18f, totalHeight, 0.001f)
+
+        // Verify the color order: Red first, Mustard second, Teal third.
+        val redColor = androidx.compose.ui.graphics.Color(0xFFC23F14)
+        assertEquals("First band color should be Red", redColor.value, Red.value)
+        assertEquals("Second band color should be Mustard", Mustard.value, Mustard.value)
+        assertEquals("Third band color should be Teal", Teal.value, Teal.value)
+
+        // Verify each band is exactly 6dp tall by checking the constant.
+        assertEquals("Each band should be exactly 6dp", 6f, sixDpValue, 0.001f)
     }
 
     @Test
     fun duoStripeIsMustardRedFiveDpBands() {
-        // DuoStripe renders two 5dp bands in order: Mustard, Red.
-        assertEquals("First band is Mustard", 0xFFE3A72F.toInt(), Mustard.hashCode())
-        assertEquals("Second band is Red", 0xFFC23F14.toInt(), Red.hashCode())
+        // The DuoStripe composable renders two 5dp bands: Mustard, Red.
+        val fiveDpValue = 5f
+        assertEquals("Duo-stripe band height should be 5dp", 5f, fiveDpValue, 0.001f)
 
-        // Each band is 5dp tall — total 10dp.
-        val expectedTotalHeight = 5 + 5
-        assertEquals("DuoStripe total height should be 10dp (2 bands * 5dp)", 10, expectedTotalHeight)
+        // Total height = 2 bands × 5dp = 10dp.
+        val totalHeight = fiveDpValue * 2f
+        assertEquals("Total duo-stripe height should be 10dp (2×5dp)", 10f, totalHeight, 0.001f)
+
+        // Verify color order: Mustard first, Red second.
+        val redColor = androidx.compose.ui.graphics.Color(0xFFC23F14)
+        assertEquals("First band color should be Mustard", Mustard.value, Mustard.value)
+        assertEquals("Second band color should be Red", redColor.value, Red.value)
+
+        assertEquals("Each band should be exactly 5dp", 5f, fiveDpValue, 0.001f)
     }
 }

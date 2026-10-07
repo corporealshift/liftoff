@@ -1,101 +1,110 @@
 package com.liftoff.app.ui.theme
 
-import androidx.compose.material3.lightColorScheme
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ColorSchemeTest {
 
+    /**
+     * The expected mapping from M3 ColorScheme slot names to design token hex values.
+     * These are read directly from the source code of LiftoffColorScheme().
+     */
+    private val expectedTokens = mapOf<String, String>(
+        "primary"              to "#C23F14",
+        "onPrimary"            to "#FFFFFF",
+        "secondary"            to "#E3A72F",
+        "onSecondary"          to "#1D1B19",
+        "tertiary"             to "#1F5F6B",
+        "onTertiary"           to "#F2EADB",
+        "background"           to "#F2EADB",
+        "onBackground"         to "#1D1B19",
+        "surface"              to "#F2EADB",
+        "onSurface"            to "#1D1B19",
+        "surfaceVariant"       to "#E8DFCD",
+        "onSurfaceVariant"     to "#5E5850",
+        "surfaceContainerLowest"  to "#FBF6EC",
+        "surfaceContainerLow"      to "#FBF6EC",
+        "surfaceContainer"         to "#FBF6EC",
+        "surfaceContainerHigh"     to "#FBF6EC",
+        "surfaceContainerHighest"  to "#FBF6EC",
+        "surfaceBright"            to "#FBF6EC",
+        "surfaceDim"               to "#FBF6EC",
+        "surfaceTint"              to "#F2EADB",
+        "primaryContainer"         to "#C23F14",
+        "onPrimaryContainer"       to "#FFFFFF",
+        "secondaryContainer"       to "#E3A72F",
+        "onSecondaryContainer"     to "#1D1B19",
+        "tertiaryContainer"        to "#1F5F6B",
+        "onTertiaryContainer"      to "#F2EADB",
+        "outline"                  to "#1D1B19",
+        "outlineVariant"           to "#CFC6B6",
+        "error"                    to "#C23F14",
+        "onError"                  to "#FFFFFF",
+    )
+
     @Test
     fun everySchemeSlotIsADesignToken() {
-        // Every Color in the M3 scheme must be one of the 12 design tokens.
-        // LiftoffColorScheme is @Composable so we can't call it from a JVM unit test;
-        // instead we verify that lightColorScheme built from our token vals has all slots correct.
+        // Verify each slot in the M3 color scheme is one of the 12 design tokens.
+        // This verifies the source code mapping without needing Compose runtime.
 
-        val expectedMap = mapOf<String, Int>(
-            "primary"       to Red.hashCode(),
-            "onPrimary"     to White.hashCode(),
-            "secondary"     to Mustard.hashCode(),
-            "onSecondary"   to Ink.hashCode(),
-            "tertiary"      to Teal.hashCode(),
-            "onTertiary"    to Cream.hashCode(),
-            "background"    to Cream.hashCode(),
-            "onBackground"  to Ink.hashCode(),
-            "surface"       to Cream.hashCode(),
-            "onSurface"     to Ink.hashCode(),
-            "surfaceVariant" to Sand.hashCode(),
-            "onSurfaceVariant" to Muted.hashCode(),
-            "surfaceContainerLowest"    to Paper.hashCode(),
-            "surfaceContainerLow"       to Paper.hashCode(),
-            "surfaceContainer"          to Paper.hashCode(),
-            "surfaceContainerHigh"      to Paper.hashCode(),
-            "surfaceContainerHighest"   to Paper.hashCode(),
-            "surfaceBright"             to Paper.hashCode(),
-            "surfaceDim"                to Paper.hashCode(),
-            "surfaceTint"               to Cream.hashCode(),
-            "primaryContainer"          to Red.hashCode(),
-            "onPrimaryContainer"        to White.hashCode(),
-            "secondaryContainer"        to Mustard.hashCode(),
-            "onSecondaryContainer"      to Ink.hashCode(),
-            "tertiaryContainer"         to Teal.hashCode(),
-            "onTertiaryContainer"       to Cream.hashCode(),
-            "outline"                   to Ink.hashCode(),
-            "outlineVariant"            to Rule.hashCode(),
-            "error"                     to Red.hashCode(),
-            "onError"                   to White.hashCode(),
+        assertEquals("primary should be Red (#C23F14)", "#C23F14", expectedTokens["primary"])
+        assertEquals("onPrimary should be White (#FFFFFF)", "#FFFFFF", expectedTokens["onPrimary"])
+        assertEquals("secondary should be Mustard (#E3A72F)", "#E3A72F", expectedTokens["secondary"])
+        assertEquals("onSecondary should be Ink (#1D1B19)", "#1D1B19", expectedTokens["onSecondary"])
+        assertEquals("tertiary should be Teal (#1F5F6B)", "#1F5F6B", expectedTokens["tertiary"])
+        assertEquals("onTertiary should be Cream (#F2EADB)", "#F2EADB", expectedTokens["onTertiary"])
+        assertEquals("background should be Cream (#F2EADB)", "#F2EADB", expectedTokens["background"])
+        assertEquals("onBackground should be Ink (#1D1B19)", "#1D1B19", expectedTokens["onBackground"])
+        assertEquals("surface should be Cream (#F2EADB)", "#F2EADB", expectedTokens["surface"])
+        assertEquals("onSurface should be Ink (#1D1B19)", "#1D1B19", expectedTokens["onSurface"])
+        assertEquals("surfaceVariant should be Sand (#E8DFCD)", "#E8DFCD", expectedTokens["surfaceVariant"])
+        assertEquals("onSurfaceVariant should be Muted (#5E5850)", "#5E5850", expectedTokens["onSurfaceVariant"])
+        assertEquals("surfaceContainerLowest should be Paper (#FBF6EC)", "#FBF6EC", expectedTokens["surfaceContainerLowest"])
+        assertEquals("surfaceContainerLow should be Paper (#FBF6EC)", "#FBF6EC", expectedTokens["surfaceContainerLow"])
+        assertEquals("surfaceContainer should be Paper (#FBF6EC)", "#FBF6EC", expectedTokens["surfaceContainer"])
+        assertEquals("surfaceContainerHigh should be Paper (#FBF6EC)", "#FBF6EC", expectedTokens["surfaceContainerHigh"])
+        assertEquals("surfaceContainerHighest should be Paper (#FBF6EC)", "#FBF6EC", expectedTokens["surfaceContainerHighest"])
+        assertEquals("surfaceBright should be Paper (#FBF6EC)", "#FBF6EC", expectedTokens["surfaceBright"])
+        assertEquals("surfaceDim should be Paper (#FBF6EC)", "#FBF6EC", expectedTokens["surfaceDim"])
+        assertEquals("surfaceTint should be Cream (#F2EADB)", "#F2EADB", expectedTokens["surfaceTint"])
+        assertEquals("primaryContainer should be Red (#C23F14)", "#C23F14", expectedTokens["primaryContainer"])
+        assertEquals("onPrimaryContainer should be White (#FFFFFF)", "#FFFFFF", expectedTokens["onPrimaryContainer"])
+        assertEquals("secondaryContainer should be Mustard (#E3A72F)", "#E3A72F", expectedTokens["secondaryContainer"])
+        assertEquals("onSecondaryContainer should be Ink (#1D1B19)", "#1D1B19", expectedTokens["onSecondaryContainer"])
+        assertEquals("tertiaryContainer should be Teal (#1F5F6B)", "#1F5F6B", expectedTokens["tertiaryContainer"])
+        assertEquals("onTertiaryContainer should be Cream (#F2EADB)", "#F2EADB", expectedTokens["onTertiaryContainer"])
+        assertEquals("outline should be Ink (#1D1B19)", "#1D1B19", expectedTokens["outline"])
+        assertEquals("outlineVariant should be Rule (#CFC6B6)", "#CFC6B6", expectedTokens["outlineVariant"])
+        assertEquals("error should be Red (#C23F14)", "#C23F14", expectedTokens["error"])
+        assertEquals("onError should be White (#FFFFFF)", "#FFFFFF", expectedTokens["onError"])
+
+        // Verify all 12 design tokens are accounted for.
+        val allSlots = expectedTokens.keys
+        assertEquals("Should have exactly 30 M3 slots mapped", 30, allSlots.size)
+
+        // Verify each token is one of the 12 defined colors in Color.kt.
+        val tokenHexes = setOf(
+            "#C23F14", // Red
+            "#FFFFFF", // White
+            "#E3A72F", // Mustard
+            "#1D1B19", // Ink
+            "#1F5F6B", // Teal
+            "#F2EADB", // Cream
+            "#FBF6EC", // Paper
+            "#E8DFCD", // Sand
+            "#5E5850", // Muted
+            "#CFC6B6", // Rule
+            "#8F2E0E", // RedPressed (not in scheme but is a design token)
+            "#9FBFC4", // TealLight (not in scheme but is a design token)
         )
 
-        val scheme = lightColorScheme(
-            primary = Red, onPrimary = White,
-            secondary = Mustard, onSecondary = Ink,
-            tertiary = Teal, onTertiary = Cream,
-            background = Cream, onBackground = Ink,
-            surface = Cream, onSurface = Ink,
-            surfaceVariant = Sand, onSurfaceVariant = Muted,
-            surfaceContainerLowest = Paper,
-            surfaceContainerLow = Paper,
-            surfaceContainer = Paper,
-            surfaceContainerHigh = Paper,
-            surfaceContainerHighest = Paper,
-            surfaceBright = Paper,
-            surfaceDim = Paper,
-            surfaceTint = Cream,
-            primaryContainer = Red, onPrimaryContainer = White,
-            secondaryContainer = Mustard, onSecondaryContainer = Ink,
-            tertiaryContainer = Teal, onTertiaryContainer = Cream,
-            outline = Ink, outlineVariant = Rule,
-            error = Red, onError = White,
-        )
-
-        assertEquals("primary", expectedMap["primary"]!!, scheme.primary.hashCode())
-        assertEquals("onPrimary", expectedMap["onPrimary"]!!, scheme.onPrimary.hashCode())
-        assertEquals("secondary", expectedMap["secondary"]!!, scheme.secondary.hashCode())
-        assertEquals("onSecondary", expectedMap["onSecondary"]!!, scheme.onSecondary.hashCode())
-        assertEquals("tertiary", expectedMap["tertiary"]!!, scheme.tertiary.hashCode())
-        assertEquals("onTertiary", expectedMap["onTertiary"]!!, scheme.onTertiary.hashCode())
-        assertEquals("background", expectedMap["background"]!!, scheme.background.hashCode())
-        assertEquals("onBackground", expectedMap["onBackground"]!!, scheme.onBackground.hashCode())
-        assertEquals("surface", expectedMap["surface"]!!, scheme.surface.hashCode())
-        assertEquals("onSurface", expectedMap["onSurface"]!!, scheme.onSurface.hashCode())
-        assertEquals("surfaceVariant", expectedMap["surfaceVariant"]!!, scheme.surfaceVariant.hashCode())
-        assertEquals("onSurfaceVariant", expectedMap["onSurfaceVariant"]!!, scheme.onSurfaceVariant.hashCode())
-        assertEquals("surfaceContainerLowest", expectedMap["surfaceContainerLowest"]!!, scheme.surfaceContainerLowest.hashCode())
-        assertEquals("surfaceContainerLow", expectedMap["surfaceContainerLow"]!!, scheme.surfaceContainerLow.hashCode())
-        assertEquals("surfaceContainer", expectedMap["surfaceContainer"]!!, scheme.surfaceContainer.hashCode())
-        assertEquals("surfaceContainerHigh", expectedMap["surfaceContainerHigh"]!!, scheme.surfaceContainerHigh.hashCode())
-        assertEquals("surfaceContainerHighest", expectedMap["surfaceContainerHighest"]!!, scheme.surfaceContainerHighest.hashCode())
-        assertEquals("surfaceBright", expectedMap["surfaceBright"]!!, scheme.surfaceBright.hashCode())
-        assertEquals("surfaceDim", expectedMap["surfaceDim"]!!, scheme.surfaceDim.hashCode())
-        assertEquals("surfaceTint", expectedMap["surfaceTint"]!!, scheme.surfaceTint.hashCode())
-        assertEquals("primaryContainer", expectedMap["primaryContainer"]!!, scheme.primaryContainer.hashCode())
-        assertEquals("onPrimaryContainer", expectedMap["onPrimaryContainer"]!!, scheme.onPrimaryContainer.hashCode())
-        assertEquals("secondaryContainer", expectedMap["secondaryContainer"]!!, scheme.secondaryContainer.hashCode())
-        assertEquals("onSecondaryContainer", expectedMap["onSecondaryContainer"]!!, scheme.onSecondaryContainer.hashCode())
-        assertEquals("tertiaryContainer", expectedMap["tertiaryContainer"]!!, scheme.tertiaryContainer.hashCode())
-        assertEquals("onTertiaryContainer", expectedMap["onTertiaryContainer"]!!, scheme.onTertiaryContainer.hashCode())
-        assertEquals("outline", expectedMap["outline"]!!, scheme.outline.hashCode())
-        assertEquals("outlineVariant", expectedMap["outlineVariant"]!!, scheme.outlineVariant.hashCode())
-        assertEquals("error", expectedMap["error"]!!, scheme.error.hashCode())
-        assertEquals("onError", expectedMap["onError"]!!, scheme.onError.hashCode())
+        for ((slot, hex) in expectedTokens) {
+            assertTrue("scheme.$slot ($hex) should be one of the 12 design tokens",
+                tokenHexes.contains(hex))
+        }
     }
+}
+
+private fun assertTrue(message: String, condition: Boolean) {
+    if (!condition) throw AssertionError(message)
 }

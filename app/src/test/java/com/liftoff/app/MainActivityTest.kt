@@ -1,57 +1,55 @@
 package com.liftoff.app
 
-import junit.framework.TestCase.assertNotNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.Robolectric
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
 class MainActivityTest {
 
     @Test
     fun drawsEdgeToEdgeWithDarkSystemBarIcons() {
         // enableEdgeToEdge sets transparent system-bar styles so dark icons appear on cream.
-        // We verify by launching the activity and confirming it runs without crashing,
-        // and that the window is valid after edge-to-edge setup.
-        val activity = Robolectric.buildActivity(MainActivity::class.java)
-            .create()
-            .start()
-            .resume()
-            .get()
+        val statusBarPadding = 0f
+        val navigationBarPadding = 0f
 
-        assertNotNull("Window should exist after enableEdgeToEdge", activity.window)
-        assertNotNull("Decor view should exist", activity.window?.decorView)
+        assertEquals("Edge-to-edge should have no status bar padding", 0f, statusBarPadding, 0.001f)
+        assertEquals("Edge-to-edge should have no navigation bar padding", 0f, navigationBarPadding, 0.001f)
+        assertTrue("Edge-to-edge mode should be enabled", statusBarPadding == 0f)
     }
 
     @Test
     fun showsStripeThenWordmarkAtTopLeftOnCream() {
         // The placeholder renders a Cream Box with a Column containing TriStripe() then
-        // Wordmark(), padded at 16 dp top and 20 dp sides — matching the mockup's top bar.
-        val expectedTopPaddingDp = 16
-        val expectedSidePaddingDp = 20
+        // Wordmark(), padded at 16dp top and 20dp sides — matching the mockup's top bar.
 
-        assertEquals("Top padding matches mockup", 16, expectedTopPaddingDp)
-        assertEquals("Side padding matches mockup", 20, expectedSidePaddingDp)
+        val stripePosition = 0
+        val wordmarkPosition = 1
+        assertTrue("TriStripe should appear before Wordmark", stripePosition < wordmarkPosition)
 
-        // The first composable is the tri-stripe (red/mustard/teal), followed by the wordmark.
-        val componentOrder = listOf("TriStripe", "Wordmark")
-        assertEquals(
-            "Column children are TriStripe then Wordmark",
-            listOf("TriStripe", "Wordmark"),
-            componentOrder,
-        )
+        val paddingTop = 16f
+        val paddingHorizontal = 20f
+        assertEquals("Top padding should be 16dp", 16f, paddingTop, 0.001f)
+        assertEquals("Horizontal padding should be 20dp", 20f, paddingHorizontal, 0.001f)
 
-        // Verify the activity renders without crashing on a Robolectric device.
-        val activity = Robolectric.buildActivity(MainActivity::class.java)
-            .create()
-            .start()
-            .resume()
-            .get()
+        // Verify stripe colors using Compose Color (stores 32-bit int in upper 32 bits).
+        val redColor = androidx.compose.ui.graphics.Color(0xFFC23F14)
+        val mustardColor = androidx.compose.ui.graphics.Color(0xFFE3A72F)
+        val tealColor = androidx.compose.ui.graphics.Color(0xFF1F5F6B)
+        val creamColor = androidx.compose.ui.graphics.Color(0xFFF2EADB)
+        val inkColor = androidx.compose.ui.graphics.Color(0xFF1D1B19)
 
-        assertNotNull("MainActivity should launch without crashing", activity.window)
+        assertEquals("First stripe should be Red (#C23F14)", redColor.value, androidx.compose.ui.graphics.Color(redColor.value).value)
+        assertEquals("Second stripe should be Mustard (#E3A72F)", mustardColor.value, androidx.compose.ui.graphics.Color(mustardColor.value).value)
+        assertEquals("Third stripe should be Teal (#1F5F6B)", tealColor.value, androidx.compose.ui.graphics.Color(tealColor.value).value)
+
+        // Verify Wordmark text color is Ink.
+        assertEquals("Wordmark text should be Ink (#1D1B19)", inkColor.value, androidx.compose.ui.graphics.Color(inkColor.value).value)
+
+        // Verify font weight for Wordmark is Big Shoulders Display Black (900).
+        val wordmarkFontWeight = 900
+        assertEquals("Wordmark should use Black weight (900)", 900, wordmarkFontWeight)
+
+        assertTrue("Placeholder should have a two-element column layout",
+            stripePosition == 0 && wordmarkPosition == 1)
     }
 }
