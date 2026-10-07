@@ -10,10 +10,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,7 +71,6 @@ fun PatternTrack(
 @Composable
 private fun PatternChipView(chip: PatternChip) {
     val sizeDp = chipSizeDp(chip.state).dp
-    val bigShoulders = createBigShoulders(LocalContext.current)
     val density = LocalDensity.current
 
     Box(
@@ -103,7 +100,7 @@ private fun PatternChipView(chip: PatternChip) {
                 Text(
                     text = chip.letter,
                     color = White,
-                    fontFamily = bigShoulders,
+                    fontFamily = BigShoulders,
                     fontWeight = FontWeight.W900,
                     fontSize = 26.sp,
                 )
@@ -119,7 +116,7 @@ private fun PatternChipView(chip: PatternChip) {
                 Text(
                     text = chip.letter,
                     color = Ink,
-                    fontFamily = bigShoulders,
+                    fontFamily = BigShoulders,
                     fontWeight = FontWeight.W800,
                     fontSize = 22.sp,
                 )

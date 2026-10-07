@@ -1,32 +1,27 @@
 package com.liftoff.app.ui.theme
 
-import android.content.Context
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.em
+import com.liftoff.app.R
 
-@Composable
-fun createBigShoulders(context: Context): FontFamily {
-    return FontFamily(
-        androidx.compose.ui.text.font.Font("fonts/big_shoulders_display_bold.ttf", context.assets, FontWeight.W700),
-        androidx.compose.ui.text.font.Font("fonts/big_shoulders_display_extrabold.ttf", context.assets, FontWeight.W800),
-        androidx.compose.ui.text.font.Font("fonts/big_shoulders_display_black.ttf", context.assets, FontWeight.W900),
-    )
-}
+// Top-level FontFamily vals — computed once, not per-recomposition.
+val BigShoulders = FontFamily(
+    Font(R.font.big_shoulders_display_bold, FontWeight.W700),
+    Font(R.font.big_shoulders_display_extrabold, FontWeight.W800),
+    Font(R.font.big_shoulders_display_black, FontWeight.W900),
+)
 
-@Composable
-fun createWorkSans(context: Context): FontFamily {
-    return FontFamily(
-        androidx.compose.ui.text.font.Font("fonts/work_sans_regular.ttf", context.assets, FontWeight.W400),
-        androidx.compose.ui.text.font.Font("fonts/work_sans_medium.ttf", context.assets, FontWeight.W500),
-        androidx.compose.ui.text.font.Font("fonts/work_sans_semibold.ttf", context.assets, FontWeight.W600),
-    )
-}
+val WorkSans = FontFamily(
+    Font(R.font.work_sans_regular, FontWeight.W400),
+    Font(R.font.work_sans_medium, FontWeight.W500),
+    Font(R.font.work_sans_semibold, FontWeight.W600),
+)
 
 object LiftoffType {
     // Static factory methods — take a FontFamily parameter.
@@ -84,35 +79,34 @@ object LiftoffType {
         fontFamily = ws, fontWeight = FontWeight.W500, fontSize = 13.sp,
     )
 
-    // Convenience helpers that resolve fonts from the current composable context.
-    @Composable fun wordmark(): TextStyle = wordmark(createBigShoulders(LocalContext.current))
-    @Composable fun screenTitle(): TextStyle = screenTitle(createBigShoulders(LocalContext.current))
-    @Composable fun headerTitle(): TextStyle = headerTitle(createBigShoulders(LocalContext.current))
-    @Composable fun launchLabel(): TextStyle = launchLabel(createBigShoulders(LocalContext.current))
-    @Composable fun landLabel(): TextStyle = landLabel(createBigShoulders(LocalContext.current))
-    @Composable fun sectionHead(): TextStyle = sectionHead(createBigShoulders(LocalContext.current))
-    @Composable fun cardTitle(): TextStyle = cardTitle(createBigShoulders(LocalContext.current))
-    @Composable fun setValue(): TextStyle = setValue(createBigShoulders(LocalContext.current))
-    @Composable fun load(): TextStyle = load(createBigShoulders(LocalContext.current))
-    @Composable fun index(): TextStyle = index(createBigShoulders(LocalContext.current))
-    @Composable fun barLabel(): TextStyle = barLabel(createBigShoulders(LocalContext.current))
-    @Composable fun eyebrow(): TextStyle = eyebrow(createWorkSans(LocalContext.current))
-    @Composable fun exerciseName(): TextStyle = exerciseName(createWorkSans(LocalContext.current))
-    @Composable fun textButton(): TextStyle = textButton(createWorkSans(LocalContext.current))
-    @Composable fun note(): TextStyle = note(createWorkSans(LocalContext.current))
+    // Convenience helpers that use the top-level FontFamily vals.
+    @Composable fun wordmark(): TextStyle = wordmark(BigShoulders)
+    @Composable fun screenTitle(): TextStyle = screenTitle(BigShoulders)
+    @Composable fun headerTitle(): TextStyle = headerTitle(BigShoulders)
+    @Composable fun launchLabel(): TextStyle = launchLabel(BigShoulders)
+    @Composable fun landLabel(): TextStyle = landLabel(BigShoulders)
+    @Composable fun sectionHead(): TextStyle = sectionHead(BigShoulders)
+    @Composable fun cardTitle(): TextStyle = cardTitle(BigShoulders)
+    @Composable fun setValue(): TextStyle = setValue(BigShoulders)
+    @Composable fun load(): TextStyle = load(BigShoulders)
+    @Composable fun index(): TextStyle = index(BigShoulders)
+    @Composable fun barLabel(): TextStyle = barLabel(BigShoulders)
+    @Composable fun eyebrow(): TextStyle = eyebrow(WorkSans)
+    @Composable fun exerciseName(): TextStyle = exerciseName(WorkSans)
+    @Composable fun textButton(): TextStyle = textButton(WorkSans)
+    @Composable fun note(): TextStyle = note(WorkSans)
 }
 
 @Composable
 fun LiftoffTypography(): Typography {
-    val context = LocalContext.current
     return Typography(
-        displayLarge = LiftoffType.screenTitle(createBigShoulders(context)),
-        displayMedium = LiftoffType.headerTitle(createBigShoulders(context)),
-        headlineLarge = LiftoffType.sectionHead(createBigShoulders(context)),
-        titleLarge = LiftoffType.cardTitle(createBigShoulders(context)),
-        bodyLarge = LiftoffType.exerciseName(createWorkSans(context)),
-        bodyMedium = LiftoffType.note(createWorkSans(context)),
-        labelLarge = LiftoffType.textButton(createWorkSans(context)),
-        labelSmall = LiftoffType.barLabel(createBigShoulders(context)),
+        displayLarge = LiftoffType.screenTitle(BigShoulders),
+        displayMedium = LiftoffType.headerTitle(BigShoulders),
+        headlineLarge = LiftoffType.sectionHead(BigShoulders),
+        titleLarge = LiftoffType.cardTitle(BigShoulders),
+        bodyLarge = LiftoffType.exerciseName(WorkSans),
+        bodyMedium = LiftoffType.note(WorkSans),
+        labelLarge = LiftoffType.textButton(WorkSans),
+        labelSmall = LiftoffType.barLabel(BigShoulders),
     )
 }
