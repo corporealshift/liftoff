@@ -4,7 +4,9 @@ object ExerciseNames {
 
     fun normalize(name: String): String =
         name.lowercase()
-            .filter { it.isLetterOrDigit() || it.isWhitespace() || it == '-' }
-            .replace(Regex("\\s+|\\u00A0+"), " ")
+            .map { if (it.isWhitespace()) ' ' else it }
+            .filter { it.isLetterOrDigit() || it == ' ' || it == '-' }
+            .joinToString("")
+            .replace(Regex("\\s+"), " ")
             .trim()
 }

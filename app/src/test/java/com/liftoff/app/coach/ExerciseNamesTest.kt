@@ -35,6 +35,14 @@ class ExerciseNamesTest {
     fun unicodeWhitespaceCollapsesToOneSpace() {
         assertEquals("bench press", ExerciseNames.normalize("Bench\t\nPress"))
         assertEquals("bench press", ExerciseNames.normalize("Bench\u00A0Press"))
+        // mixed ASCII + NBSP run collapses to one space
+        assertEquals("bench press", ExerciseNames.normalize("Bench \u00A0Press"))
+        // thin space (U+2009) collapses to one space
+        assertEquals("bench press", ExerciseNames.normalize("Bench\u2009Press"))
+        // em space (U+2003) collapses to one space
+        assertEquals("bench press", ExerciseNames.normalize("Bench\u2003Press"))
+        // mixed ASCII + thin + NBSP run collapses to one space
+        assertEquals("bench press", ExerciseNames.normalize("Bench \u2009\u00A0Press"))
     }
 
     @Test
