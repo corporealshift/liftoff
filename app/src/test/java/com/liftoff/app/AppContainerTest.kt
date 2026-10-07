@@ -80,6 +80,21 @@ class AppContainerTest {
             rawDb.execSQL("PRAGMA user_version = 2")
             rawDb.close()
 
+            // Now ask Room to open the file directly via createFromFile.
+            // It should throw because user_version=2 but schema is v1, and we do NOT call fallbackToDestructiveMigration.
+            var roomThrew = false
+            try {
+                val badDb = Room.databaseBuilder(context.applicationContext, com.liftoff.app.data.LiftoffDatabase::class.java, "version_test.db")
+                    .createFromFile(tempFile)
+                    .build()
+                // Try to actually open the database (lazy init of internal helper)
+                badDb.openHelper.writableDatabase
+                badDb.close()
+            } catch (_: Exception) {
+                roomThrew = true
+            }
+            assertTrue("Room should throw on version mismatch instead of wiping", roomThrew)
+
             // Verify the database file still exists and data is intact after Room fails to open
             assertTrue("DB file should exist", tempFile.exists())
             val reopened = android.database.sqlite.SQLiteDatabase.openDatabase(tempFile.absolutePath, null, 0)
