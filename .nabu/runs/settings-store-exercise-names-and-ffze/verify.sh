@@ -1,8 +1,8 @@
-#!/bin/sh
+#!/bin/bash
 set -euo pipefail
 # Verify: Settings store, exercise names and AppContainer brief is done.
 
-cd "$(dirname "$0")/../.." || exit 1
+cd "$(dirname "$0")/../../.." || exit 1
 
 RESULTS="app/build/test-results/testDebugUnitTest"
 
