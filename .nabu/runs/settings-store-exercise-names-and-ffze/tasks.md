@@ -5,7 +5,7 @@
 3. **AppContainer + Application + manifest** — `AppContainer.kt`, `LiftoffApplication.kt`, manifest edit (add `android:name=".LiftoffApplication"` only), and Robolectric test (`@Config(sdk = [34])`) proving the application is `LiftoffApplication` and both container and settings store are singletons.
 4. **ARCHITECTURE.md update + build gate** — mark root, `settings`, and `coach` in the package table per the plan, then run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` and confirm it passes.
 
-- [ ] Task 1: Settings store
+- [x] Task 1: Settings store
   Create `app/src/main/java/com/liftoff/app/settings/Settings.kt` (enum classes, data class with all defaults) and `SettingsStore.kt` (DataStore-backed Flow, one suspend setter per setting with require-based validation, unit fallback). Write `app/src/test/java/com/liftoff/app/settings/SettingsStoreTest.kt` as a plain JVM test using TemporaryFolder + `.preferences_pb` files. Tests cover: every default value, set-then-read round trip for all 12 fields (including boundaries), rejection of invalid pattern/port/sortie-length/history-window with prior value still stored, and corrupt unit → default fallback.
   Done when the test file compiles and all tests pass as a JVM-only test (`:app:testDebugUnitTest` includes it).
 
