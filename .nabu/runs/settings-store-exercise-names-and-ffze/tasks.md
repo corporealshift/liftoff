@@ -20,3 +20,8 @@
 - [x] Task 4: ARCHITECTURE.md update + build gate
   Update the package table in `ARCHITECTURE.md`: root → mark as existing with AppContainer.kt and LiftoffApplication.kt listed; `settings` → mark as existing with SettingsStore.kt; `coach` → mark as Started with ExerciseNames.kt. Then run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` and confirm it passes with every existing test still green.
   Done when the gate command exits 0 and the ARCHITECTURE.md table matches the plan's specification.
+
+## Blockers from the final review
+
+- [ ] ExerciseNames.normalize must collapse every whitespace run to one space, including Unicode spaces and mixed runs
+  app/src/main/java/com/liftoff/app/coach/ExerciseNames.kt:7-8. The filter keeps any character where Kotlin's `isWhitespace()` is true, which includes NBSP, thin space U+2009, em space U+2003 and U+202F. The collapse step then uses `Regex("\\s+|\\u00A0+")`, and Java's `\s` matches only ASCII whitespace. That causes two failures: (1) a mixed run such as "Bench \u00A0Press" matches each alternative separately and becomes "bench  press" with two spaces; (2) any other Unicode space survives unchanged, so "Bench\u2009Press" becomes "bench\u2009press". Both break the brief's rule that runs of whitespace collapse to one space, and the plan's decision that any Unicode whitespace collapses to one space. The next brief uses this function to find or create exercises, so these names would create duplicate exercises. Fix it the way the plan describes: map every `isWhitespace()` char to ' ', then collapse runs of ' '. Then add mixed-run and non-NBSP cases to `unicodeWhitespaceCollapsesToOneSpace`, which today only tests a single NBSP and \t\n.
