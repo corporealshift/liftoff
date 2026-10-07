@@ -15,3 +15,10 @@
 
 - [x] Update ARCHITECTURE.md and commit the schema
   Change the com.liftoff.app.data row's "Exists yet?" to ✅ (Room entities, DAOs, LiftoffDatabase). Commit the generated app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json along with all new data files.
+
+## Blockers from the final review
+
+- [ ] Make databaseRefusesVersionMismatchInsteadOfWiping actually open the database with Room
+  app/src/test/java/com/liftoff/app/AppContainerTest.kt: the test writes a raw SQLite file in cacheDir and sets user_version = 2. It then reopens that file with plain SQLiteDatabase and counts the rows. Room is never asked to open the file, and neither is AppContainer.database or its builder. Nothing checks that opening throws instead of wiping the data, and the test would still pass if the builder called fallbackToDestructiveMigration(). verify.sh says this test opens a file at the container database's path (openHelper.databaseName) and expects the open to throw, with the row still there afterwards. That is the only check for the brief's rule that the database must never be set up to drop data on migration, and it proves nothing. Build the file at the path the container uses (or build Room the same way AppContainer does), make Room open it (for example with openHelper.writableDatabase), assert that it throws, then assert that the row survives.
+- [ ] Make writePlanReplacesExistingPlan count the old exercises, sets and segments
+  app/src/test/java/com/liftoff/app/data/FlightPlanDaoTest.kt: the test only counts FlightPlan rows for the sortie and reads the new plan back through getPlan. getPlan only queries children of the new plan id, so orphaned PlannedExercise, PlannedSet and RunSegment rows from the old plan would never show up. verify.sh says 'the old exercises, sets and segments are gone (row counts)', and the plan's risk section relies on this test to prove the cascade works. Neither is true as written. Give the first plan a run segment as well, then after the second writePlan assert the total row counts of plannedExercise, plannedSet and runSegment: 2, 2 and 1 here, or zero rows still pointing at the old plan id.
