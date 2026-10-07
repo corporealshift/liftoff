@@ -9,7 +9,7 @@
   Create `app/src/main/java/com/liftoff/app/settings/Settings.kt` (enum classes, data class with all defaults) and `SettingsStore.kt` (DataStore-backed Flow, one suspend setter per setting with require-based validation, unit fallback). Write `app/src/test/java/com/liftoff/app/settings/SettingsStoreTest.kt` as a plain JVM test using TemporaryFolder + `.preferences_pb` files. Tests cover: every default value, set-then-read round trip for all 12 fields (including boundaries), rejection of invalid pattern/port/sortie-length/history-window with prior value still stored, and corrupt unit → default fallback.
   Done when the test file compiles and all tests pass as a JVM-only test (`:app:testDebugUnitTest` includes it).
 
-- [ ] Task 2: Exercise name normalizer
+- [x] Task 2: Exercise name normalizer
   Create `app/src/main/java/com/liftoff/app/coach/ExerciseNames.kt` with `object ExerciseNames { fun normalize(name: String): String }` — pure Kotlin, no Android imports. Write `app/src/test/java/com/liftoff/app/coach/ExerciseNamesTest.kt` covering: the four equivalent names all normalizing to `"bench press"`, hyphen preservation, symbol removal (`&`, `(`, `)`, `'`), tab/newline collapse, all-symbols → `""`, and an invariant assertion that no `.kt` under `coach/` contains `import android.` or `import androidx.`.
   Done when the test file compiles and all tests pass as a pure JVM test.
 
