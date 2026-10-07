@@ -13,7 +13,7 @@
   Create `app/src/main/java/com/liftoff/app/coach/ExerciseNames.kt` with `object ExerciseNames { fun normalize(name: String): String }` — pure Kotlin, no Android imports. Write `app/src/test/java/com/liftoff/app/coach/ExerciseNamesTest.kt` covering: the four equivalent names all normalizing to `"bench press"`, hyphen preservation, symbol removal (`&`, `(`, `)`, `'`), tab/newline collapse, all-symbols → `""`, and an invariant assertion that no `.kt` under `coach/` contains `import android.` or `import androidx.`.
   Done when the test file compiles and all tests pass as a pure JVM test.
 
-- [ ] Task 3: AppContainer + Application + manifest
+- [x] Task 3: AppContainer + Application + manifest
   Create `app/src/main/java/com/liftoff/app/AppContainer.kt` (lazy `SettingsStore` from application context) and `app/src/main/java/com/liftoff/app/LiftoffApplication.kt` (`lateinit var container`, created in `onCreate`). Edit `app/src/main/AndroidManifest.xml` to add only `android:name=".LiftoffApplication"` to the `<application>` element. Write `app/src/test/java/com/liftoff/app/AppContainerTest.kt` with `@Config(sdk = [34])` proving: app context is `LiftoffApplication`, container is a singleton, and `settingsStore` is a singleton on repeated access.
   Done when the test compiles (Robolectric SDK 34), runs, and all assertions pass.
 
