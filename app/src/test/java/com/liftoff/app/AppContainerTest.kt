@@ -80,14 +80,17 @@ class AppContainerTest {
             rawDb.execSQL("PRAGMA user_version = 2")
             rawDb.close()
 
-            // Now ask Room to open the file directly via createFromFile.
-            // It should throw because user_version=2 but schema is v1, and we do NOT call fallbackToDestructiveMigration.
+            // Open the file in-place via databaseBuilder using the absolute path.
+            // Room expects version 1; user_version=2 triggers a migration check.
+            // Without fallbackToDestructiveMigration this must throw and must not wipe the file.
             var roomThrew = false
             try {
-                val badDb = Room.databaseBuilder(context.applicationContext, com.liftoff.app.data.LiftoffDatabase::class.java, "version_test.db")
-                    .createFromFile(tempFile)
-                    .build()
-                // Try to actually open the database (lazy init of internal helper)
+                val badDb = Room.databaseBuilder(
+                    context.applicationContext,
+                    com.liftoff.app.data.LiftoffDatabase::class.java,
+                    tempFile.absolutePath
+                ).build()
+                // Trigger lazy open of the underlying SQLiteOpenHelper
                 badDb.openHelper.writableDatabase
                 badDb.close()
             } catch (_: Exception) {
