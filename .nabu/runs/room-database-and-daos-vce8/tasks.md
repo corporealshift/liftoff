@@ -1,0 +1,17 @@
+- [ ] Add enums, converters, and the first three entities with their DAOs
+  Create data/Enums.kt (MissionStatus, SortieType, SortieState, FlightPlanSource, SetStatus, GenerationKind, GenerationStatus). Create data/Converters.kt (LocalDate ↔ Long, List<String> ↔ JSON). Add Entity classes Exercise, Equipment, Generation. Write abstract DAOs ExerciseDao (insert, findByNormalizedName, getAll, resolve), EquipmentDao (add with key validation via Regex, edit, observeActive, observeAll, deactivate, reactivate, get; no delete method), and GenerationDao interface (insert, get, update, delete). Add them to a minimal LiftoffDatabase with only these three entities. Register the ksp schemaLocation argument in app/build.gradle.kts. Compile with `bash gradlew.sh :app:compileDebugKotlin` and confirm success.
+
+- [ ] Add Mission, Sortie, relations, and their DAOs
+  Create Entity classes Mission (with unique weekStart index) and Sortie (FK to Mission CASCADE, index on missionId). Create relation MissionWithSorties. Write abstract MissionDao (insert, update, observeWeek via observeRaw + sorting by index). Write interface SortieDao (insert, insertAll, update, get, observeHistory ordering by weekStart DESC then index DESC for LANDED/SCRUBBED). Register all new entities and DAOs in LiftoffDatabase. Compile and confirm success.
+
+- [ ] Add flight-plan entities, draft/detail types, and FlightPlanDao
+  Create Entity classes FlightPlan (unique sortieId FK CASCADE), PlannedExercise (FK to FlightPlan CASCADE, FK to Exercise, index on both), PlannedSet (FK to PlannedExercise CASCADE), RunSegment (FK to FlightPlan CASCADE). Create relation and input types: PlannedExerciseRow, FlightPlanDetail, PlannedExerciseDetail, FlightPlanDraft, ExerciseDraft, SetDraft, RunSegmentDraft. Write abstract FlightPlanDao with insertPlan/insertExercise/insertSet/insertSegment, deleteForSortie, writePlan (cascade replace in one transaction), getPlan (assembles detail from ordered queries), updateSetActuals, addExtraSet, updateExercise. Register all new entities and DAOs in LiftoffDatabase. Compile and confirm success.
+
+- [ ] Wire the database into AppContainer
+  Add a lazily-initialized `database: LiftoffDatabase` property to AppContainer next to settingsStore, using Room.databaseBuilder. Add a test to AppContainerTest verifying the database property returns the same instance twice. Compile and confirm success.
+
+- [ ] Write all DAO tests and run the full gate
+  Create test classes in app/src/test/java/com/liftoff/app/data/: MissionDaoTest (insert + sorties ordered, null for other week, update visibility, unique constraint), SortieDaoTest (history ordering across weeks, filtering by state), FlightPlanDaoTest (writePlan/getPlan round-trip with order, cascade replacement, unique constraint, updateSetActuals, addExtraSet, updateExercise, null for missing plan), ExerciseResolverTest (resolve normalizes and deduplicates, blank name rejection, duplicate insert throws), GenerationDaoTest (CRUD), EquipmentDaoTest (add with key validation, edit, active/all filtering, deactivate/reactivate, no delete method via reflection), AppContainerTest (single instance). Run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` and confirm all pass.
+
+- [ ] Update ARCHITECTURE.md and commit the schema
+  Change the com.liftoff.app.data row's "Exists yet?" to ✅ (Room entities, DAOs, LiftoffDatabase). Commit the generated app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json along with all new data files.
