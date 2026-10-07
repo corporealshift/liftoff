@@ -9,14 +9,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 enum class ChipState { Landed, Current, Upcoming }
 data class PatternChip(val letter: String, val state: ChipState)
+
+/** Circle diameter for each chip state. */
+internal fun chipSizeDp(state: ChipState): Int = when (state) {
+    ChipState.Landed -> 44
+    ChipState.Current -> 52
+    ChipState.Upcoming -> 44
+}
 
 @Composable
 fun PatternTrack(
@@ -35,11 +45,11 @@ fun PatternTrack(
                     .fillMaxWidth()
                     .matchParentSize(),
             ) {
-                val insetStart = with(density) { 22.dp.toPx() }
-                val insetEnd = size.width - with(density) { 22.dp.toPx() }
+                val insetStart = density.run { 22.dp.toPx() }
+                val insetEnd = size.width - density.run { 22.dp.toPx() }
                 drawLine(
                     color = Ink,
-                    strokeWidth = with(density) { 2.dp.toPx() },
+                    strokeWidth = density.run { 2.dp.toPx() },
                     start = Offset(insetStart, size.height / 2),
                     end = Offset(insetEnd, size.height / 2),
                 )
@@ -62,13 +72,17 @@ fun PatternTrack(
 
 @Composable
 private fun PatternChipView(chip: PatternChip) {
+    val sizeDp = chipSizeDp(chip.state).dp
+    val bigShoulders = createBigShoulders(LocalContext.current)
+    val density = LocalDensity.current
+
     Box(
-        modifier = Modifier.size(44.dp),
+        modifier = Modifier.size(sizeDp),
         contentAlignment = Alignment.Center,
     ) {
         when (chip.state) {
             ChipState.Landed -> {
-                Canvas(modifier = Modifier.size(44.dp)) {
+                Canvas(modifier = Modifier.size(sizeDp)) {
                     drawCircle(color = Ink)
                 }
                 Icon(
@@ -79,25 +93,33 @@ private fun PatternChipView(chip: PatternChip) {
                 )
             }
             ChipState.Current -> {
-                Canvas(modifier = Modifier.size(52.dp)) {
+                Canvas(modifier = Modifier.size(sizeDp)) {
                     drawCircle(color = Red)
-                    drawCircle(color = Ink, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+                    drawCircle(
+                        color = Ink,
+                        style = Stroke(width = density.run { 3.dp.toPx() }),
+                    )
                 }
                 Text(
                     text = chip.letter,
                     color = White,
+                    fontFamily = bigShoulders,
                     fontWeight = FontWeight.W900,
                     fontSize = 26.sp,
                 )
             }
             ChipState.Upcoming -> {
-                Canvas(modifier = Modifier.size(44.dp)) {
+                Canvas(modifier = Modifier.size(sizeDp)) {
                     drawCircle(color = Cream)
-                    drawCircle(color = Ink, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f))
+                    drawCircle(
+                        color = Ink,
+                        style = Stroke(width = density.run { 2.dp.toPx() }),
+                    )
                 }
                 Text(
                     text = chip.letter,
                     color = Ink,
+                    fontFamily = bigShoulders,
                     fontWeight = FontWeight.W800,
                     fontSize = 22.sp,
                 )
