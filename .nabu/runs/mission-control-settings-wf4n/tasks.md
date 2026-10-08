@@ -7,5 +7,5 @@
 - [x] Build Mission Control screen, wire LiftoffShell, update shell tests
   Replace the placeholder in `MissionControlScreen.kt` with the full scrollable section-card layout (Connection, Coach, Mission pattern chips + numeric fields, Units segments, Runs checkbox, Objectives and Constraints multi-line fields), all using existing theme parts. Wire `SettingsStore` and scope through `LiftoffShell.kt`. Update `LiftoffShellTest.kt` to replace `"Settings will appear here."` assertions with `onNodeWithText("CONNECTION")`.
 
-- [ ] Run full build gate
+- [x] Run full build gate
   Run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` and confirm it passes with no failures.
