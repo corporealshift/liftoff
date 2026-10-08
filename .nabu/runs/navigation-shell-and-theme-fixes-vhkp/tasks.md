@@ -25,6 +25,6 @@
   In MainActivity.kt: keep enableEdgeToEdge unchanged, replace setContent body with LiftoffTheme { LiftoffShell() }, remove stale comment and unused imports. Update ARCHITECTURE.md: root row says "MainActivity (hosts the navigation shell)", ui row marked existing with description of navigation shell/placeholder screens/Mission Control stub.
   Done when: MainActivity compiles with no unused imports, ARCHITECTURE.md updated per spec.
 
-- [ ] Run the gate and verify everything passes
+- [x] Run the gate and verify everything passes
   Run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`. All existing tests must still pass (FontResourcesTest with 6 TTFs, ThemePackageTest with 11 files in ui/theme, TypographyTest), plus the new ShellNavTest and TypographyTest.everyMaterialRoleUsesABundledFamily.
   Done when: gradlew exits 0 with all tests passing.
