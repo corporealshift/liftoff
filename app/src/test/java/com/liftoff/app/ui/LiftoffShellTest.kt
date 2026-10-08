@@ -81,14 +81,14 @@ class LiftoffShellTest {
     fun missionControlSurvivesRecreation() {
         // Open Mission Control via the sliders button.
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
-        composeRule.onNodeWithText("Settings will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
 
         // Recreate the activity.
         composeRule.activityRule.scenario.recreate()
         composeRule.waitForIdle()
 
         // Mission Control should still be open.
-        composeRule.onNodeWithText("Settings will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
     }
 
     @Test
@@ -96,8 +96,8 @@ class LiftoffShellTest {
         // Click the sliders button to open Mission Control.
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
 
-        // Mission Control title should be displayed.
-        composeRule.onNodeWithText("Settings will appear here.").assertIsDisplayed()
+        // First section head should be displayed.
+        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
 
         // The bottom navigation bar icons should NOT be visible on Mission Control screen.
         val navItemMatcher = SemanticsMatcher.expectValue(SemanticsProperties.ContentDescription, listOf("Launchpad"))
@@ -123,7 +123,7 @@ class LiftoffShellTest {
         composeRule.onNodeWithText("Landed sorties will appear here, newest first.").assertIsDisplayed()
 
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
-        composeRule.onNodeWithText("Settings will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
 
         // Click the back button in Mission Control.
         composeRule.onNodeWithContentDescription("Back").performClick()
@@ -139,7 +139,7 @@ class LiftoffShellTest {
         composeRule.onNodeWithText("This week's pattern and sorties will appear here.").assertIsDisplayed()
 
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
-        composeRule.onNodeWithText("Settings will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
 
         // System back should close Mission Control and return to the tab it was opened from.
         pressBack()
@@ -160,7 +160,7 @@ class LiftoffShellTest {
 
         // When Mission Control is open, the nav bar should be dark icons (cream background).
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
-        composeRule.onNodeWithText("Settings will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
 
         composeRule.waitForIdle()
         assert(light()) { "Nav bar icons should be dark on Mission Control" }
