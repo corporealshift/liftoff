@@ -21,7 +21,7 @@
   - LiftoffShell.kt: the shell composable — stripe, top bar (wordmark + sliders button), bottom bar (3 tabs with ink background, mustard/rule colors), content switch, BackHandler, rememberSaveable state saver, nav-bar icon contrast SideEffect.
   Done when: All files compile together as a coherent shell. LiftoffShell shows the full UI: stripe, top bar, tab bar, and correct screen for each tab.
 
-- [ ] Wire MainActivity and update ARCHITECTURE.md
+- [x] Wire MainActivity and update ARCHITECTURE.md
   In MainActivity.kt: keep enableEdgeToEdge unchanged, replace setContent body with LiftoffTheme { LiftoffShell() }, remove stale comment and unused imports. Update ARCHITECTURE.md: root row says "MainActivity (hosts the navigation shell)", ui row marked existing with description of navigation shell/placeholder screens/Mission Control stub.
   Done when: MainActivity compiles with no unused imports, ARCHITECTURE.md updated per spec.
 
