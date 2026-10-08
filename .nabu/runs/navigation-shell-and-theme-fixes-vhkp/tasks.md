@@ -12,7 +12,7 @@
   For each of the 9 ...Preview functions across Buttons.kt, Headings.kt, Icons.kt, InkRuledListRow.kt, PatternTrack.kt, and Stripes.kt: add @Preview (import androidx.compose.ui.tooling.preview.Preview) and change visibility to private. Leave bodies unchanged.
   Done when: All 9 previews have @Preview and are private. No test references broken (grep confirms none exist).
 
-- [ ] Build the navigation shell with placeholder screens
+- [x] Build the navigation shell with placeholder screens
   Create these files under com.liftoff.app.ui:
   - ShellNav.kt: pure-Kotlin enum Tab, data class ShellNav with select(), openMissionControl(), back(), encode(), decode(). No Android/Compose imports.
   - PlaceholderScreen.kt: shared Column with verticalScroll, eyebrow+display title via TitleBlock, one line of bodyLarge text, padded 18dp top / 20dp horizontal.
