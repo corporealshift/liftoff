@@ -468,3 +468,180 @@ Done when:
 - ARCHITECTURE.md's milestone table updates M1, M2 and M4 to reflect what is built.
 - `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
 
+**Check:** not met. Built so far: the Space Age design and theme, the settings store, the exercise-name normalizer, AppContainer, and the Room database with its DAOs. The round 2 'Navigation shell and Mission Control' run was stopped before it finished. It held too much for one run: the shell, every settings editor, equipment management and the theme fixes. Because of that, the domain logic, Launchpad and Mission screens and In-Flight never started. MainActivity still shows the round-1 placeholder. Nothing exists yet for Mission/sortie rules, Launchpad, In-Flight, coach generation (coach/ workspace, prompt builder, schemas, validator, DaemonClient copy, GenerationWorker), Landed/Re-fly, run-plan toggle behaviour, test connection or export/import. Seven Material type roles still use the system font, the unannotated '...Preview' composables are still public, and every ARCHITECTURE.md milestone still says not started. This round splits the failed run into three small runs (shell and theme fixes, settings editor, equipment), then does the domain logic and the Launchpad/Mission screens. In-Flight, generation, Landed and export/import come in later rounds.
+
+## Round 3
+
+### 1. Navigation shell and theme fixes
+
+Replace MainActivity's placeholder with Liftoff's real navigation shell, in the Space Age look from `design/README.md` and DESIGN.md §9. Fix two small gaps in the theme. This brief is deliberately small. An earlier run that tried to build the shell together with the whole settings screen was stopped before it finished. Build only what is listed here. The settings screen's content and equipment management come in the next briefs.
+
+Build on what's already in the repo:
+- the theme and shared composables in `com.liftoff.app.ui.theme`: `LiftoffTheme`, `TriStripe`, `Wordmark`, `Eyebrow`/`DisplayTitle`/`TitleBlock`, the offset-shadow helpers and `LiftoffIcons` (rocket, planet, flag, sliders)
+- the color tokens (Ink, Mustard, Rule, Cream and the rest)
+- the `AppContainer` owned by `LiftoffApplication`
+
+**Shell.** MainActivity renders, inside `LiftoffTheme` on cream:
+- the three-band stripe at the top
+- a top bar with the LIFTOFF wordmark on the left and a 44 dp outlined sliders button on the right (2 dp ink border, sliders icon). The button opens Mission Control.
+- an ink bottom bar with three items, Launchpad (rocket), Mission (planet) and Landed (flag). Each item is an icon over an uppercase display-font label. The active item is mustard and the others use the 'rule' color.
+Launchpad is the start destination. Launchpad, Mission and Landed are placeholder screens for now: an eyebrow and display title in the design style with one short line of text. Later briefs fill them in.
+
+Mission Control is a separate full screen reached from the sliders button. It has no bottom-bar item. For now it shows an eyebrow and the title 'MISSION CONTROL' with a back affordance. The next brief fills it in, so leave a clear place for that content.
+
+Navigation is plain Compose state. No navigation library is declared, so don't add one. System back behaves as people expect: from Mission Control it returns to the tab you came from, from a non-start tab it returns to Launchpad, and from Launchpad it leaves the app. The selected tab survives rotation.
+
+**Theme fixes.**
+- Every Material 3 typography role must use a bundled font. Today `LiftoffTypography()` in `ui/theme/Type.kt` sets only 8 roles. displaySmall, headlineMedium, headlineSmall, titleMedium, titleSmall, bodySmall and labelMedium still fall back to the system font, so text fields and dialogs would show it. Display, headline and title roles use Big Shoulders Display. Body and label roles use Work Sans. Keep the 8 roles that are already set as they are.
+- The public `...Preview` composables in `ui/theme` (PrimaryButtonPreview, TriStripePreview and the others) have no `@Preview` annotation, so they are dead public API. Either add `@Preview` and make them private, or remove them. Update any test that refers to them.
+
+UI strings follow the DESIGN.md §2 vocabulary. Must not break: the data layer, settings store, AppContainer and their tests, the launcher icon, the existing theme tests, and the build gate. Follow CLAUDE.md: LF endings, `area: lowercase summary` commit messages, staging named files only.
+
+Done when:
+- The app opens to the shell on the Launchpad tab. All three tabs and the Mission Control screen are reachable, and back behaves as described.
+- A JVM test covers the navigation state logic: tab selection, opening Mission Control, and what back does from each place.
+- A test checks that every Material 3 typography role's font family is Big Shoulders Display or Work Sans, and never the default family.
+- ARCHITECTURE.md's package table marks `ui` as existing, and the root package's row no longer calls MainActivity a placeholder.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 2. Mission Control settings
+
+Fill in the Mission Control screen so it edits every setting in DESIGN.md §8. Read DESIGN.md §2, §8 and §9 and `design/README.md` first.
+
+Build on what's already in the repo:
+- the navigation shell in MainActivity, where the top bar's sliders button opens a Mission Control screen that currently shows only its title. Put the content there.
+- `SettingsStore` in `com.liftoff.app.settings`, reached through `AppContainer`. It has an observable `settings` flow and one setter per field. The setters already reject a port outside 1–65535, a pattern that isn't 1–7 R/L characters, and a non-positive sortie length or history window.
+- the theme composables in `com.liftoff.app.ui.theme`: `TitleBlock`, `InkRuledListRow`, `PatternTrack`, the buttons and the offset-shadow helpers
+
+Mission Control isn't mocked up. Build it from the design's parts: eyebrow and display title, section heads, ink-ruled rows, paper cards with 2 dp ink borders, and square or 4 dp corners. Don't use stock M3 tonal surfaces or pill shapes. It scrolls and edits:
+- **Connection:** daemon host, port and token. The token is masked, with a way to reveal it.
+- **Coach:** the coach workspace path.
+- **Mission:**
+  - the default pattern, edited as R/L chips: tap to toggle, add and remove, 1–7 sorties
+  - sortie length in minutes
+  - history window in days
+- **Units:** weight lb/kg and distance mi/km.
+- **Runs:** the 'Generate run plans' toggle.
+- **Objectives and constraints:** two free-text fields.
+
+Edits are saved to the settings store and survive an app restart. Invalid input is not saved, and a clear message is shown next to the field: a port that isn't a number in 1–65535, a non-positive or non-numeric length or window, or a pattern outside 1–7. The pattern editor must not let the pattern drop below 1 or go above 7 chips. When the screen opens it shows the stored values.
+
+Put the validation and screen state in plain Kotlin that a JVM test can drive without Compose UI, for example a state holder or ViewModel built from the settings store. Compose UI tests are not required. Leave room in the screen for an Equipment section, which the next brief adds. Don't add 'Test connection' or export/import yet, and don't add placeholders for them that don't work.
+
+UI strings follow the §2 vocabulary: say 'sortie length', never 'session'. Must not break: the shell and its back behaviour, the settings store and data layer and their tests, the theme tests, and the build gate. Follow CLAUDE.md conventions.
+
+Done when:
+- Every §8 setting can be edited from Mission Control and keeps its new value after the app restarts.
+- JVM tests cover loading the stored values, saving each kind of field, rejecting each invalid input with the stored value left unchanged, and the pattern editor's 1–7 limits.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 3. Equipment management in Mission Control
+
+Add equipment management to the Mission Control screen. The coach later uses the equipment list to plan lifts (DESIGN.md §7.1, §8). Read DESIGN.md §8 and `design/README.md` first.
+
+Build on what's already in the repo:
+- the Mission Control screen and its state logic, which already edits the settings. Add an Equipment section to it.
+- `EquipmentDao` in `com.liftoff.app.data`, reached through `AppContainer`'s database. It has add (rejects a key that doesn't match `[a-z0-9_]+`), edit of name and notes, active-only and all lists as flows, deactivate and reactivate. The key column is unique, so inserting a duplicate key throws.
+- the theme composables (`InkRuledListRow`, the buttons, paper cards with ink borders)
+
+**Behaviour.**
+- The section lists active equipment, one row per item, showing key — name — notes.
+- Add: enter key, name and optional notes. An invalid key, or one already used by any item (active or inactive), gets an inline error and nothing is saved. Name is required.
+- Edit: change an item's name and notes. The key is fixed once created, because history and prompts refer to it.
+- Deactivate: removes the item from the main list. Nothing is ever deleted.
+- A way to show deactivated items, each with a Reactivate action.
+The list updates live from Room.
+
+Use the same design parts as the rest of Mission Control. No stock M3 tonal surfaces or pill shapes. Dialogs and text fields should use the theme's fonts and ink borders.
+
+Put the validation and state in plain Kotlin that a JVM or Robolectric test can drive against an in-memory database. Compose UI tests are not required.
+
+Must not break: the settings editing in Mission Control, the shell, the data layer and its tests, and the build gate. Follow CLAUDE.md conventions.
+
+Done when:
+- Equipment can be added, edited, deactivated and reactivated from Mission Control, and changes persist.
+- Tests cover the key rules (invalid pattern, duplicate against an active item, duplicate against an inactive item), the name requirement, editing, and deactivate/reactivate moving an item between the two lists without deleting it.
+- ARCHITECTURE.md's milestone table marks M1 (skeleton and data, theme, shell, Mission Control with equipment) as done, with a note that test connection and export/import come later.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 4. Mission and sortie domain logic
+
+Implement the rules for weeks (Missions) and their sorties from DESIGN.md §4, §5.1 and §5.3. Read DESIGN.md §2, §4, §5, §8 and §13 first. Build on the Room database and DAOs in `com.liftoff.app.data` (Mission, Sortie, FlightPlan and their DAOs, including writing a whole Flight Plan in one transaction), the settings store, and `AppContainer`. No new screens in this brief; the next brief builds the Launchpad on it.
+
+**Pure Kotlin in `com.liftoff.app.domain`, with no Android imports** (ARCHITECTURE.md invariant 2):
+- the week start: Monday, in the phone's local time zone
+- creating a DRAFT Mission for the current week with the default pattern
+- overriding the pattern, only while the Mission is a draft (1–7 of R/L); the pattern is frozen once confirmed
+- the Mission lifecycle DRAFT → ACTIVE → CLOSED
+- the sortie state machine (PENDING, PLANNED, IN_FLIGHT, LANDED, SCRUBBED): every legal transition in §5.1 succeeds and every illegal one is rejected
+- at most one sortie IN_FLIGHT across all Missions
+- next-sortie selection: the lowest index that is neither landed nor scrubbed
+- a Mission closes when every sortie has landed or been scrubbed
+- rollover: once a Mission's week has ended, its open sorties become SCRUBBED with reason 'week ended' and the Mission closes. Nothing carries over, and no Mission is created ahead of its week.
+
+**Confirming.** Coach generation doesn't exist yet, so confirming a draft takes the 'Continue without outline' path from §4.2. The Mission becomes ACTIVE and gets one sortie per pattern letter (R = run, L = lift). Lift sorties get focus 'full body' and runs get focus 'easy'.
+
+**Planning the current sortie.** Whenever a sortie becomes current (after confirm, or after the previous sortie lands or is scrubbed), the app prepares its plan as §5.3 and §7.2 describe:
+- With run generation off, a run sortie gets a simple Flight Plan titled 'Run' with source SIMPLE_RUN and its focus, and the sortie becomes PLANNED.
+- Lift sorties, and runs with generation on, stay PENDING for now. Keep this decision in one clear place so the later coach-generation work can queue a generation there. Don't create Generation rows yet.
+
+**A Room-backed layer the UI can call**, with each operation in one transaction:
+- on app open, roll over past Missions and make sure the current week has a Mission, creating a draft if needed
+- change a draft's pattern
+- confirm
+- scrub the current sortie with an optional reason. A scrubbed IN_FLIGHT sortie keeps the sets already checked.
+- launch a PLANNED sortie (records launchedAt)
+- land the IN_FLIGHT sortie: set it LANDED with its landed time, mark unchecked sets as not done, advance to the next sortie and prepare its plan, and close the Mission after the last one
+Expose it through `AppContainer`. The clock and time zone must be injectable so tests can control them.
+
+Must not break: the shell, Mission Control and equipment management, the data layer and its tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary: never 'session' for a sortie.
+
+Done when:
+- Unit tests cover the §13 'Missions' and 'Sorties' cases: draft created with the default pattern; override, then frozen on confirm; rollover scrubs open sorties with 'week ended'; no carry-over; the Monday boundary across time zones; every legal and illegal transition; next-sortie selection skipping landed and scrubbed sorties; at most one in flight.
+- Robolectric tests with in-memory Room cover simple run plan creation and each Room-backed operation, including land advancing to the next sortie and closing the Mission.
+- ARCHITECTURE.md's package table marks `domain` as existing.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 5. Launchpad and Mission screens
+
+Replace the Launchpad and Mission placeholder tabs with the real screens. Read DESIGN.md §2, §4, §5 and §9, `design/README.md` and `design/screens/launchpad.html` first. The HTML is a static mockup where 1 px = 1 dp. Build on:
+- the Space Age theme composables in `com.liftoff.app.ui.theme` (`TitleBlock`, `PatternTrack`, `InkRuledListRow`, `PrimaryButton`, `UnderlinedTextButton`, the offset-shadow helpers, `LiftoffIcons`)
+- the navigation shell in MainActivity
+- the Mission/sortie domain logic in `com.liftoff.app.domain` and its Room-backed operations (ensure the current week, change the draft pattern, confirm, scrub, launch), reached through `AppContainer`
+Screens update live from Room. Run 'ensure the current week' when the app opens and whenever it comes back to the foreground, so rollover happens at the week boundary.
+
+**Launchpad.** The PLANNED state must match `design/screens/launchpad.html` and the 'Launchpad, PLANNED' section of `design/README.md`:
+- an eyebrow like 'WEEK OF OCT 5 · SORTIE 2 OF 5 · LIFT' and the plan title in 68 sp display type
+- the pattern track, with landed, current and upcoming chips
+- a 'FLIGHT PLAN' head with the estimated minutes and set count, over a ruled list with one row per exercise: red index, name, and load such as '3×8 · 135'. For a run, show the run summary (title, focus, any target distance or segments) instead.
+- the coach note, with 'Coach:' in teal, when the plan has notes
+- the 72 dp red Launch button with the rocket glyph and offset shadow
+- an underlined Scrub text button
+Regenerate needs coach generation, which comes later; leave it out until then.
+
+The other states use the same parts:
+- **No confirmed Mission this week:** the draft, with editable R/L pattern chips (tap to toggle, add, remove; 1–7 sorties) that start from the default pattern, and a Confirm button
+- **PENDING:** a status line saying no Flight Plan is ready yet, with Scrub where Launch would be
+- **IN_FLIGHT:** a Resume button
+- **Mission closed:** a short completion state
+
+Scrub asks for confirmation first. Launch sets the sortie IN_FLIGHT and opens an In-Flight route; Resume opens the same route. That route can be a simple placeholder that shows the sortie's title and offers back, because a later brief builds the real In-Flight screen.
+
+**Mission tab** (§9). It shows:
+- this week's pattern track
+- the outline notes, if any
+- each sortie with its index, type (run/lift), focus and state
+Tapping a sortie shows its Flight Plan, or a short record for a landed or scrubbed sortie (including the scrub reason). It isn't mocked up; use the same design parts.
+
+Put the derivation of each screen's state from the database in plain Kotlin that a Robolectric test can drive against an in-memory database. Compose UI tests are not required. UI strings keep the §2 vocabulary (Launch, Flight Plan, Sortie, Scrub, Mission).
+
+Must not break: the shell, Mission Control, the domain rules and their tests, and the build gate. Follow CLAUDE.md conventions.
+
+Done when:
+- On a fresh install, the app opens to a draft for the current week with the default pattern.
+- Confirming shows sortie 1 (a run under the default RLRLR pattern) as PLANNED with Launch available.
+- Scrubbing advances to the next sortie.
+- Tests cover how each Launchpad state (draft, PLANNED lift with seeded exercises, PLANNED run, PENDING, IN_FLIGHT, closed) and the Mission tab are derived from the database.
+- ARCHITECTURE.md's milestone table marks M2 as done.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
