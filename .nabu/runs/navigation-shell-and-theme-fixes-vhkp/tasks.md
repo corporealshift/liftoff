@@ -1,6 +1,6 @@
 # Tasks: Navigation shell and theme fixes
 
-- [ ] Fix every Material 3 typography role to use a bundled font
+- [x] Fix every Material 3 typography role to use a bundled font
   Remove @Composable from LiftoffTypography() in ui/theme/Type.kt so a JVM test can call it. Keep the 8 existing role assignments unchanged. Add the 7 missing roles (displaySmall, headlineMedium, headlineSmall, titleMedium, titleSmall, bodySmall, labelMedium) using base.<role>.copy(fontFamily = ...) — Big Shoulders at W800 for display/headline/title roles, Work Sans for bodySmall and labelMedium. Add a one-line comment explaining why.
   Done when: LiftoffTypography() has all 15 Material 3 roles filled with either BigShoulders or WorkSans, no @Composable annotation, existing 8 roles unchanged.
 
