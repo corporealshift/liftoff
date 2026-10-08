@@ -1,111 +1,117 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env bash
+# Done-check for the navigation-shell-and-theme-fixes run.
+# Runs the CI gate, then proves each named test of the new behaviour ran and passed,
+# reading Gradle's JUnit XML reports (not console output, which Gradle doesn't print per test).
+set -uo pipefail
 
-# Run from repository root
-cd "$(dirname "$0")/../.."
+# Repository root, whether called from the root or from the script's own directory.
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "$0")/../../.." && pwd))"
+cd "$ROOT" || { echo "FAIL: cannot cd to repository root"; exit 1; }
 
-echo "=== Running CI gate ==="
-bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee build.log
+RESULTS="app/build/test-results/testDebugUnitTest"
+LOG="$(mktemp)"
+trap 'rm -f "$LOG"' EXIT
 
-# The full CI suite must succeed.
-if ! grep -q "BUILD SUCCESSFUL" build.log; then
-    echo "✗ Build did not succeed"
-    exit 1
+fail() { echo "FAIL: $*"; exit 1; }
+
+# Stale reports from an earlier run must not count as this run's results.
+rm -rf "$RESULTS"
+
+echo "=== CI gate: :app:assembleDebug :app:testDebugUnitTest ==="
+bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee "$LOG"
+status=${PIPESTATUS[0]}
+if [ "$status" -ne 0 ]; then
+    fail "the CI gate failed (gradle exit $status)"
 fi
-echo "✓ Build succeeded"
+echo "PASS: CI gate"
 
-# Helper: check that a test name appears in the log as PASSED.
-# gradle prints lines like:  com.liftoff.app.ui.ShellNavTest > testFoo PASSED
+[ -d "$RESULTS" ] || fail "no unit test reports in $RESULTS: the test task did not run"
+
+# check_test <fully.qualified.Class> <method>: the test ran, and did not fail, error or skip.
 check_test() {
-    local pattern="$1"
-    if grep -q "> ${pattern} PASSED" build.log; then
-        echo "✓ $pattern passed"
-    else
-        echo "✗ $pattern did not pass (may not have run)"
-        exit 1
-    fi
+    local cls="$1" method="$2"
+    local report="$RESULTS/TEST-$cls.xml"
+    [ -f "$report" ] || fail "$cls.$method did not run (no report for $cls)"
+    local line
+    line="$(grep -F " name=\"$method\"" "$report" | grep -F "classname=\"$cls\"" | head -n 1 | tr -d '\r')"
+    [ -n "$line" ] || fail "$cls.$method did not run"
+    # A passing testcase is a self-closing element; failures and skips have child elements.
+    case "$line" in
+        *"/>") echo "PASS: $cls.$method" ;;
+        *) fail "$cls.$method failed or was skipped" ;;
+    esac
 }
 
-# --- New tests added by this brief ---
+NAV="com.liftoff.app.ui.ShellNavTest"
+SHELL="com.liftoff.app.ui.LiftoffShellTest"
+TYPE="com.liftoff.app.ui.theme.TypographyTest"
 
-# ShellNavTest — proves navigation state logic: tab selection, Mission Control open/close,
-# back() from each tab, and encode/decode for rotation survival.
-check_test "ShellNavTest"
+# --- Brief: a JVM test covers the navigation state logic ---
+# Tab selection, opening Mission Control, and what back does from each place.
+check_test "$NAV" startsOnLaunchpadWithMissionControlClosed
+check_test "$NAV" selectingATabShowsIt
+check_test "$NAV" openingMissionControlKeepsTheTab
+check_test "$NAV" backFromMissionOrLandedGoesToLaunchpad
+check_test "$NAV" backFromLaunchpadLeavesTheApp
 
-# TypographyTest.everyMaterialRoleUsesABundledFamily — every Material 3 typography role
-# uses Big Shoulders Display or Work Sans, never the default system font.
-check_test "everyMaterialRoleUsesABundledFamily"
+# --- Brief: the app opens to the shell on Launchpad; every tab and Mission Control is reachable ---
+# LiftoffShellTest drives the real MainActivity under Robolectric with the Compose UI test rule
+# (the worker adds the compose ui-test test dependencies; no navigation library).
+check_test "$SHELL" appOpensOnLaunchpad
+check_test "$SHELL" bottomBarReachesEveryTab
+check_test "$SHELL" systemBackFromATabGoesToLaunchpad
+check_test "$SHELL" systemBackFromLaunchpadFinishesTheActivity
 
-# --- Guard tests (must still pass) ---
+# --- Brief: every Material 3 typography role uses Big Shoulders Display or Work Sans ---
+check_test "$TYPE" everyMaterialRoleUsesABundledFamily
+# Brief: the 8 roles already set are kept as they are.
+check_test "$TYPE" originalEightRolesAreUnchanged
+# Existing typography tests keep passing.
+check_test "$TYPE" namedRolesMatchReadmeTypeTable
+check_test "$TYPE" materialSlotsUseDesignFonts
 
-# FontResourcesTest — proves no new fonts were added; exactly 6 TTFs in res/font/.
-check_test "FontResourcesTest"
+# --- Decisions (plan.md ## Decisions) ---
 
-# ThemePackageTest — proves ui/theme still has exactly 11 .kt files.
-check_test "ThemePackageTest"
+# Decision: Shell placement. Navigation logic is a pure-Kotlin ShellNav in com.liftoff.app.ui,
+# tested on the plain JVM without Robolectric; ui/theme stays at its 11 files.
+check_test "$NAV" startsOnLaunchpadWithMissionControlClosed
+check_test "com.liftoff.app.ui.theme.ThemePackageTest" buildingBlocksAreDeclaredInUiTheme
 
-# MainActivityTest — proves the old constant assertions still pass with the new shell.
-check_test "MainActivityTest"
+# Decision: No new fonts. The six bundled TTFs are reused, exactly six.
+check_test "com.liftoff.app.ui.theme.FontResourcesTest" bundlesStaticBigShouldersAndWorkSansWeights
 
-# --- Decisions from plan.md ## Decisions, each with a named test ---
+# Decision: The missing typography roles. The 7 filled roles keep the Material 3 default
+# size and line height; display/headline/title use Big Shoulders W800, bodySmall/labelMedium Work Sans.
+check_test "$TYPE" filledRolesKeepMaterialDefaultMetrics
 
-# Shell placement: shell lives under com.liftoff.app.ui in subpackages;
-# navigation logic is pure-Kotlin ShellNav.kt, not MainActivity.
-# Proven by assembleDebug succeeding (ShellNav + LiftoffShell compile together).
-if ! grep -q "BUILD SUCCESSFUL" build.log; then
-    echo "✗ assembleDebug failed — shell placement does not compile"
-    exit 1
-fi
-echo "✓ Shell placement: ui package compiles as a coherent shell"
+# Decision: Preview composables. They are no longer public API (private @Preview, not deleted).
+check_test "com.liftoff.app.ui.theme.PreviewsTest" noPreviewComposableIsPublicApi
 
-# No new fonts: the six bundled TTFs are reused; FontResourcesTest enforces exactly 6.
-check_test "FontResourcesTest"
+# Decision: Back behaviour. Back from Mission Control returns to the tab it was opened from,
+# a second back goes to Launchpad, and reselecting the current tab does nothing.
+check_test "$NAV" backFromMissionControlReturnsToTabItWasOpenedFrom
+check_test "$NAV" secondBackAfterMissionControlGoesToLaunchpad
+check_test "$NAV" reselectingCurrentTabChangesNothing
+check_test "$SHELL" systemBackFromMissionControlReturnsToTabItWasOpenedFrom
 
-# Missing typography roles filled: all 15 Material 3 roles use a bundled font.
-check_test "everyMaterialRoleUsesABundledFamily"
+# Decision: Rotation. Both the selected tab and whether Mission Control is open survive rotation.
+check_test "$NAV" stateSurvivesSaveAndRestore
+check_test "$NAV" unreadableSavedStateRestoresToLaunchpad
+check_test "$SHELL" selectedTabSurvivesRecreation
+check_test "$SHELL" missionControlSurvivesRecreation
 
-# Preview composables have @Preview and are private — no test breaks from the visibility change.
-# Proven by all existing theme tests passing (ButtonsTest, StripesTest, IconsTest, etc.).
-check_test "ButtonsTest"
-check_test "StripesTest"
-check_test "IconsTest"
+# Decision: Mission Control layout. Full screen without the bottom bar, opened by the sliders
+# button, eyebrow "Settings" and title "Mission Control", and a back button to the origin tab.
+check_test "$SHELL" slidersButtonOpensMissionControlWithoutBottomBar
+check_test "$SHELL" missionControlShowsSettingsEyebrowAndTitle
+check_test "$SHELL" missionControlBackButtonReturnsToTabItWasOpenedFrom
 
-# Back behaviour: back() from Mission Control returns to the originating tab;
-# second back goes to Launchpad; back from Launchpad is null.
-# Covered by ShellNavTest's back() tests.
-if grep -q "> ShellNavTest PASSED" build.log; then
-    echo "✓ Back behaviour: ShellNavTest covers back() from all states"
-else
-    echo "✗ ShellNavTest did not run — back behaviour unverified"
-    exit 1
-fi
+# Decision: System nav-bar icons. Light icons over the ink bar on tabs, dark on Mission Control's cream.
+check_test "$SHELL" navBarIconsAreLightOnTabsAndDarkOnMissionControl
 
-# Rotation survival: selected tab and Mission Control open state survive rotation.
-# Covered by ShellNavTest.decode(encode(x)) == x tests.
-if grep -q "> ShellNavTest PASSED" build.log; then
-    echo "✓ Rotation survival: encode/decode round-trip tested in ShellNavTest"
-else
-    echo "✗ ShellNavTest did not run — rotation unverified"
-    exit 1
-fi
-
-# Mission Control layout: back button, TitleBlock with "Settings"/"Mission Control",
-# empty MissionControlContent() slot. Proven by assembleDebug succeeding and LiftoffShell
-# compiling (it references MissionControlScreen).
-echo "✓ Mission Control layout: LiftoffShell compiles with MissionControlScreen"
-
-# System nav-bar icons: ink bar extends under system nav bar; icons switch light/dark.
-# Proven by assembleDebug succeeding (SideEffect compiles and references Activity/WindowCompat).
-echo "✓ System nav-bar icons: LiftoffShell compiles with SideEffect for icon contrast"
-
-# Placeholder copy: Launchpad, Mission, Landed screens use §2 vocabulary text.
-# Proven by assembleDebug succeeding — the placeholder screen composables compile with
-# their string arguments.
-echo "✓ Placeholder copy: placeholder screens compile as part of the shell build"
-
-# ARCHITECTURE.md update — root row no longer calls MainActivity a placeholder;
-# ui row marked existing. Manual check (not automated in script).
-echo "✓ ARCHITECTURE.md: to be verified manually (doc change, not code)"
+# Decision: Placeholder copy. Launchpad, Mission and Landed show their eyebrow, title and line.
+check_test "$SHELL" placeholderScreensShowTheirCopy
 
 echo ""
 echo "=== All checks passed ==="
+exit 0
