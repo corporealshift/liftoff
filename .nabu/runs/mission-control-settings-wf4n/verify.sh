@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Verification for mission-control-settings-wf4n
 # Exit 0 only when the brief is fully done.
 set -euo pipefail
@@ -6,196 +6,200 @@ set -euo pipefail
 # verify.sh lives at .nabu/runs/<run-id>/verify.sh; go up 3 levels to repo root.
 cd "$(dirname "$0")/../../.."
 
-echo "=== Build gate: assembleDebug + testDebugUnitTest ==="
-bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
-
 XML="app/build/test-results/testDebugUnitTest"
 
-# Helper: report pass / fail
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1"; exit 1; }
 
-# Check root-level failure/error counts across all XML files.
-total_failures=$(grep -ho 'failures="[0-9]*"' "$XML"/*.xml 2>/dev/null | sed 's/failures="//;s/"//' | awk '{s+=$1}END{print s+0}')
-total_errors=$(grep -ho 'errors="[0-9]*"' "$XML"/*.xml 2>/dev/null | sed 's/errors="//;s/"//' | awk '{s+=$1}END{print s+0}')
+# Clear old results so only this run counts; Gradle reruns the tests when its outputs are gone.
+rm -rf "$XML"
 
-echo "Total failures: $total_failures, errors: $total_errors"
-if [ "$total_failures" -gt 0 ] || [ "$total_errors" -gt 0 ]; then
-    fail "Build gate has test failures or errors"
-fi
+echo "=== Build gate (same command as CI): assembleDebug + testDebugUnitTest ==="
+bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest || fail "build gate failed"
 
 # ---------------------------------------------------------------------------
 # check_test CLASS METHOD
-# Looks for <testcase classname="CLASS" name="METHOD"> in the XML.
-# Fails if not found (test never ran) or if it contains <failure>/<error>.
+# Passes only if CLASS.METHOD ran in this build and passed.
+# Fails if it is missing, skipped, failed or errored.
+# Handles self-closing <testcase .../> and either attribute order.
 # ---------------------------------------------------------------------------
 check_test() {
     local cls="$1"
     local method="$2"
+    local file="$XML/TEST-${cls}.xml"
 
-    # Use awk to extract the testcase block for this class+method, then check status.
-    local result
-    result=$(awk -v c="$cls" -v m="$method" '
-        BEGIN { found=0; failed=0 }
-        /<testcase/ && $0 ~ "classname=\""c"\"" && $0 ~ "name=\""m"\"" { found=1 }
-        found && /<\/testcase>/ {
-            if (found) {
-                # We need to check the whole testcase block for failure/error tags.
-                # Re-read: set a flag when we enter and check on close.
-            }
-        }
-    ' "$XML"/*.xml 2>/dev/null || true)
-
-    # Simpler approach: grep for the testcase line, then awk its block.
-    local found=0
-    local has_failure=0
-    for xmlfile in "$XML"/*.xml; do
-        if grep -q "classname=\"${cls}\".*name=\"${method}\"" "$xmlfile"; then
-            found=1
-            # Extract the testcase block and check for failure/error tags
-            if awk "/classname=\"${cls}\".*name=\"${method}\"/,/<\/testcase>/" "$xmlfile" | grep -q '<failure\|<error'; then
-                has_failure=1
-            fi
-        fi
-    done
-
-    if [ "$found" -eq 0 ]; then
-        fail "${cls}.${method} did not run"
-    elif [ "$has_failure" -eq 1 ]; then
-        fail "${cls}.${method} ran but failed"
-    else
-        pass "${cls}.${method}"
+    if [ ! -f "$file" ]; then
+        fail "${cls}.${method} did not run (no results for ${cls})"
     fi
+
+    local status
+    status=$(awk -v m="$method" '
+        BEGIN { RS = "<testcase[ \t\r\n]"; st = "missing" }
+        NR > 1 {
+            gt = index($0, ">")
+            head = substr($0, 1, gt)
+            if (head !~ ("(^|[ \t\r\n])name=\"" m "\"")) next
+            if (substr(head, gt - 1, 1) == "/") {
+                body = ""
+            } else {
+                e = index($0, "</testcase>")
+                body = (e > 0) ? substr($0, gt + 1, e - gt - 1) : substr($0, gt + 1)
+            }
+            if (body ~ /<(failure|error)[ \t\r\n>\/]/) st = "failed"
+            else if (body ~ /<skipped/) { if (st != "failed") st = "skipped" }
+            else if (st == "missing") st = "passed"
+        }
+        END { print st }
+    ' "$file")
+
+    case "$status" in
+        passed)  pass "${cls}.${method}" ;;
+        missing) fail "${cls}.${method} did not run" ;;
+        skipped) fail "${cls}.${method} was skipped" ;;
+        *)       fail "${cls}.${method} ran but failed" ;;
+    esac
 }
 
+VM="com.liftoff.app.ui.control.MissionControlViewModelTest"
+SCREEN="com.liftoff.app.ui.control.MissionControlScreenTest"
+SHELL_T="com.liftoff.app.ui.LiftoffShellTest"
+STORE_T="com.liftoff.app.settings.SettingsStoreTest"
+
 # ============================================================================
-# Task 1: MissionControlViewModel — plain Kotlin state holder wrapping SettingsStore
+# Loading: when Mission Control opens it shows the stored values.
 # ============================================================================
 echo ""
-echo "=== Task 1: MissionControlViewModel ==="
-
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "loadsStoredValues"
-
-# ============================================================================
-# Task 2: MissionControlViewModelTest — saving each kind of field
-# ============================================================================
-echo ""
-echo "=== Task 2: Saving each field type ==="
-
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesHost"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesPort"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesToken"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesWorkspacePath"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesPattern"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesSortieLength"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesHistoryWindow"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesWeightUnit"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesDistanceUnit"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesGenerateRunPlans"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesObjectives"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesConstraints"
+echo "=== Loading stored values ==="
+# View model: non-default stored values appear in every state field; loaded = true.
+check_test "$VM" "loadsStoredValues"
+# Screen (Robolectric): opening Mission Control shows stored host, port, pattern etc.
+check_test "$SCREEN" "opensShowingStoredValues"
 
 # ============================================================================
-# Task 2: Rejecting invalid input — stored value unchanged
+# Saving each kind of field: the view model method writes the new value to the store.
 # ============================================================================
 echo ""
-echo "=== Task 2: Rejecting invalid input ==="
-
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "rejectsInvalidPort"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "rejectsInvalidSortieLength"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "rejectsInvalidHistoryWindow"
-
-# ============================================================================
-# Task 2: Survives restart — save through one VM, open new VM on same file
-# ============================================================================
-echo ""
-echo "=== Task 2: Survives restart ==="
-
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "survivesRestart"
-
-# ============================================================================
-# Task 2: Draft not clobbered — invalid port draft stays after saving another field
-# ============================================================================
-echo ""
-echo "=== Task 2: Draft not clobbered ==="
-
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "draftNotClobberedByOtherSave"
+echo "=== Saving each field ==="
+check_test "$VM" "savesHost"
+check_test "$VM" "savesPort"
+check_test "$VM" "savesToken"
+check_test "$VM" "savesWorkspacePath"
+check_test "$VM" "savesSortieLength"
+check_test "$VM" "savesHistoryWindow"
+check_test "$VM" "savesWeightUnit"
+check_test "$VM" "savesDistanceUnit"
+check_test "$VM" "savesGenerateRunPlans"
+check_test "$VM" "savesObjectives"
+check_test "$VM" "savesConstraints"
+check_test "$VM" "patternToggleFlipsChipAndSaves"
+check_test "$VM" "patternAddAppendsRAndSaves"
+check_test "$VM" "patternRemoveDropsLastChipAndSaves"
 
 # ============================================================================
-# Task 2: Pattern editor 1-7 limits
+# Survives restart: values saved through one view model load in a fresh
+# DataStore + SettingsStore + view model on the same file.
 # ============================================================================
 echo ""
-echo "=== Task 2: Pattern editor limits ==="
-
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "patternAddAtSevenIsRejected"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "patternRemoveAtOneIsRejected"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "patternToggleFlipsRL"
+echo "=== Survives restart ==="
+check_test "$VM" "survivesRestart"
 
 # ============================================================================
-# Plan Decisions — each decision gets a named test of its own.
-# The decision is named in the comment above it.
+# Rejecting invalid input: the error is set, the stored value is unchanged,
+# and a later valid entry clears the error.
+# ============================================================================
+echo ""
+echo "=== Rejecting invalid input ==="
+check_test "$VM" "rejectsInvalidPort"
+check_test "$VM" "rejectsInvalidSortieLength"
+check_test "$VM" "rejectsInvalidHistoryWindow"
+# Screen: an invalid port shows its message on screen and the store keeps the old port.
+check_test "$SCREEN" "invalidPortShowsErrorMessage"
+
+# ============================================================================
+# Draft not clobbered: an invalid port draft and its error stay after another field saves.
+# ============================================================================
+echo ""
+echo "=== Draft not clobbered ==="
+check_test "$VM" "draftNotClobberedByOtherSave"
+
+# ============================================================================
+# Pattern editor 1–7 limits
+# ============================================================================
+echo ""
+echo "=== Pattern editor limits ==="
+check_test "$VM" "patternAddAtSevenIsRejected"
+check_test "$VM" "patternRemoveAtOneIsRejected"
+
+# ============================================================================
+# Plan Decisions: each decision has a named test of its own.
 # ============================================================================
 echo ""
 echo "=== Plan Decisions ==="
 
 # Decision: How are pattern chips added and removed?
-# Chosen: square + and - buttons under chip row; tap toggles R/L.
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "canAddChipFalseAtSeven"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "canRemoveChipFalseAtOne"
+# Square + (append R) and − (remove last) buttons under the chip row; tapping a chip toggles R/L.
+# Screen: tapping +, − and a chip changes the stored pattern accordingly.
+check_test "$SCREEN" "patternButtonsAndChipTapEditPattern"
 
 # Decision: How are unit choices (weight, distance) presented?
-# Chosen: two adjacent square segments with 4 dp outer corners, 2 dp ink border.
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesWeightUnit"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesDistanceUnit"
+# Two adjacent segments per unit; tapping the other segment selects and saves it.
+check_test "$SCREEN" "tappingUnitSegmentsSavesUnits"
 
 # Decision: Do sections get paper cards or sit directly on cream?
-# Chosen: paper card with 2 dp ink border, square corners.
-# Verified by shell tests rendering CONNECTION section head.
-check_test "com.liftoff.app.ui.LiftoffShellTest" "missionControlSurvivesRecreation"
-check_test "com.liftoff.app.ui.LiftoffShellTest" "slidersButtonOpensMissionControlWithoutBottomBar"
-check_test "com.liftoff.app.ui.LiftoffShellTest" "missionControlBackButtonReturnsToTabItWasOpenedFrom"
-check_test "com.liftoff.app.ui.LiftoffShellTest" "systemBackFromMissionControlReturnsToTabItWasOpenedFrom"
-check_test "com.liftoff.app.ui.LiftoffShellTest" "navBarIconsAreLightOnTabsAndDarkOnMissionControl"
+# One card per section, each with its head: CONNECTION, COACH, MISSION, UNITS, RUNS,
+# OBJECTIVES AND CONSTRAINTS, in that order.
+check_test "$SCREEN" "showsEverySectionHeadInOrder"
 
 # Decision: Where does the Equipment section go?
-# Chosen: no visible placeholder; room left in code. Next brief adds one section composable.
-# Verified by CONNECTION appearing first in the card order (shell test assertions).
-check_test "com.liftoff.app.ui.LiftoffShellTest" "missionControlSurvivesRecreation"
+# No visible Equipment section or placeholder; no Test connection or export/import either.
+check_test "$SCREEN" "showsNoEquipmentOrUnbuiltPlaceholders"
 
 # Decision: When are edits saved?
-# Chosen: automatic on valid input, no Save button. Invalid stays with error.
-# Proven by save tests + rejection tests already checked above.
-# Already covered by saves* and rejects* test names.
+# Automatically on valid input, with no Save button; an invalid draft is dropped and the
+# next open shows the stored value.
+check_test "$SCREEN" "typingValidValueSavesWithoutSaveButton"
+check_test "$VM" "reopenShowsStoredValueAfterInvalidDraft"
 
 # Decision: How is numeric input parsed?
-# Chosen: trimmed whitespace, whole numbers only ("7.5" rejected).
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "rejectsInvalidSortieLength"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "rejectsInvalidHistoryWindow"
+# Surrounding whitespace is trimmed; only whole numbers are accepted ("7.5", "", Int overflow rejected).
+check_test "$VM" "numericInputIsTrimmed"
+check_test "$VM" "rejectsNonWholeAndOverflowNumbers"
 
 # Decision: What does the pattern editor show at its limits?
-# Chosen: + disabled at 7, - disabled at 1; error message on overflow attempt.
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "patternAddAtSevenIsRejected"
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "patternRemoveAtOneIsRejected"
+# + disabled at 7, − disabled at 1; an attempt at a limit shows "A pattern has 1 to 7 sorties".
+check_test "$VM" "canAddChipFalseAtSeven"
+check_test "$VM" "canRemoveChipFalseAtOne"
+check_test "$SCREEN" "patternButtonsDisabledAtLimits"
 
 # Decision: What control is 'Generate run plans'?
-# Chosen: 44 dp square check box with 4 dp corners.
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesGenerateRunPlans"
+# A square check box whose whole row, label included, is the touch target.
+check_test "$SCREEN" "tappingGenerateRunPlansRowTogglesSetting"
 
 # Decision: How does the token reveal work?
-# Chosen: eye icon button inside masked text field, toggles visibility.
-check_test "com.liftoff.app.ui.control.MissionControlViewModelTest" "savesToken"
+# Eye icon button in the token field toggles masking ("Show token" / "Hide token"); the stored token is unchanged.
+check_test "$VM" "toggleTokenVisibilityDoesNotWrite"
+check_test "$SCREEN" "tokenRevealButtonShowsAndHidesToken"
 
 # ============================================================================
-# Task 3: LiftoffShell wired — Mission Control screen shows real content
+# §2 vocabulary: the screen never says "session".
 # ============================================================================
 echo ""
-echo "=== Task 3: LiftoffShell wiring and shell tests ==="
+echo "=== Vocabulary ==="
+check_test "$SCREEN" "neverSaysSession"
 
-check_test "com.liftoff.app.ui.LiftoffShellTest" "missionControlSurvivesRecreation"
-check_test "com.liftoff.app.ui.LiftoffShellTest" "slidersButtonOpensMissionControlWithoutBottomBar"
-check_test "com.liftoff.app.ui.LiftoffShellTest" "missionControlBackButtonReturnsToTabItWasOpenedFrom"
-check_test "com.liftoff.app.ui.LiftoffShellTest" "systemBackFromMissionControlReturnsToTabItWasOpenedFrom"
-check_test "com.liftoff.app.ui.LiftoffShellTest" "navBarIconsAreLightOnTabsAndDarkOnMissionControl"
+# ============================================================================
+# Must not break: the shell and its back behaviour, and the settings store.
+# (The gate above already fails on any failing test; these confirm they still run.)
+# ============================================================================
+echo ""
+echo "=== Shell and store still work ==="
+check_test "$SHELL_T" "missionControlSurvivesRecreation"
+check_test "$SHELL_T" "slidersButtonOpensMissionControlWithoutBottomBar"
+check_test "$SHELL_T" "missionControlShowsSettingsEyebrowAndTitle"
+check_test "$SHELL_T" "missionControlBackButtonReturnsToTabItWasOpenedFrom"
+check_test "$SHELL_T" "systemBackFromMissionControlReturnsToTabItWasOpenedFrom"
+check_test "$SHELL_T" "navBarIconsAreLightOnTabsAndDarkOnMissionControl"
+check_test "$STORE_T" "freeTextFieldsAreStoredVerbatim"
 
 echo ""
 echo "=== All checks passed ==="
