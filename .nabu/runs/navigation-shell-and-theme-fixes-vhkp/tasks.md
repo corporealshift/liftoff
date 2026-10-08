@@ -8,7 +8,7 @@
   Create ui/theme/TypographyTest.kt (JVM test). It calls LiftoffTypography() and checks all 15 roles: fontFamily is not null, not FontFamily.Default, and is BigShoulders or WorkSans. The failure message names the role. It also asserts the newly filled roles are in the right group (display/headline/title → BigShoulders; bodySmall, labelMedium → WorkSans).
   Done when: The new test passes on its own, and existing TypographyTest tests still pass.
 
-- [ ] Make preview composables private with @Preview
+- [x] Make preview composables private with @Preview
   For each of the 9 ...Preview functions across Buttons.kt, Headings.kt, Icons.kt, InkRuledListRow.kt, PatternTrack.kt, and Stripes.kt: add @Preview (import androidx.compose.ui.tooling.preview.Preview) and change visibility to private. Leave bodies unchanged.
   Done when: All 9 previews have @Preview and are private. No test references broken (grep confirms none exist).
 
