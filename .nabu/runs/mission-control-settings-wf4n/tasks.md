@@ -1,4 +1,4 @@
-- [ ] Add MissionControlViewModel
+- [x] Add MissionControlViewModel
   A plain Kotlin state holder in `ui.control` that wraps `SettingsStore`, loads stored values into a draft on init, validates and writes each field (host, port, token, workspace path, pattern chips with toggle/add/remove within 1–7 limits, sortie length, history window, weight unit, distance unit, generate run plans, objectives, constraints), exposes `StateFlow<MissionControlState>`, and keeps all Android imports out.
 
 - [ ] Add MissionControlViewModelTest
