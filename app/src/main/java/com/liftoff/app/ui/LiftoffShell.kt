@@ -1,6 +1,7 @@
 package com.liftoff.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -92,6 +93,7 @@ fun LiftoffShell() {
                         onClick = { nav = nav.openMissionControl() },
                         modifier = Modifier.size(44.dp),
                         shape = ButtonShape,
+                        border = BorderStroke(2.dp, Ink),
                         contentPadding = PaddingValues(0.dp),
                     ) {
                         Icon(

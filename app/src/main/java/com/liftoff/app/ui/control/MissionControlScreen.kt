@@ -1,7 +1,7 @@
 package com.liftoff.app.ui.control
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,9 +47,9 @@ fun MissionControlScreen(onBack: () -> Unit) {
                 onClick = onBack,
                 modifier = Modifier
                     .width(44.dp)
-                    .height(44.dp)
-                    .border(2.dp, Ink, ButtonShape),
+                    .height(44.dp),
                 shape = ButtonShape,
+                border = BorderStroke(2.dp, Ink),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
             ) {
                 Icon(
