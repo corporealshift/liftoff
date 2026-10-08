@@ -97,8 +97,8 @@ object LiftoffType {
     @Composable fun note(): TextStyle = note(WorkSans)
 }
 
-@Composable
 fun LiftoffTypography(): Typography {
+    val base = Typography()
     return Typography(
         displayLarge = LiftoffType.screenTitle(BigShoulders),
         displayMedium = LiftoffType.headerTitle(BigShoulders),
@@ -108,5 +108,13 @@ fun LiftoffTypography(): Typography {
         bodyMedium = LiftoffType.note(WorkSans),
         labelLarge = LiftoffType.textButton(WorkSans),
         labelSmall = LiftoffType.barLabel(BigShoulders),
+        // Fill the remaining roles so text fields and dialogs never fall back to the system font.
+        displaySmall = base.displaySmall.copy(fontFamily = BigShoulders, fontWeight = FontWeight.W800),
+        headlineMedium = base.headlineMedium.copy(fontFamily = BigShoulders, fontWeight = FontWeight.W800),
+        headlineSmall = base.headlineSmall.copy(fontFamily = BigShoulders, fontWeight = FontWeight.W800),
+        titleMedium = base.titleMedium.copy(fontFamily = BigShoulders, fontWeight = FontWeight.W800),
+        titleSmall = base.titleSmall.copy(fontFamily = BigShoulders, fontWeight = FontWeight.W800),
+        bodySmall = base.bodySmall.copy(fontFamily = WorkSans),
+        labelMedium = base.labelMedium.copy(fontFamily = WorkSans),
     )
 }
