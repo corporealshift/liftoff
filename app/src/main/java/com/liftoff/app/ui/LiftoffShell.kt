@@ -48,6 +48,7 @@ import com.liftoff.app.ui.theme.LiftoffTheme
 import com.liftoff.app.ui.theme.Mustard
 import com.liftoff.app.ui.theme.Rule
 import com.liftoff.app.ui.theme.TriStripe
+import com.liftoff.app.ui.theme.Wordmark
 
 @Composable
 fun LiftoffShell() {
@@ -87,7 +88,7 @@ fun LiftoffShell() {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(text = "LIFTOFF", style = MaterialTheme.typography.headlineMedium)
+                    Wordmark()
 
                     OutlinedButton(
                         onClick = { nav = nav.openMissionControl() },
