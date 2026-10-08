@@ -137,6 +137,20 @@ class TypographyTest {
     }
 
     @Test
+    fun originalEightRolesAreUnchanged() {
+        // The 8 roles that were set before this run keep their design-style styles.
+        val ty = LiftoffTypography()
+        assertEquals("displayLarge uses screenTitle", LiftoffType.screenTitle(bsRef), ty.displayLarge)
+        assertEquals("displayMedium uses headerTitle", LiftoffType.headerTitle(bsRef), ty.displayMedium)
+        assertEquals("headlineLarge uses sectionHead", LiftoffType.sectionHead(bsRef), ty.headlineLarge)
+        assertEquals("titleLarge uses cardTitle", LiftoffType.cardTitle(bsRef), ty.titleLarge)
+        assertEquals("bodyLarge uses exerciseName", LiftoffType.exerciseName(wsRef), ty.bodyLarge)
+        assertEquals("bodyMedium uses note", LiftoffType.note(wsRef), ty.bodyMedium)
+        assertEquals("labelLarge uses textButton", LiftoffType.textButton(wsRef), ty.labelLarge)
+        assertEquals("labelSmall uses barLabel", LiftoffType.barLabel(bsRef), ty.labelSmall)
+    }
+
+    @Test
     fun everyMaterialRoleUsesABundledFamily() {
         val ty = LiftoffTypography()
         // All 15 Material 3 roles.
@@ -181,5 +195,19 @@ class TypographyTest {
             org.junit.Assert.assertEquals(
                 "$name fontFamily is WorkSans", wsRef, roles[name]!!.fontFamily)
         }
+    }
+
+    @Test
+    fun filledRolesKeepMaterialDefaultMetrics() {
+        // The 7 newly filled roles take the M3 default size and line-height, only the font changes.
+        val ty = LiftoffTypography()
+        val base = Typography()
+        assertEquals("displaySmall fontSize", base.displaySmall.fontSize, ty.displaySmall.fontSize)
+        assertEquals("headlineMedium fontSize", base.headlineMedium.fontSize, ty.headlineMedium.fontSize)
+        assertEquals("headlineSmall fontSize", base.headlineSmall.fontSize, ty.headlineSmall.fontSize)
+        assertEquals("titleMedium fontSize", base.titleMedium.fontSize, ty.titleMedium.fontSize)
+        assertEquals("titleSmall fontSize", base.titleSmall.fontSize, ty.titleSmall.fontSize)
+        assertEquals("bodySmall fontSize", base.bodySmall.fontSize, ty.bodySmall.fontSize)
+        assertEquals("labelMedium fontSize", base.labelMedium.fontSize, ty.labelMedium.fontSize)
     }
 }
