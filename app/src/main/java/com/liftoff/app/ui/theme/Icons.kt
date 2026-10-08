@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.liftoff.app.R
 
@@ -22,8 +23,9 @@ object LiftoffIcons {
     @Composable fun check() = painterResource(R.drawable.ic_check)
 }
 
+@Preview
 @Composable
-fun IconsPreview() {
+private fun IconsPreview() {
     if (LocalInspectionMode.current) {
         Row(
             modifier = Modifier.fillMaxWidth(),

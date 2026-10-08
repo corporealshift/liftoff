@@ -6,6 +6,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.em
+import com.liftoff.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.File
@@ -26,6 +27,19 @@ class TypographyTest {
         Font(File(bsDir, "work_sans_regular.ttf"), FontWeight.W400),
         Font(File(bsDir, "work_sans_medium.ttf"), FontWeight.W500),
         Font(File(bsDir, "work_sans_semibold.ttf"), FontWeight.W600),
+    )
+
+    // R.font-based families for comparison (same internal type as LiftoffTypography).
+    private val bsRef = FontFamily(
+        Font(R.font.big_shoulders_display_bold, FontWeight.W700),
+        Font(R.font.big_shoulders_display_extrabold, FontWeight.W800),
+        Font(R.font.big_shoulders_display_black, FontWeight.W900),
+    )
+
+    private val wsRef = FontFamily(
+        Font(R.font.work_sans_regular, FontWeight.W400),
+        Font(R.font.work_sans_medium, FontWeight.W500),
+        Font(R.font.work_sans_semibold, FontWeight.W600),
     )
 
     @Test
@@ -120,5 +134,80 @@ class TypographyTest {
         // labelSmall uses Big Shoulders (bottom-bar label), labelLarge uses Work Sans.
         assertEquals("labelSmall fontFamily is Big Shoulders", bs, typography.labelSmall.fontFamily)
         assertEquals("labelLarge fontFamily is Work Sans", ws, typography.labelLarge.fontFamily)
+    }
+
+    @Test
+    fun originalEightRolesAreUnchanged() {
+        // The 8 roles that were set before this run keep their design-style styles.
+        val ty = LiftoffTypography()
+        assertEquals("displayLarge uses screenTitle", LiftoffType.screenTitle(bsRef), ty.displayLarge)
+        assertEquals("displayMedium uses headerTitle", LiftoffType.headerTitle(bsRef), ty.displayMedium)
+        assertEquals("headlineLarge uses sectionHead", LiftoffType.sectionHead(bsRef), ty.headlineLarge)
+        assertEquals("titleLarge uses cardTitle", LiftoffType.cardTitle(bsRef), ty.titleLarge)
+        assertEquals("bodyLarge uses exerciseName", LiftoffType.exerciseName(wsRef), ty.bodyLarge)
+        assertEquals("bodyMedium uses note", LiftoffType.note(wsRef), ty.bodyMedium)
+        assertEquals("labelLarge uses textButton", LiftoffType.textButton(wsRef), ty.labelLarge)
+        assertEquals("labelSmall uses barLabel", LiftoffType.barLabel(bsRef), ty.labelSmall)
+    }
+
+    @Test
+    fun everyMaterialRoleUsesABundledFamily() {
+        val ty = LiftoffTypography()
+        // All 15 Material 3 roles.
+        val roles = mapOf(
+            "displayLarge" to ty.displayLarge,
+            "displayMedium" to ty.displayMedium,
+            "displaySmall" to ty.displaySmall,
+            "headlineLarge" to ty.headlineLarge,
+            "headlineMedium" to ty.headlineMedium,
+            "headlineSmall" to ty.headlineSmall,
+            "titleLarge" to ty.titleLarge,
+            "titleMedium" to ty.titleMedium,
+            "titleSmall" to ty.titleSmall,
+            "bodyLarge" to ty.bodyLarge,
+            "bodyMedium" to ty.bodyMedium,
+            "bodySmall" to ty.bodySmall,
+            "labelLarge" to ty.labelLarge,
+            "labelMedium" to ty.labelMedium,
+            "labelSmall" to ty.labelSmall,
+        )
+        for ((name, style) in roles) {
+            val ff = style.fontFamily
+            org.junit.Assert.assertNotNull("$name fontFamily is null", ff)
+            org.junit.Assert.assertNotEquals(
+                "$name fontFamily is FontFamily.Default",
+                FontFamily.Default, ff,
+            )
+            // Compare against R.font-based families (same internal type as LiftoffTypography).
+            org.junit.Assert.assertTrue(
+                "$name fontFamily is BigShoulders or WorkSans",
+                ff == bsRef || ff == wsRef,
+            )
+        }
+        // Newly filled display/headline/title roles use BigShoulders.
+        for (name in listOf("displaySmall", "headlineMedium", "headlineSmall",
+                              "titleMedium", "titleSmall")) {
+            org.junit.Assert.assertEquals(
+                "$name fontFamily is BigShoulders", bsRef, roles[name]!!.fontFamily)
+        }
+        // Newly filled body/label roles use WorkSans.
+        for (name in listOf("bodySmall", "labelMedium")) {
+            org.junit.Assert.assertEquals(
+                "$name fontFamily is WorkSans", wsRef, roles[name]!!.fontFamily)
+        }
+    }
+
+    @Test
+    fun filledRolesKeepMaterialDefaultMetrics() {
+        // The 7 newly filled roles take the M3 default size and line-height, only the font changes.
+        val ty = LiftoffTypography()
+        val base = Typography()
+        assertEquals("displaySmall fontSize", base.displaySmall.fontSize, ty.displaySmall.fontSize)
+        assertEquals("headlineMedium fontSize", base.headlineMedium.fontSize, ty.headlineMedium.fontSize)
+        assertEquals("headlineSmall fontSize", base.headlineSmall.fontSize, ty.headlineSmall.fontSize)
+        assertEquals("titleMedium fontSize", base.titleMedium.fontSize, ty.titleMedium.fontSize)
+        assertEquals("titleSmall fontSize", base.titleSmall.fontSize, ty.titleSmall.fontSize)
+        assertEquals("bodySmall fontSize", base.bodySmall.fontSize, ty.bodySmall.fontSize)
+        assertEquals("labelMedium fontSize", base.labelMedium.fontSize, ty.labelMedium.fontSize)
     }
 }

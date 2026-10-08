@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -125,8 +126,9 @@ private fun PatternChipView(chip: PatternChip) {
     }
 }
 
+@Preview
 @Composable
-fun PatternTrackPreview() {
+private fun PatternTrackPreview() {
     if (LocalInspectionMode.current) {
         Column(modifier = Modifier.background(Cream).padding(20.dp)) {
             val sampleChips = listOf(

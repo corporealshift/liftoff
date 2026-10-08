@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -38,15 +39,17 @@ fun DuoStripe(
     }
 }
 
+@Preview
 @Composable
-fun TriStripePreview() {
+private fun TriStripePreview() {
     if (LocalInspectionMode.current) {
         TriStripe(modifier = Modifier.background(Cream))
     }
 }
 
+@Preview
 @Composable
-fun DuoStripePreview() {
+private fun DuoStripePreview() {
     if (LocalInspectionMode.current) {
         DuoStripe(modifier = Modifier.background(Cream))
     }

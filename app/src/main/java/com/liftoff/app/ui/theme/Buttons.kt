@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -197,8 +198,9 @@ fun UnderlinedTextButton(
     }
 }
 
+@Preview
 @Composable
-fun PrimaryButtonPreview() {
+private fun PrimaryButtonPreview() {
     if (LocalInspectionMode.current) {
         Column(modifier = Modifier.background(Cream).padding(20.dp)) {
             PrimaryButton(text = "LAUNCH", onClick = {})
@@ -206,8 +208,9 @@ fun PrimaryButtonPreview() {
     }
 }
 
+@Preview
 @Composable
-fun InkButtonPreview() {
+private fun InkButtonPreview() {
     if (LocalInspectionMode.current) {
         Column(modifier = Modifier.background(Cream).padding(20.dp)) {
             InkButton(text = "LAND", onClick = {})
@@ -215,8 +218,9 @@ fun InkButtonPreview() {
     }
 }
 
+@Preview
 @Composable
-fun UnderlinedTextButtonPreview() {
+private fun UnderlinedTextButtonPreview() {
     if (LocalInspectionMode.current) {
         Column(modifier = Modifier.background(Cream).padding(20.dp)) {
             UnderlinedTextButton(text = "Learn more", onClick = {})

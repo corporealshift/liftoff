@@ -27,14 +27,14 @@ All source lives under `com.liftoff.app`.
 
 | Package | Responsibility | Exists yet? |
 |---|---|---|
-| `com.liftoff.app` (root) | `MainActivity`, `AppContainer.kt`, app entry point — placeholder until M1 replaces it with the navigation shell. | ✅ (`MainActivity.kt`, `AppContainer.kt`, `LiftoffApplication.kt`) |
+| `com.liftoff.app` (root) | `MainActivity` (hosts the navigation shell), `AppContainer.kt`, app entry point. | ✅ (`MainActivity.kt`, `AppContainer.kt`, `LiftoffApplication.kt`) |
 | `com.liftoff.app.nabu` | Copied nabu `DaemonClient` and protocol types. No changes to upstream nabu. | — |
 | `com.liftoff.app.data` | Room entities (including Equipment), DAOs, database builder, export/import helpers. | ✅ (Room entities, DAOs, LiftoffDatabase) |
 | `com.liftoff.app.settings` | App-level configuration backed by DataStore (units, run-toggle). | ✅ (`SettingsStore.kt`) |
 | `com.liftoff.app.domain` | State machines for Mission and Sortie lifecycle. Pure Kotlin, no Android imports. | — |
 | `com.liftoff.app.coach` | Prompt builder, validator, JSON schemas. Pure Kotlin, no Android imports. | Started (`ExerciseNames.kt`: exercise-name normalizer, §7.7) |
 | `com.liftoff.app.work` | Android-side workers (`GenerationWorker`). Uses WorkManager and Android APIs. | — |
-| `com.liftoff.app.ui` | Compose screens: Launchpad, Draft/Confirm, In-Flight, Landed history, Mission Control. | — |
+| `com.liftoff.app.ui` | Navigation shell, placeholder screens (Launchpad, Mission, Landed), Mission Control stub, theme and shared composables. | ✅ (navigation shell, placeholder screens, Mission Control stub, `ui/theme`) |
 
 ---
 
