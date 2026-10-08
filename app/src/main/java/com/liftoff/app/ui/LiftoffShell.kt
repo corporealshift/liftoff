@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.Icon
@@ -115,7 +116,9 @@ fun LiftoffShell() {
                 Row(
                     modifier = Modifier
                         .background(Ink)
-                        .fillMaxWidth(),
+                        .navigationBarsPadding()
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 14.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -159,8 +162,7 @@ private fun NavigationBarItem(
             .selectable(
                 selected = selected,
                 onClick = onClick,
-            )
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            ),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
