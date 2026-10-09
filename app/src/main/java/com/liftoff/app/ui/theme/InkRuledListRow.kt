@@ -17,6 +17,7 @@ fun InkRuledListRow(
     title: String,
     detail: String? = null,
     modifier: Modifier = Modifier,
+    actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     Column(modifier = modifier) {
         Row(
@@ -43,6 +44,16 @@ fun InkRuledListRow(
                     style = LiftoffType.load(),
                     modifier = Modifier.alignByBaseline(),
                 )
+            }
+        }
+        actions?.let {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 30.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                it()
             }
         }
         Row(
