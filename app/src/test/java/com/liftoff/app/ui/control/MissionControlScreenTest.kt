@@ -5,6 +5,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.room.Room
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
@@ -16,6 +17,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ApplicationProvider
 import org.robolectric.annotation.Config
 import java.io.File
 
@@ -33,6 +35,7 @@ class MissionControlScreenTest {
     private lateinit var dataStore: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>
     private lateinit var store: com.liftoff.app.settings.SettingsStore
     private var scopeJob = Job()
+    private var database: com.liftoff.app.data.LiftoffDatabase? = null
 
     private fun newStore(fileName: String): com.liftoff.app.settings.SettingsStore {
         dataStore = PreferenceDataStoreFactory.create(
@@ -46,6 +49,8 @@ class MissionControlScreenTest {
     @After
     fun tearDown() {
         scopeJob.cancel()
+        database?.close()
+        database = null
     }
 
     // =========================================================================
@@ -198,7 +203,7 @@ class MissionControlScreenTest {
             // Verify all section heads appear and are displayed.
             val heads = listOf(
                 "CONNECTION", "COACH", "MISSION", "UNITS", "RUNS",
-                "OBJECTIVES AND CONSTRAINTS"
+                "OBJECTIVES AND CONSTRAINTS", "EQUIPMENT"
             )
             for (head in heads) {
                 composeRule.onNodeWithText(head).assertIsDisplayed()
@@ -207,12 +212,11 @@ class MissionControlScreenTest {
     }
 
     // =========================================================================
-    // showsNoEquipmentOrUnbuiltPlaceholders — Robolectric: no Equipment
-    // section or placeholder, no Test connection or export/import.
+    // showsNoUnbuiltPlaceholders — Robolectric: no Test connection or export/import.
     // =========================================================================
 
     @Test
-    fun showsNoEquipmentOrUnbuiltPlaceholders() {
+    fun showsNoUnbuiltPlaceholders() {
         runBlocking {
             val store = newStore("test6.preferences_pb")
             launchScreen(store)
@@ -220,7 +224,6 @@ class MissionControlScreenTest {
             composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
 
             // These texts should NOT appear on screen.
-            assertDoesNotExist("Equipment", ignoreCase = true)
             assertDoesNotExist("Test connection", ignoreCase = true)
             assertDoesNotExist("Export", ignoreCase = false)
         }
@@ -380,13 +383,14 @@ class MissionControlScreenTest {
             // Collect all visible text by checking common section/field labels.
             val allPossibleTexts = listOf(
                 "CONNECTION", "COACH", "MISSION", "UNITS", "RUNS",
-                "OBJECTIVES AND CONSTRAINTS",
+                "OBJECTIVES AND CONSTRAINTS", "EQUIPMENT",
                 "Daemon host", "Port", "Token",
                 "Coach workspace path",
                 "Sortie length (minutes)", "History window (days)",
                 "Weight", "Distance",
                 "Generate run plans",
-                "Objectives", "Constraints"
+                "Objectives", "Constraints",
+                "Add equipment", "Show deactivated"
             )
 
             val allText = StringBuilder()
@@ -413,12 +417,21 @@ class MissionControlScreenTest {
     private fun launchScreen(
         store: com.liftoff.app.settings.SettingsStore,
     ) {
+        if (database == null) {
+            database = Room.inMemoryDatabaseBuilder(
+                ApplicationProvider.getApplicationContext(),
+                com.liftoff.app.data.LiftoffDatabase::class.java,
+            ).build()
+        }
+        val equipmentDao = database!!.equipmentDao()
+
         composeRule.setContent {
             val shellScope = rememberCoroutineScope()
             com.liftoff.app.ui.theme.LiftoffTheme {
                 com.liftoff.app.ui.control.MissionControlScreen(
                     settingsStore = store,
                     scope = shellScope,
+                    equipmentDao = equipmentDao,
                     onBack = {},
                 )
             }

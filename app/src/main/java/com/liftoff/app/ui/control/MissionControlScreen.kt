@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.liftoff.app.data.EquipmentDao
 import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.settings.SettingsStore
 import com.liftoff.app.settings.WeightUnit
@@ -69,10 +70,14 @@ import kotlinx.coroutines.CoroutineScope
 fun MissionControlScreen(
     settingsStore: SettingsStore,
     scope: CoroutineScope,
+    equipmentDao: EquipmentDao,
     onBack: () -> Unit,
 ) {
     val vm = remember(settingsStore) { MissionControlViewModel(settingsStore, scope) }
     val state by vm.state.collectAsState()
+
+    val eqVm = remember(equipmentDao) { EquipmentViewModel(equipmentDao, scope) }
+    val eqState by eqVm.state.collectAsState()
 
     Column(
         modifier = Modifier
@@ -104,6 +109,9 @@ fun MissionControlScreen(
         }
         Spacer(Modifier.height(20.dp))
         MissionControlContent(vm = vm, state = state)
+        SectionCard(title = "EQUIPMENT") {
+            EquipmentSection(state = eqState, vm = eqVm)
+        }
     }
 }
 
