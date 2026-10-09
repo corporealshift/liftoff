@@ -81,8 +81,8 @@ internal fun EquipmentSection(
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InkButton("SAVE", onClick = vm::submitEdit)
-                UnderlinedTextButton("Cancel", onClick = vm::cancelEdit)
+                InkButton("SAVE", onClick = vm::submitEdit, modifier = Modifier.weight(1f))
+                UnderlinedTextButton("Cancel", onClick = vm::cancelEdit, modifier = Modifier.weight(1f))
             }
         }
     } else {
@@ -102,8 +102,8 @@ internal fun EquipmentSection(
                         .filter { it.isNotBlank() }
                         .joinToString(" — "),
                     actions = {
-                        UnderlinedTextButton(text = "Edit", onClick = { vm.startEdit(item) })
-                        UnderlinedTextButton(text = "Deactivate", onClick = { vm.deactivate(item.id) })
+                        UnderlinedTextButton(text = "Edit", onClick = { vm.startEdit(item) }, modifier = Modifier.weight(1f))
+                        UnderlinedTextButton(text = "Deactivate", onClick = { vm.deactivate(item.id) }, modifier = Modifier.weight(1f))
                     },
                 )
             }
@@ -135,8 +135,8 @@ internal fun EquipmentSection(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    InkButton("ADD", onClick = vm::submitAdd)
-                    UnderlinedTextButton("Cancel", onClick = vm::cancelAdd)
+                    InkButton("ADD", onClick = vm::submitAdd, modifier = Modifier.weight(1f))
+                    UnderlinedTextButton("Cancel", onClick = vm::cancelAdd, modifier = Modifier.weight(1f))
                 }
             }
         }
