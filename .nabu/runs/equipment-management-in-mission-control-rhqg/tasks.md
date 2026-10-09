@@ -12,7 +12,7 @@
   Change `SectionCard`, `LabeledTextField` and `LabeledMultiLineTextField` from `private` to `internal` in MissionControlScreen.kt. Create `EquipmentSection.kt` with the active-item rows (with Edit/Deactivate buttons), inline add form, inline edit form, Show/Hide deactivated toggle, and empty-state messages — using only theme composables (no stock M3).
   Pass when the build compiles (`:app:assembleDebug`).
 
-- [ ] Wire equipment into MissionControlScreen and LiftoffShell; update MissionControlScreenTest
+- [x] Wire equipment into MissionControlScreen and LiftoffShell; update MissionControlScreenTest
   Add `equipmentDao: EquipmentDao` to `MissionControlScreen`, create `EquipmentViewModel(equipmentDao, scope)` with `remember`, collect its state, and add an EQUIPMENT SectionCard after "OBJECTIVES AND CONSTRAINTS". In `LiftoffShell.kt`, read the container once and pass `equipmentDao = container.database.equipmentDao()`. Update `MissionControlScreenTest`: build an in-memory LiftoffDatabase in `launchScreen` and close it in `tearDown`; rename `showsNoEquipmentOrUnbuiltPlaceholders` to `showsNoUnbuiltPlaceholders` and remove the "Equipment" assertion; add "EQUIPMENT" to the head list in `showsEverySectionHeadInOrder`; add equipment labels to the text list in `neverSaysSession`.
   Pass when all tests pass (`:app:testDebugUnitTest`).
 
