@@ -427,14 +427,14 @@ private fun GenerateRunPlansCheckbox(
     onCheckedChange: (Boolean) -> Unit,
     checked: Boolean,
 ) {
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(44.dp)
             .background(Paper, ButtonShape)
             .border(BorderStroke(2.dp, Ink), ButtonShape)
             .clickable { onCheckedChange(!checked) },
-        contentAlignment = Alignment.CenterStart,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
