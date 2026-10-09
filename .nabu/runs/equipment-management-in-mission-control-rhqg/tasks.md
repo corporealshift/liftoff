@@ -8,7 +8,7 @@
   Add an optional `actions: (@Composable RowScope.() -> Unit)? = null` parameter that renders a right-aligned row between the text content and the 1 dp ink rule when present, and does nothing when absent. Existing callers and previews must be unchanged.
   Pass when the build compiles and existing theme/preview tests still pass (`:app:testDebugUnitTest`).
 
-- [ ] Make SectionCard, LabeledTextField and LabeledMultiLineTextField internal; create EquipmentSection.kt
+- [x] Make SectionCard, LabeledTextField and LabeledMultiLineTextField internal; create EquipmentSection.kt
   Change `SectionCard`, `LabeledTextField` and `LabeledMultiLineTextField` from `private` to `internal` in MissionControlScreen.kt. Create `EquipmentSection.kt` with the active-item rows (with Edit/Deactivate buttons), inline add form, inline edit form, Show/Hide deactivated toggle, and empty-state messages — using only theme composables (no stock M3).
   Pass when the build compiles (`:app:assembleDebug`).
 
