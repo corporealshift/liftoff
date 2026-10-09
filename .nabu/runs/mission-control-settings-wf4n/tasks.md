@@ -12,5 +12,5 @@
 
 ## Blockers from the final review
 
-- [ ] Lay out the 'Generate run plans' row so the label sits beside the check box instead of on top of it
+- [x] Lay out the 'Generate run plans' row so the label sits beside the check box instead of on top of it
   In MissionControlScreen.kt, GenerateRunPlansCheckbox (around lines 430-459) puts the 44 dp check box, a Spacer and the 'Generate run plans' Text inside a Box with contentAlignment = CenterStart. A Box stacks its children on top of each other, and a Spacer does nothing inside a Box. So the label is drawn over the check box at the left edge, and the check mark and red fill are hidden under the text. The plan's decision says the label sits beside the box. Change the outer Box to a Row with verticalAlignment = CenterVertically, keep the clickable on the Row, and the 12 dp spacer will then work. The test tappingGenerateRunPlansRowTogglesSetting can't catch this because it only checks that a tap toggles the setting, not the layout.
