@@ -1,207 +1,163 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Done-check for "Equipment management in Mission Control".
+# Runs the CI gate, then requires each named test of the new behaviour to have
+# run in this invocation and passed.
+set -uo pipefail
 
-# ── Configuration ────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-APP_DIR="$REPO_ROOT/app"
-GRADLEW="./gradlew.sh"
+cd "$REPO_ROOT" || exit 1
 
-# Where Gradle writes test results for :app:testDebugUnitTest
-TEST_RESULTS_DIR="app/build/test-results/testDebugUnitTest"
-
-# ── Helpers ──────────────────────────────────────────────────────
+RESULTS_DIR="app/build/test-results/testDebugUnitTest"
+FAILED=0
 
 fail() { echo "FAIL: $*"; FAILED=1; }
 
-# Parse tests/failures/errors from a single JUnit XML file.
-# Handles both <testsuite .../> and <testsuite ...>\n formats.
-parse_xml_counts() {
-    local xml="$1"
-    # Grab the first <testsuite line (may be self-closing or open)
-    local line
-    line=$(grep -m1 '<testsuite' "$xml" 2>/dev/null || true)
-    if [ -z "$line" ]; then
-        echo "0 0 0"
+# Passes only if <class>::<method> has a testcase entry in this run's JUnit XML
+# with no <failure>, <error> or <skipped> child.
+assert_test_passed() {
+    local cls="$1" method="$2" xml status
+    xml=$(find "$RESULTS_DIR" -type f -name "TEST-*.${cls}.xml" 2>/dev/null | head -n 1)
+    if [ -z "$xml" ]; then
+        fail "$cls::$method did not run (no results file for $cls)"
         return
     fi
-    # Remove everything after the first > to handle multi-line tags
-    line=$(echo "$line" | sed 's/>.*//')
-    local t f e
-    t=$(echo "$line" | grep -oP 'tests="\K[0-9]+' || echo 0)
-    f=$(echo "$line" | grep -oP 'failures="\K[0-9]+' || echo 0)
-    e=$(echo "$line" | grep -oP 'errors="\K[0-9]+' || echo 0)
-    echo "${t:-0} ${f:-0} ${e:-0}"
+    status=$(awk -v m="$method" '
+        /<testcase / {
+            inside = 0
+            if (index($0, " name=\"" m "\"")) {
+                found = 1
+                if ($0 !~ /\/>[[:space:]]*$/) inside = 1
+            }
+            next
+        }
+        inside && /<(failure|error|skipped)/ { bad = 1 }
+        inside && /<\/testcase>/ { inside = 0 }
+        END {
+            if (!found) print "missing"
+            else if (bad) print "failed"
+            else print "passed"
+        }' "$xml")
+    case "$status" in
+        passed)  echo "  PASS: $cls::$method" ;;
+        missing) fail "$cls::$method did not run" ;;
+        *)       fail "$cls::$method failed, errored or was skipped" ;;
+    esac
 }
-
-# Check that a specific test class + method passed in the XML results.
-# Usage: assert_test_passed <test_class_name> <test_method_name>
-assert_test_passed() {
-    local cls="$1"
-    local method="$2"
-    local found=0
-    local ok=0
-
-    while IFS= read -r xml; do
-        # Match the classname attribute and the testcase name
-        if grep -q "classname=\"[^\"]*${cls}[^\"]*\"" "$xml" 2>/dev/null && \
-           grep -q "name=\"${method}\"" "$xml" 2>/dev/null; then
-            found=1
-            # Passed only if no <failure> or <error> child follows this testcase
-            if ! sed -n "/name=\"${method}\"/,/<\/testcase/p" "$xml" | grep -qP '<(failure|error)'; then
-                ok=1
-            fi
-        fi
-    done < <(find "$TEST_RESULTS_DIR" -name 'TEST-*.xml' -type f 2>/dev/null)
-
-    if [ "$found" -eq 0 ]; then
-        fail "Test '$cls::$method' did not run at all (no matching XML entries found)"
-    elif [ "$ok" -eq 0 ]; then
-        fail "Test '$cls::$method' ran but failed or errored"
-    else
-        echo "  PASS: $cls::$method"
-    fi
-}
-
-# ── Pre-flight ───────────────────────────────────────────────────
 
 echo "=== Verify: Equipment management in Mission Control ==="
+
+# ── Build gate (what CI runs) ────────────────────────────────────
+# Remove old results so every result read below comes from this run.
+rm -rf "$RESULTS_DIR"
+
 echo ""
-
-FAILED=0
-
-# ── Step 1: Build gate ───────────────────────────────────────────
 echo "--- Build gate ---"
-cd "$REPO_ROOT"
-bash $GRADLEW :app:assembleDebug :app:testDebugUnitTest --console=plain
-echo ""
-
-# ── Step 2: Verify test results are green ────────────────────────
-echo "--- Test result counts ---"
-total_tests=0
-total_failures=0
-total_errors=0
-
-while IFS= read -r xml; do
-    read -r t f e <<< "$(parse_xml_counts "$xml")"
-    total_tests=$((total_tests + t))
-    total_failures=$((total_failures + f))
-    total_errors=$((total_errors + e))
-    echo "  $(basename "$xml"): tests=$t failures=$f errors=$e"
-done < <(find "$TEST_RESULTS_DIR" -name 'TEST-*.xml' -type f 2>/dev/null)
-
-echo ""
-echo "  Total: tests=$total_tests failures=$total_failures errors=$total_errors"
-
-if [ "$total_failures" -gt 0 ] || [ "$total_errors" -gt 0 ]; then
-    fail "Tests have failures ($total_failures) or errors ($total_errors)"
-fi
-
-# ── Step 3: Named tests that prove the new behaviour ─────────────
-echo ""
-echo "--- Named behaviour tests ---"
-
-# Invalid key pattern — submitAdd() sets addKeyError for bad keys ("Bar", "pull up", "kb-24", ""), nothing saved.
-assert_test_passed "EquipmentViewModelTest" "invalidKeyPatternSetsError"
-
-# Duplicate against an active item — second add rejected, exactly one row exists.
-assert_test_passed "EquipmentViewModelTest" "duplicateAgainstActiveRejected"
-
-# Duplicate against an inactive item — same rejection with "by a deactivated item" hint.
-assert_test_passed "EquipmentViewModelTest" "duplicateAgainstInactiveRejected"
-
-# Name required on add — blank name sets error, nothing saved.
-assert_test_passed "EquipmentViewModelTest" "nameRequiredOnAdd"
-
-# Successful add — item appears in state.active, form cleared and closed.
-assert_test_passed "EquipmentViewModelTest" "successfulAdd"
-
-# Edit — startEdit → change name/notes → submitEdit() persists; key unchanged.
-assert_test_passed "EquipmentViewModelTest" "editPersistsNameAndNotes"
-
-# Name required on edit — blank name sets error, stored name unchanged.
-assert_test_passed "EquipmentViewModelTest" "nameRequiredOnEdit"
-
-# Deactivate — item leaves active list, appears in deactivated list.
-assert_test_passed "EquipmentViewModelTest" "deactivateMovesToLists"
-
-# Reactivate — item returns to active list, data intact.
-assert_test_passed "EquipmentViewModelTest" "reactivateReturnsToActive"
-
-# Error clears on typing — setAddKey() after a key error clears addKeyError.
-assert_test_passed "EquipmentViewModelTest" "errorClearsOnTyping"
-
-# Whitespace trimming — surrounding spaces trimmed from key and name on add.
-assert_test_passed "EquipmentViewModelTest" "whitespaceTrimmedOnAdd"
-
-# EQUIPMENT section head appears in Mission Control screen (list includes it).
-assert_test_passed "MissionControlScreenTest" "showsEverySectionHeadInOrder"
-
-# No build-time placeholder strings remain; "Equipment" is now valid content.
-assert_test_passed "MissionControlScreenTest" "showsNoUnbuiltPlaceholders"
-
-# Equipment labels appear in the session-text list (neverSaysSession updated).
-assert_test_passed "MissionControlScreenTest" "neverSaysSession"
-
-# ── Step 4: Plan decisions — each gets a named test or coverage note ──
-echo ""
-echo "--- Plan decisions ---"
-
-# A. Key is NOT auto-normalised (no lowercasing / space replacement).
-#    Covered by: invalidKeyPatternSetsError
-echo "  Decision A: key not auto-normalised — covered by invalidKeyPatternSetsError"
-
-# B. Name is required when editing as well as adding.
-assert_test_passed "EquipmentViewModelTest" "nameRequiredOnEdit"
-
-# C. Surrounding whitespace trimmed from name and notes on add.
-assert_test_passed "EquipmentViewModelTest" "whitespaceTrimmedOnAdd"
-
-# D. Duplicate against deactivated item reported with "by a deactivated item".
-assert_test_passed "EquipmentViewModelTest" "duplicateAgainstInactiveRejected"
-
-# E. Deactivated items cannot be edited (only Reactivate action).
-echo "  Decision E: deactivated items read-only — covered by EquipmentSection UI"
-
-# F. Add form clears and closes after successful add; Cancel discards draft.
-assert_test_passed "EquipmentViewModelTest" "successfulAdd"
-
-# G. "Show deactivated" toggle does NOT persist (starts off each time).
-echo "  Decision G: showDeactivated starts false — covered by EquipmentState default"
-
-# 1. Add form is inline expandable section (not a dialog).
-echo "  Decision 1: add form inline — covered by MissionControlScreenTest"
-
-# 2. Editing presented as inline row replacement with key read-only.
-echo "  Decision 2: edit inline, key read-only — covered by EquipmentSection UI"
-
-# 3. Deactivated toggle is a text button at bottom of section card.
-echo "  Decision 3: Show deactivated toggle — covered by MissionControlScreenTest"
-
-# 4. Deactivation has no confirmation dialog; item disappears immediately.
-assert_test_passed "EquipmentViewModelTest" "deactivateMovesToLists"
-
-# 5. Equipment key cannot be edited after creation.
-echo "  Decision 5: key fixed after creation — covered by editPersistsNameAndNotes (key unchanged)"
-
-# 6. Validation errors displayed inline below fields.
-assert_test_passed "EquipmentViewModelTest" "invalidKeyPatternSetsError"
-
-# ── Step 5: ARCHITECTURE.md milestone check ─────────────────────
-echo ""
-echo "--- ARCHITECTURE.md M1 milestone ---"
-if grep -q '| M1 |.*| Done |' "$REPO_ROOT/ARCHITECTURE.md"; then
-    echo "  PASS: M1 status is Done"
+if [ -f gradlew.sh ] && [ -d "C:/Users/corpo/android-toolchain" ]; then
+    GRADLE=(bash gradlew.sh)
 else
-    fail "M1 milestone not marked as Done in ARCHITECTURE.md"
+    GRADLE=(./gradlew)
+fi
+if ! "${GRADLE[@]}" :app:assembleDebug :app:testDebugUnitTest --console=plain; then
+    fail "build gate :app:assembleDebug :app:testDebugUnitTest failed"
 fi
 
-# ── Summary ──────────────────────────────────────────────────────
+# ── Brief behaviour: state logic against an in-memory database ───
+echo ""
+echo "--- Equipment state and validation ---"
+VM="EquipmentViewModelTest"
+
+# Key rule: "Bar", "pull up", "kb-24" and "" each set addKeyError; nothing is saved.
+# Decision A: the key is not auto-normalised, so "Bar" is rejected, not saved as "bar".
+assert_test_passed "$VM" "invalidKeyPatternSetsError"
+
+# Key rule: a duplicate of an active item's key is rejected; exactly one row exists.
+assert_test_passed "$VM" "duplicateAgainstActiveRejected"
+
+# Key rule: a duplicate of a deactivated item's key is rejected; the one row stays inactive.
+# Decision D: the error says the key is used "by a deactivated item".
+assert_test_passed "$VM" "duplicateAgainstInactiveRejected"
+
+# Name is required on add: blank or whitespace-only name sets addNameError, nothing is saved.
+assert_test_passed "$VM" "nameRequiredOnAdd"
+
+# Decision F: a successful add puts the item in state.active, then clears and closes the form.
+assert_test_passed "$VM" "successfulAdd"
+
+# Decision F: Cancel discards the add draft; reopening the form shows empty fields.
+assert_test_passed "$VM" "cancelAddDiscardsDraft"
+
+# Decision F: only one item is edited at a time; starting Edit on another item discards the first draft.
+assert_test_passed "$VM" "startEditOnAnotherItemDiscardsFirstDraft"
+
+# Edit persists the new name and notes (dao.get) and state.active shows them.
+# Decision 5: the key is unchanged after an edit.
+assert_test_passed "$VM" "editPersistsNameAndNotes"
+
+# Decision B: name is required on edit; a blank name sets editNameError and the stored name is unchanged.
+assert_test_passed "$VM" "nameRequiredOnEdit"
+
+# Deactivate moves the item from state.active to state.deactivated; the row still exists, data intact.
+# Decision 4: deactivation applies at once, with no confirmation step.
+assert_test_passed "$VM" "deactivateMovesToLists"
+
+# Reactivate moves the item from state.deactivated back to state.active, unchanged.
+assert_test_passed "$VM" "reactivateReturnsToActive"
+
+# Typing into a field clears that field's error (setAddKey after a key error).
+assert_test_passed "$VM" "errorClearsOnTyping"
+
+# Decision C: surrounding whitespace is trimmed from key, name and notes on add.
+assert_test_passed "$VM" "whitespaceTrimmedOnAdd"
+
+# Decision C: surrounding whitespace is trimmed from name and notes on edit.
+assert_test_passed "$VM" "whitespaceTrimmedOnEdit"
+
+# Decision G: showDeactivated starts false in a new view model, even after another one turned it on.
+assert_test_passed "$VM" "showDeactivatedStartsOff"
+
+# Changes persist: a new view model on the same database sees the added, edited and deactivated items.
+assert_test_passed "$VM" "changesPersistAcrossViewModels"
+
+# ── Brief behaviour: driven from the Mission Control screen ──────
+echo ""
+echo "--- Mission Control screen ---"
+MC="MissionControlScreenTest"
+
+# The EQUIPMENT section head appears in order with the other sections.
+assert_test_passed "$MC" "showsEverySectionHeadInOrder"
+
+# Test connection and Export are still absent; Equipment is now present.
+assert_test_passed "$MC" "showsNoUnbuiltPlaceholders"
+
+# No on-screen text, including the equipment labels, says "session".
+assert_test_passed "$MC" "neverSaysSession"
+
+# Decision 1: tapping "Add equipment" shows the key/name/notes form inline in the section (no dialog);
+# submitting it shows the row "key — name — notes" and hides the form.
+assert_test_passed "$MC" "addEquipmentFormIsInline"
+
+# Decision 6: an invalid or duplicate key shows its error text inline in the add form, and no row appears.
+assert_test_passed "$MC" "addKeyErrorShownInline"
+
+# Decision 2: Edit replaces the row inline with the key read-only and name/notes editable;
+# saving updates the row text.
+assert_test_passed "$MC" "editRowShowsKeyReadOnly"
+
+# Decision 3: a "Show deactivated" button at the bottom of the section shows deactivated items
+# below the active ones; tapping Reactivate returns the item to the active list.
+assert_test_passed "$MC" "showDeactivatedTogglesDeactivatedList"
+
+# Decision 4: tapping Deactivate removes the row at once, with no confirmation dialog.
+assert_test_passed "$MC" "deactivateRemovesRowImmediately"
+
+# Decision E: deactivated rows offer Reactivate and no Edit action.
+assert_test_passed "$MC" "deactivatedRowsHaveOnlyReactivate"
+
 echo ""
 if [ "$FAILED" -ne 0 ]; then
     echo "=== VERIFY FAILED ==="
     exit 1
-else
-    echo "=== ALL CHECKS PASSED ==="
-    exit 0
 fi
+echo "=== ALL CHECKS PASSED ==="
+exit 0
