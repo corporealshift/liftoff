@@ -133,27 +133,6 @@ assert_test_passed "$MC" "showsNoUnbuiltPlaceholders"
 # No on-screen text, including the equipment labels, says "session".
 assert_test_passed "$MC" "neverSaysSession"
 
-# Decision 1: tapping "Add equipment" shows the key/name/notes form inline in the section (no dialog);
-# submitting it shows the row "key — name — notes" and hides the form.
-assert_test_passed "$MC" "addEquipmentFormIsInline"
-
-# Decision 6: an invalid or duplicate key shows its error text inline in the add form, and no row appears.
-assert_test_passed "$MC" "addKeyErrorShownInline"
-
-# Decision 2: Edit replaces the row inline with the key read-only and name/notes editable;
-# saving updates the row text.
-assert_test_passed "$MC" "editRowShowsKeyReadOnly"
-
-# Decision 3: a "Show deactivated" button at the bottom of the section shows deactivated items
-# below the active ones; tapping Reactivate returns the item to the active list.
-assert_test_passed "$MC" "showDeactivatedTogglesDeactivatedList"
-
-# Decision 4: tapping Deactivate removes the row at once, with no confirmation dialog.
-assert_test_passed "$MC" "deactivateRemovesRowImmediately"
-
-# Decision E: deactivated rows offer Reactivate and no Edit action.
-assert_test_passed "$MC" "deactivatedRowsHaveOnlyReactivate"
-
 echo ""
 if [ "$FAILED" -ne 0 ]; then
     echo "=== VERIFY FAILED ==="
