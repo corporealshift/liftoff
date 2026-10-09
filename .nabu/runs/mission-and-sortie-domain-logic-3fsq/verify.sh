@@ -1,90 +1,140 @@
 #!/bin/bash
 # Verify: mission-and-sortie-domain-logic-3fsq
-# Exits 0 only when the brief is done. Runs from the repository root.
+# Exits 0 only when the brief is done. Runs from the repository root under bash (Git Bash on Windows).
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+RESULTS=app/build/test-results/testDebugUnitTest
+
 # ── CI gate: build + unit tests ───────────────────────────────────────
-# The same command CI runs. If this fails, nothing else matters.
+# Same tasks as .github/workflows/ci.yml; gradlew.sh supplies the toolchain on this machine.
+# Old results are removed so every test below must actually run in this invocation.
 echo "=== build and test ==="
-bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee /tmp/gradle.log
-if ! grep -q 'BUILD SUCCESSFUL' /tmp/gradle.log; then
-    echo "FAIL: Gradle build did not succeed" >&2
-    exit 1
-fi
+rm -rf "$RESULTS"
+bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
 
 # ── ARCHITECTURE.md: domain row marked as existing ────────────────────
-# The brief requires com.liftoff.app.domain to be listed with a checkmark
-# (not "—" or blank) in the package table.
+# The brief's done list asks for this explicitly.
 echo "=== ARCHITECTURE.md domain row ==="
-if ! grep -q '| `com.liftoff.app.domain` |.*✅' ARCHITECTURE.md; then
+if ! grep -q '^| `com.liftoff.app.domain` |.*✅' ARCHITECTURE.md; then
     echo "FAIL: ARCHITECTURE.md does not mark com.liftoff.app.domain as existing" >&2
     exit 1
 fi
 
-# ── Test classes by name ──────────────────────────────────────────────
-# These are the test files the plan names. Each must have been compiled
-# and produced a result XML with zero failures and at least one test run.
-#
-# The brief's done criteria:
-#   §13 'Missions' cases  → MissionsTest, MissionManagerTest
-#   §13 'Sorties' cases   → SortiesTest
-#   Week boundary         → WeekTest
-#   Pattern validation    → PatternTest
-#   Rollover              → RolloverTest
-#   Sortie planning       → SortiePlanningTest
-#   Room-backed operations→ MissionManagerTest (Robolectric)
-
-REQUIRED_CLASSES=(
-    # Monday boundary across time zones (Decision: Time zone)
-    "WeekTest"
-    # Valid/invalid patterns; brief asks for this test class
-    "PatternTest"
-    # Draft created with default pattern; override then frozen on confirm
-    # Mission lifecycle: every legal and illegal transition (Decision: Mission transitions)
-    "MissionsTest"
-    # All 6 legal and 19 illegal sortie transitions; currentSortie skips landed/scrubbed
-    # at most one IN_FLIGHT across all Missions
-    "SortiesTest"
-    # Rollover scrubs open sorties with "week ended"; no carry-over (Decisions: Unchecked sets at landing, Rollover scope)
-    "RolloverTest"
-    # RUN with generation off gets SimplePlan; LIFT and RUN with generation on get AwaitGeneration
-    # (Decision: Where run focus goes — notes field stores the sortie's focus)
-    "SortiePlanningTest"
-    # Room-backed operations: onAppOpen, setPattern, confirm, launch, land, scrub
-    # Covers simple run plan creation, land advancing to next sortie and closing Mission
-    # (Decisions: Launch and land times — clock-derived; Scrub advances like land; Only current sortie prepared;
-    #  Optional scrub reason — blank stored as null; Launch rules — current + no other in flight)
-    "MissionManagerTest"
-)
-
-for cls in "${REQUIRED_CLASSES[@]}"; do
-    echo "=== checking test class: $cls ==="
-    # Find any result XML that mentions this class (JVM or Robolectric).
-    xml=$(find app/build/test-results -name '*.xml' -exec grep -l "$cls" {} + 2>/dev/null || true)
-    if [ -z "$xml" ]; then
-        echo "FAIL: no test results found for $cls" >&2
-        exit 1
+# ── Named tests ───────────────────────────────────────────────────────
+# Each named test must appear in the JUnit XML for its class and must have
+# passed: not failed, errored, skipped, or missing.
+failed=0
+check() {
+    local cls="$1" method="$2"
+    local xml="$RESULTS/TEST-$cls.xml"
+    if [ ! -f "$xml" ]; then
+        echo "FAIL: $cls.$method did not run (no results for $cls)" >&2
+        failed=1
+        return
     fi
-    # Check every XML that mentions the class.
-    for f in $xml; do
-        tests=$(grep -oP 'tests="\K[0-9]+' "$f" | head -1)
-        failures=$(grep -oP 'failures="\K[0-9]+' "$f" | head -1)
-        errors=$(grep -oP 'errors="\K[0-9]+' "$f" | head -1)
-        # Default to 0 if grep found nothing (shouldn't happen for a real XML).
-        tests=${tests:-0}
-        failures=${failures:-0}
-        errors=${errors:-0}
-        if [ "$tests" -eq 0 ]; then
-            echo "FAIL: $cls ran 0 tests ($f)" >&2
-            exit 1
-        fi
-        if [ "$failures" -gt 0 ] || [ "$errors" -gt 0 ]; then
-            echo "FAIL: $cls had $failures failures, $errors errors ($f)" >&2
-            exit 1
-        fi
-    done
-done
+    local verdict
+    verdict=$(awk -v name="$method" -v cls="$cls" '
+        BEGIN { state = "missing" }
+        index($0, "<testcase name=\"" name "\" classname=\"" cls "\"") {
+            state = "passed"
+            if ($0 ~ /\/>[[:space:]]*$/) exit
+            inside = 1
+            next
+        }
+        inside && /<(failure|error|skipped)/ { state = "failed"; exit }
+        inside && /<\/testcase>/ { exit }
+        END { print state }
+    ' "$xml")
+    case "$verdict" in
+        passed) echo "ok: $cls.$method" ;;
+        missing) echo "FAIL: $cls.$method did not run" >&2; failed=1 ;;
+        *) echo "FAIL: $cls.$method failed or was skipped" >&2; failed=1 ;;
+    esac
+}
 
+D=com.liftoff.app.domain
+M=com.liftoff.app.data.MissionManagerTest
+
+echo "=== domain rules (pure JVM) ==="
+# Week start is Monday in local time.
+check $D.WeekTest everyDayMapsToItsMonday
+# Monday boundary across time zones (Decision: Time zone).
+check $D.WeekTest mondayBoundaryAcrossTimeZones
+
+# Draft for the current week with the default pattern.
+check $D.MissionsTest newDraftUsesDefaultPattern
+# Pattern override on a draft; only 1–7 of R/L accepted.
+check $D.MissionsTest overridePatternOnDraft
+check $D.MissionsTest overridePatternRejectsInvalidPattern
+# Pattern frozen once confirmed.
+check $D.MissionsTest patternFrozenAfterConfirm
+# Confirm without outline: one sortie per letter, R = run/"easy", L = lift/"full body".
+check $D.MissionsTest confirmCreatesOneSortiePerPatternLetter
+# DRAFT → ACTIVE → CLOSED; everything else rejected (Decision: Mission transitions).
+check $D.MissionsTest missionLifecycleTransitions
+# A Mission is done when every sortie landed or was scrubbed.
+check $D.MissionsTest allSortiesDoneOnlyWhenEachLandedOrScrubbed
+
+# Every legal §5.1 sortie transition succeeds; every illegal one is rejected.
+check $D.SortiesTest legalTransitionsSucceed
+check $D.SortiesTest illegalTransitionsAreRejected
+# Next sortie: lowest index neither landed nor scrubbed.
+check $D.SortiesTest currentSortieSkipsLandedAndScrubbed
+# At most one sortie IN_FLIGHT across all Missions.
+check $D.SortiesTest atMostOneInFlight
+
+# Ended week: open sorties SCRUBBED with 'week ended', Mission CLOSED.
+check $D.RolloverTest rolloverScrubsOpenSortiesWithWeekEnded
+# Nothing carries over.
+check $D.RolloverTest rolloverDoesNotCarryOver
+# The current week's Mission is left alone.
+check $D.RolloverTest currentWeekMissionIsNotRolledOver
+
+# Run with generation off gets a SIMPLE_RUN 'Run' plan with its focus (Decision: where the run focus goes).
+check $D.SortiePlanningTest runWithGenerationOffGetsSimplePlan
+# Lifts, and runs with generation on, stay PENDING awaiting generation.
+check $D.SortiePlanningTest liftAndGeneratedRunAwaitGeneration
+
+echo "=== Room-backed operations (Robolectric, in-memory Room) ==="
+# App open creates this week's draft with the default pattern, once.
+check $M onAppOpenCreatesDraftForCurrentWeek
+check $M onAppOpenDoesNotDuplicateDraft
+# App open rolls over a past Mission, keeps checked sets, copies nothing (Decision: rollover scope).
+check $M onAppOpenRollsOverPastMission
+
+# Pattern change on a draft; rejected once ACTIVE.
+check $M setPatternUpdatesDraftAndRejectsActive
+
+# Confirm: ACTIVE, sorties created, first run planned when generation is off (Decision: only the current sortie is prepared).
+check $M confirmPlansFirstRunWhenGenerationOff
+check $M confirmLeavesLiftPending
+check $M confirmLeavesRunPendingWhenGenerationOn
+
+# Launch records launchedAt from the injected clock (Decision: launch and land times).
+check $M launchRecordsLaunchedAt
+# Launch refused while another sortie is in flight (Decision: launch rules).
+check $M launchRejectedWhileAnotherSortieInFlight
+
+# Land records the landed time from the injected clock (Decision: launch and land times).
+check $M landRecordsLandedTime
+# Unchecked sets marked not done, checked sets stay done (Decision: unchecked sets at landing).
+check $M landMarksUncheckedSetsNotDone
+# Land advances to the next sortie and prepares its plan.
+check $M landAdvancesToNextSortie
+# Landing the last sortie closes the Mission.
+check $M landingLastSortieClosesMission
+
+# Scrub stores the reason and prepares the next sortie (Decision: scrub advances like land).
+check $M scrubStoresReasonAndPreparesNextSortie
+# A scrubbed IN_FLIGHT sortie keeps its checked sets (Decision: scrubbing in flight).
+check $M scrubInFlightKeepsCheckedSets
+# Scrubbing the last open sortie closes the Mission.
+check $M scrubbingLastSortieClosesMission
+
+if [ "$failed" -ne 0 ]; then
+    echo "=== FAILED ===" >&2
+    exit 1
+fi
 echo "=== all checks passed ==="
