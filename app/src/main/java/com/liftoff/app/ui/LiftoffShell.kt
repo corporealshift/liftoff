@@ -81,10 +81,11 @@ fun LiftoffShell() {
         TriStripe(modifier = Modifier.statusBarsPadding())
 
         if (nav.missionControlOpen) {
-            val store = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container.settingsStore
+            val container = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container
             MissionControlScreen(
-                settingsStore = store,
+                settingsStore = container.settingsStore,
                 scope = shellScope,
+                equipmentDao = container.database.equipmentDao(),
                 onBack = { nav = nav.back() ?: nav },
             )
         } else {

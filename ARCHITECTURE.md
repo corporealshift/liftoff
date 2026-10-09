@@ -77,7 +77,7 @@ Each milestone ends with the project gate (`./gradlew :app:assembleDebug :app:te
 | Milestone | Title | Status |
 |---|---|---|
 | M0 | Coach reliability spike — coach workspace, validator, schemas, prompt builder, `LiveCoachTest` | Not started |
-| M1 | Skeleton and data — Room schema, settings, `AppContainer`, theme, navigation shell, Mission Control including the equipment list | Not started |
+| M1 | Skeleton and data — Room schema, settings, `AppContainer`, theme, navigation shell, Mission Control including the equipment list | Done — test connection and export/import come later |
 | M2 | Missions and sorties — domain state machines, draft/confirm UI, Launchpad, Scrub | Not started |
 | M3 | Generation — nabu client copy, `GenerationWorker`, outline + lift plan end to end | Not started |
 | M4 | In flight — In-Flight screen, Launch, Land, resume after process kill | Not started |
