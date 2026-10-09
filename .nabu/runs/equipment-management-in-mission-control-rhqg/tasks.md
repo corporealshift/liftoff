@@ -1,6 +1,6 @@
 # Tasks: Equipment Management in Mission Control
 
-- [ ] Create EquipmentViewModel.kt and EquipmentViewModelTest.kt
+- [x] Create EquipmentViewModel.kt and EquipmentViewModelTest.kt
   A plain-Kotlin state holder (no ViewModel superclass) with all add/edit/deactivate/reactivate logic, validation, and a combined Flow of active + deactivated lists. Tests cover invalid key pattern, duplicate against active and inactive items, name required on add and edit, successful add, edit, deactivate, reactivate, error clears on typing, and whitespace trimming — using Robolectric with an in-memory LiftoffDatabase.
   Pass when `EquipmentViewModelTest` runs green under `bash gradlew.sh :app:testDebugUnitTest`.
 
