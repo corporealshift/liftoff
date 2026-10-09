@@ -13,6 +13,15 @@ abstract class MissionDao {
     @Update
     abstract suspend fun update(mission: Mission)
 
+    @Query("SELECT * FROM mission WHERE id = :id")
+    abstract suspend fun get(id: Long): Mission?
+
+    @Query("SELECT * FROM mission WHERE weekStart = :weekStart")
+    abstract suspend fun getByWeekStart(weekStart: java.time.LocalDate): Mission?
+
+    @Query("SELECT * FROM mission WHERE weekStart < :weekStart AND status != 'CLOSED'")
+    abstract suspend fun getUnclosedBefore(weekStart: java.time.LocalDate): List<Mission>
+
     @Query("SELECT * FROM mission WHERE weekStart = :weekStart")
     protected abstract fun observeRaw(weekStart: java.time.LocalDate): Flow<MissionWithSorties?>
 

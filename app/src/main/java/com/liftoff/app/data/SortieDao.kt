@@ -18,6 +18,12 @@ interface SortieDao {
     @Query("SELECT * FROM sortie WHERE id = :id")
     suspend fun get(id: Long): Sortie?
 
+    @Query("SELECT * FROM sortie WHERE missionId = :missionId ORDER BY `index`")
+    suspend fun getForMission(missionId: Long): List<Sortie>
+
+    @Query("SELECT * FROM sortie WHERE state = 'IN_FLIGHT'")
+    suspend fun getInFlight(): List<Sortie>
+
     @Query(
         "SELECT s.* FROM sortie s " +
         "JOIN mission m ON m.id = s.missionId " +

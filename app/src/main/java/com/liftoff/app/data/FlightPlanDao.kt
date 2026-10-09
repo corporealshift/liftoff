@@ -179,4 +179,15 @@ abstract class FlightPlanDao(private val db: LiftoffDatabase) {
         skipped: Boolean,
         userNotes: String?
     )
+
+    @Query(
+        """UPDATE plannedSet SET status = 'SKIPPED'
+           WHERE status = 'OPEN'
+           AND plannedExerciseId IN (
+               SELECT pe.id FROM plannedExercise pe
+               JOIN flightPlan fp ON fp.id = pe.flightPlanId
+               WHERE fp.sortieId = :sortieId
+           )"""
+    )
+    abstract suspend fun markOpenSetsNotDone(sortieId: Long)
 }
