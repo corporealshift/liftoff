@@ -198,7 +198,7 @@ private fun MissionControlContent(
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
+internal fun SectionCard(title: String, content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -220,7 +220,7 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun LabeledTextField(
+internal fun LabeledTextField(
     label: String,
     value: String,
     onChange: (String) -> Unit,
@@ -285,7 +285,7 @@ private fun LabeledTextFieldWithIcon(
 }
 
 @Composable
-private fun LabeledMultiLineTextField(
+internal fun LabeledMultiLineTextField(
     label: String,
     value: String,
     onChange: (String) -> Unit,
