@@ -25,11 +25,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -59,6 +61,8 @@ fun LiftoffShell() {
         ),
     ) { mutableStateOf(ShellNav()) }
 
+    val shellScope = rememberCoroutineScope()
+
     BackHandler(enabled = nav.back() != null) {
         nav.back()?.let { nav = it }
     }
@@ -77,7 +81,12 @@ fun LiftoffShell() {
         TriStripe(modifier = Modifier.statusBarsPadding())
 
         if (nav.missionControlOpen) {
-            MissionControlScreen(onBack = { nav = nav.back() ?: nav })
+            val store = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container.settingsStore
+            MissionControlScreen(
+                settingsStore = store,
+                scope = shellScope,
+                onBack = { nav = nav.back() ?: nav },
+            )
         } else {
             Column(Modifier.weight(1f)) {
                 // Top bar: wordmark + sliders button.
