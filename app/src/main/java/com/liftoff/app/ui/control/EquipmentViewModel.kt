@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** UI state for the equipment section. */
@@ -37,12 +38,10 @@ class EquipmentViewModel(
     val state: StateFlow<EquipmentState> = _state
 
     init {
-        // Load initial data from the database
+        // Room re-emits on every write, from any writer, so the list stays live.
         scope.launch {
-            try {
-                reloadState()
-            } catch (_: Exception) {
-                // If initial load fails, leave state as defaults
+            dao.observeAll().collect { all ->
+                _state.update { it.copy(active = all.filter { e -> e.active }, deactivated = all.filterNot { e -> e.active }) }
             }
         }
     }
@@ -50,24 +49,28 @@ class EquipmentViewModel(
     // ── Add form ────────────────────────────────────────────────────────
 
     fun startAdd() {
-        _state.value = _state.value.copy(adding = true)
+        _state.update { it.copy(adding = true) }
     }
 
     fun cancelAdd() {
-        val s = _state.value
-        _state.value = s.copy(adding = false, addKey = "", addName = "", addNotes = "", addKeyError = null, addNameError = null)
+        _state.update {
+            it.copy(
+                adding = false, addKey = "", addName = "", addNotes = "",
+                addKeyError = null, addNameError = null
+            )
+        }
     }
 
     fun setAddKey(value: String) {
-        _state.value = _state.value.copy(addKey = value, addKeyError = null)
+        _state.update { it.copy(addKey = value, addKeyError = null) }
     }
 
     fun setAddName(value: String) {
-        _state.value = _state.value.copy(addName = value, addNameError = null)
+        _state.update { it.copy(addName = value, addNameError = null) }
     }
 
     fun setAddNotes(value: String) {
-        _state.value = _state.value.copy(addNotes = value)
+        _state.update { it.copy(addNotes = value) }
     }
 
     fun submitAdd() {
@@ -78,13 +81,13 @@ class EquipmentViewModel(
 
         // 1. Validate key pattern
         if (!VALID_KEY_REGEX.matches(key)) {
-            _state.value = s.copy(addKeyError = "Key must use only a–z, 0–9 and _")
+            _state.update { s.copy(addKeyError = "Key must use only a–z, 0–9 and _") }
             return
         }
 
         // 2. Name required
         if (name.isBlank()) {
-            _state.value = s.copy(addNameError = "Name is required")
+            _state.update { s.copy(addNameError = "Name is required") }
             return
         }
 
@@ -97,7 +100,7 @@ class EquipmentViewModel(
             } else {
                 "Key \"$key\" is already used"
             }
-            _state.value = s.copy(addKeyError = msg)
+            _state.update { s.copy(addKeyError = msg) }
             return
         }
 
@@ -105,11 +108,10 @@ class EquipmentViewModel(
         scope.launch {
             try {
                 dao.add(Equipment(key = key, name = name, notes = notes))
-                reloadState()
-                _state.value = _state.value.copy(adding = false)
+                _state.update { it.copy(adding = false, addKey = "", addName = "", addNotes = "", addKeyError = null, addNameError = null) }
             } catch (e: android.database.sqlite.SQLiteConstraintException) {
                 // Race backstop for unique index violation
-                _state.value = s.copy(addKeyError = "Key \"$key\" is already used")
+                _state.update { s.copy(addKeyError = "Key \"$key\" is already used") }
             }
         }
     }
@@ -117,24 +119,26 @@ class EquipmentViewModel(
     // ── Edit form ───────────────────────────────────────────────────────
 
     fun startEdit(item: Equipment) {
-        _state.value = _state.value.copy(
-            editingId = item.id,
-            editName = item.name,
-            editNotes = item.notes,
-            editNameError = null
-        )
+        _state.update {
+            it.copy(
+                editingId = item.id,
+                editName = item.name,
+                editNotes = item.notes,
+                editNameError = null
+            )
+        }
     }
 
     fun cancelEdit() {
-        _state.value = _state.value.copy(editingId = null, editName = "", editNotes = "", editNameError = null)
+        _state.update { it.copy(editingId = null, editName = "", editNotes = "", editNameError = null) }
     }
 
     fun setEditName(value: String) {
-        _state.value = _state.value.copy(editName = value, editNameError = null)
+        _state.update { it.copy(editName = value, editNameError = null) }
     }
 
     fun setEditNotes(value: String) {
-        _state.value = _state.value.copy(editNotes = value)
+        _state.update { it.copy(editNotes = value) }
     }
 
     fun submitEdit() {
@@ -143,15 +147,19 @@ class EquipmentViewModel(
         val name = s.editName.trim()
 
         if (name.isBlank()) {
-            _state.value = s.copy(editNameError = "Name is required")
+            _state.update { s.copy(editNameError = "Name is required") }
             return
         }
 
         val notes = s.editNotes.trim()
         scope.launch {
             dao.edit(id, name, notes)
-            reloadState()
-            _state.value = _state.value.copy(editingId = null)
+            _state.update { current ->
+                val updatedActive = current.active.map { e ->
+                    if (e.id == id) e.copy(name = name, notes = notes) else e
+                }
+                current.copy(editingId = null, active = updatedActive)
+            }
         }
     }
 
@@ -160,33 +168,33 @@ class EquipmentViewModel(
     fun deactivate(id: Long) {
         scope.launch {
             dao.deactivate(id)
-            reloadState()
+            _state.update { current ->
+                val item = current.active.find { it.id == id } ?: return@update current
+                current.copy(
+                    active = current.active.filterNot { it.id == id },
+                    deactivated = current.deactivated + item
+                )
+            }
         }
     }
 
     fun reactivate(id: Long) {
         scope.launch {
             dao.reactivate(id)
-            reloadState()
+            _state.update { current ->
+                val item = current.deactivated.find { it.id == id } ?: return@update current
+                current.copy(
+                    deactivated = current.deactivated.filterNot { it.id == id },
+                    active = current.active + item
+                )
+            }
         }
     }
 
     // ── Toggle deactivated view ─────────────────────────────────────────
 
     fun setShowDeactivated(value: Boolean) {
-        _state.value = _state.value.copy(showDeactivated = value)
-    }
-
-    // ── Internal ────────────────────────────────────────────────────────
-
-    private suspend fun reloadState() {
-        val all = dao.observeAll().first()
-        val active = all.filter { it.active }
-        val deactivated = all.filterNot { it.active }
-        _state.value = _state.value.copy(
-            active = active,
-            deactivated = deactivated
-        )
+        _state.update { it.copy(showDeactivated = value) }
     }
 }
 

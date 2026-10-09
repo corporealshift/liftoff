@@ -3,8 +3,8 @@ package com.liftoff.app.ui.control
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -41,7 +41,8 @@ class EquipmentViewModelTest {
     private fun createDbAndVm(): EquipmentViewModel {
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(context, com.liftoff.app.data.LiftoffDatabase::class.java)
-            .allowMainThreadQueries().build()
+            .allowMainThreadQueries()
+            .build()
         dao = db.equipmentDao()
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined + scopeJob)
         vm = EquipmentViewModel(dao, scope)
@@ -49,12 +50,12 @@ class EquipmentViewModelTest {
     }
 
     @Suppress("SameParameterValue")
-    private fun awaitState(predicate: (com.liftoff.app.ui.control.EquipmentState) -> Boolean) = runBlocking {
+    private fun awaitState(predicate: (com.liftoff.app.ui.control.EquipmentState) -> Boolean): Unit = runBlocking {
         try {
             withTimeout(5_000L) {
                 vm.state.first(predicate)
             }
-        } catch (_: TimeoutCancellationException) {
+        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
             throw AssertionError("Timed out waiting for state predicate: $predicate")
         }
     }
@@ -147,6 +148,14 @@ class EquipmentViewModelTest {
         vm.submitAdd()
 
         awaitState { s -> s.active.size == 1 && !s.adding }
+
+        // Verify form fields are cleared after successful add
+        val s = vm.state.value
+        assertEquals("", s.addKey)
+        assertEquals("", s.addName)
+        assertEquals("", s.addNotes)
+        assertNull(s.addKeyError)
+        assertNull(s.addNameError)
 
         val item = dao.observeAll().first()[0]
         assertEquals("dumbbells_2", item.key)
@@ -426,5 +435,20 @@ class EquipmentViewModelTest {
         assertEquals("barbell", deactivatedItem.key)
         assertEquals("Updated Barbell", deactivatedItem.name)
         assertEquals("updated notes", deactivatedItem.notes)
+    }
+
+    @Test
+    fun listUpdatesLiveFromDaoWrites() = runBlocking {
+        vm = createDbAndVm()
+        val id = dao.add(com.liftoff.app.data.Equipment(key = "barbell", name = "Barbell", notes = ""))
+
+        // Room's Flow collector should have picked up the insert
+        awaitState { s -> s.active.map { it.id } == listOf(id) }
+
+        // Deactivate through DAO directly — never via vm.deactivate()
+        dao.deactivate(id)
+
+        // State must reflect the deactivation driven by Room invalidation
+        awaitState { s -> s.active.isEmpty() && s.deactivated.map { it.id } == listOf(id) }
     }
 }
