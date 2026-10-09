@@ -16,6 +16,6 @@
   Add `equipmentDao: EquipmentDao` to `MissionControlScreen`, create `EquipmentViewModel(equipmentDao, scope)` with `remember`, collect its state, and add an EQUIPMENT SectionCard after "OBJECTIVES AND CONSTRAINTS". In `LiftoffShell.kt`, read the container once and pass `equipmentDao = container.database.equipmentDao()`. Update `MissionControlScreenTest`: build an in-memory LiftoffDatabase in `launchScreen` and close it in `tearDown`; rename `showsNoEquipmentOrUnbuiltPlaceholders` to `showsNoUnbuiltPlaceholders` and remove the "Equipment" assertion; add "EQUIPMENT" to the head list in `showsEverySectionHeadInOrder`; add equipment labels to the text list in `neverSaysSession`.
   Pass when all tests pass (`:app:testDebugUnitTest`).
 
-- [ ] Update ARCHITECTURE.md and run the build gate
+- [x] Update ARCHITECTURE.md and run the build gate
   Set the M1 milestone row's status to Done with note "test connection and export/import come later". Run `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` end-to-end and confirm it passes, including all existing tests (EquipmentDaoTest, MissionControlViewModelTest, LiftoffShellTest, theme tests).
   Pass when the gate command exits with status 0.
