@@ -37,12 +37,25 @@ fi
 #   Room-backed operations→ MissionManagerTest (Robolectric)
 
 REQUIRED_CLASSES=(
+    # Monday boundary across time zones (Decision: Time zone)
     "WeekTest"
+    # Valid/invalid patterns; brief asks for this test class
     "PatternTest"
+    # Draft created with default pattern; override then frozen on confirm
+    # Mission lifecycle: every legal and illegal transition (Decision: Mission transitions)
     "MissionsTest"
+    # All 6 legal and 19 illegal sortie transitions; currentSortie skips landed/scrubbed
+    # at most one IN_FLIGHT across all Missions
     "SortiesTest"
+    # Rollover scrubs open sorties with "week ended"; no carry-over (Decisions: Unchecked sets at landing, Rollover scope)
     "RolloverTest"
+    # RUN with generation off gets SimplePlan; LIFT and RUN with generation on get AwaitGeneration
+    # (Decision: Where run focus goes — notes field stores the sortie's focus)
     "SortiePlanningTest"
+    # Room-backed operations: onAppOpen, setPattern, confirm, launch, land, scrub
+    # Covers simple run plan creation, land advancing to next sortie and closing Mission
+    # (Decisions: Launch and land times — clock-derived; Scrub advances like land; Only current sortie prepared;
+    #  Optional scrub reason — blank stored as null; Launch rules — current + no other in flight)
     "MissionManagerTest"
 )
 
