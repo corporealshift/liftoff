@@ -244,7 +244,7 @@ class PlanFormatTest {
         val chips = deriveChips("R", sorties)
         assertEquals(1, chips.size)
         assertEquals("R", chips[0].letter)
-        assertEquals(ChipState.Upcoming, chips[0].state)
+        assertEquals(ChipState.Current, chips[0].state)
     }
 
     @Test
@@ -259,7 +259,7 @@ class PlanFormatTest {
         assertEquals(4, chips.size)
         assertEquals(ChipState.Landed, chips[0].state)
         assertEquals(ChipState.Scrubbed, chips[1].state)
-        assertEquals(ChipState.Upcoming, chips[2].state)
+        assertEquals(ChipState.Current, chips[2].state)
         assertEquals(ChipState.Upcoming, chips[3].state)
     }
 

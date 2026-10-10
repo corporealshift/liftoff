@@ -87,7 +87,7 @@ class MissionStatesTest {
         assertEquals(5, week.chips.size)
         assertEquals(com.liftoff.app.ui.theme.ChipState.Landed, week.chips[0].state)
         assertEquals(com.liftoff.app.ui.theme.ChipState.Scrubbed, week.chips[1].state)
-        assertEquals(com.liftoff.app.ui.theme.ChipState.Upcoming, week.chips[2].state)
+        assertEquals(com.liftoff.app.ui.theme.ChipState.Current, week.chips[2].state)
         assertEquals(com.liftoff.app.ui.theme.ChipState.Upcoming, week.chips[3].state)
         assertEquals(com.liftoff.app.ui.theme.ChipState.Upcoming, week.chips[4].state)
     }

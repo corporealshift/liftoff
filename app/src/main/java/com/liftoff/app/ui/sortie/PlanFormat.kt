@@ -6,6 +6,7 @@ import com.liftoff.app.data.PlannedSet
 import com.liftoff.app.data.Sortie
 import com.liftoff.app.data.SortieState
 import com.liftoff.app.data.SortieType
+import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.ui.theme.ChipState
 import com.liftoff.app.ui.theme.PatternChip
 import java.time.LocalDate
@@ -74,13 +75,14 @@ fun formatPlanHead(plan: FlightPlanDetail): String {
 /** Derive chip states from a pattern and its sorties. */
 fun deriveChips(pattern: String, sorties: List<Sortie>): List<PatternChip> {
     val stateByIndex = sorties.associateBy { it.index }
+    val currentIndex = currentSortie(sorties)?.index
 
     return pattern.mapIndexed { index, ch ->
         val letter = ch.toString()
         val state = when (val sortieState = stateByIndex[index]?.state) {
             SortieState.LANDED -> ChipState.Landed
             SortieState.SCRUBBED -> ChipState.Scrubbed
-            else -> ChipState.Upcoming // PENDING, PLANNED, IN_FLIGHT are all upcoming visually
+            else -> if (index == currentIndex) ChipState.Current else ChipState.Upcoming
         }
         PatternChip(letter, state)
     }
