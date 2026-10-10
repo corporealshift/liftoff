@@ -19,6 +19,7 @@ import com.liftoff.app.ui.theme.*
 fun FlightPlanSection(
     plan: FlightPlanDetail,
     sortieType: SortieType,
+    sortieFocus: String?,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -60,7 +61,7 @@ fun FlightPlanSection(
             // Run summary rows: focus, target distance/pace, segments
             val rowCounter = MutableInt(0)
 
-            val focus = plan.plan.notes?.takeIf { it.isNotBlank() && it != plan.plan.title }
+            val focus = sortieFocus?.takeIf { it.isNotBlank() }
             if (focus != null) {
                 InkRuledListRow(
                     index = "%02d".format(rowCounter.value++),
@@ -103,7 +104,10 @@ fun FlightPlanSection(
         }
 
         // Coach note: "Coach:" in Teal weight 600 + text in Muted with LiftoffType.note()
-        val notes = plan.plan.notes?.takeIf { it.isNotBlank() && it != plan.plan.title }
+        // Decision 10: show only when notes is non-blank, differs from title AND sortie focus.
+        val notes = plan.plan.notes?.takeIf { n ->
+            n.isNotBlank() && n != plan.plan.title && n != sortieFocus
+        }
         if (notes != null) {
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Bottom) {

@@ -59,6 +59,7 @@ sealed interface SortieDetailState {
         val title: String,
         val plan: FlightPlanDetail,
         val sortieType: SortieType,
+        val sortieFocus: String?,
     ) : SortieDetailState
 
     /** PENDING with no flight plan yet. */
@@ -126,6 +127,7 @@ class MissionStates(
                         title = plan.plan.title,
                         plan = plan,
                         sortieType = sortie.type,
+                        sortieFocus = sortie.focus,
                     )
                 } else {
                     SortieDetailState.NoPlan(
@@ -142,6 +144,7 @@ class MissionStates(
                         title = plan.plan.title,
                         plan = plan,
                         sortieType = sortie.type,
+                        sortieFocus = sortie.focus,
                     )
                 } else {
                     SortieDetailState.NoPlan(

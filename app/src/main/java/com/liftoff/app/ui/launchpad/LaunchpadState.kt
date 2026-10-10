@@ -31,6 +31,7 @@ sealed interface LaunchpadState {
         val sortieId: Long,
         val sortieIndex: Int,
         val sortieType: SortieType,
+        val sortieFocus: String?,
     ) : LaunchpadState
 
     /** Current sortie is PENDING — no flight plan yet. */
@@ -51,6 +52,7 @@ sealed interface LaunchpadState {
         val sortieId: Long,
         val sortieIndex: Int,
         val sortieType: SortieType,
+        val sortieFocus: String?,
     ) : LaunchpadState
 
     /** Mission is CLOSED or ACTIVE with no current sortie. */
@@ -138,6 +140,7 @@ class LaunchpadStates(
                         sortieId = current.id,
                         sortieIndex = current.index,
                         sortieType = current.type,
+                        sortieFocus = current.focus,
                     )
                 } ?: run {
                     val title = current.focus ?: when (current.type) {
@@ -182,6 +185,7 @@ class LaunchpadStates(
                     sortieId = current.id,
                     sortieIndex = current.index,
                     sortieType = current.type,
+                    sortieFocus = current.focus,
                 )
             }
 

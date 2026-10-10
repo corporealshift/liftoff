@@ -125,7 +125,7 @@ private fun SortieDetailView(state: SortieDetailState, onBack: () -> Unit) {
             is SortieDetailState.WithPlan -> {
                 TitleBlock(eyebrow = state.eyebrow, title = state.title)
                 Spacer(Modifier.height(20.dp))
-                FlightPlanSection(plan = state.plan, sortieType = state.sortieType)
+                FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
             }
 
             is SortieDetailState.NoPlan -> {
@@ -262,6 +262,7 @@ private fun SortieDetailPlannedPreview() {
                     segments = emptyList(),
                 ),
                 sortieType = SortieType.LIFT,
+                sortieFocus = "Bench",
             )
             SortieDetailView(state = state, onBack = {})
         }

@@ -103,6 +103,7 @@ class FlightPlanSectionTest {
                     FlightPlanSection(
                         plan = plan,
                         sortieType = SortieType.LIFT,
+                        sortieFocus = null,
                     )
                 }
             }
@@ -112,6 +113,93 @@ class FlightPlanSectionTest {
 
             // formatPlanHead(plan) → "≈55 min · 12 sets" must also be displayed next to it.
             composeRule.onNodeWithText("≈55 min · 12 sets").assertIsDisplayed()
+        }
+    }
+
+    // ── runFocusFromSortieNotPlanNotes ───────────────────────────────
+    // A SIMPLE_RUN plan stores notes = sortie.focus (SortiePlanning.kt).
+    // The Focus row must show the sortie's focus, not plan.plan.notes.
+    // When notes equals the sortie focus, the coach note must be hidden
+    // (Decision 10), so "Focus: easy" appears once, not twice.
+
+    @Test
+    fun runFocusFromSortieNotPlanNotes() {
+        runBlocking {
+            database = Room.inMemoryDatabaseBuilder(
+                ApplicationProvider.getApplicationContext(),
+                com.liftoff.app.data.LiftoffDatabase::class.java,
+            ).build()
+
+            // SIMPLE_RUN plan: notes = "easy" (same as sortie focus).
+            val fp = FlightPlan(
+                id = 1, sortieId = 1, source = FlightPlanSource.SIMPLE_RUN,
+                title = "Run", estimatedMinutes = null,
+                warmup = null, notes = "easy", runKind = null,
+                targetDistance = null, targetPace = null, rawJson = "{}",
+            )
+            val plan = FlightPlanDetail(fp, emptyList(), emptyList())
+
+            composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    FlightPlanSection(
+                        plan = plan,
+                        sortieType = SortieType.RUN,
+                        sortieFocus = "easy",
+                    )
+                }
+            }
+
+            // Focus row shows the sortie focus.
+            composeRule.onNodeWithText("00").assertExists()
+            composeRule.onNodeWithText("Focus").assertExists()
+            composeRule.onNodeWithText("easy").assertExists()
+
+            // Coach note must NOT appear (notes == sortie focus).
+            composeRule.onNodeWithText("Coach: ").assertDoesNotExist()
+        }
+    }
+
+    // ── coachNoteShownWhenNotesDifferFromFocus ───────────────────────
+    // When plan notes differ from the sortie focus, the coach note appears.
+    // The Focus row still comes from the sortie focus, not plan.notes.
+
+    @Test
+    fun coachNoteShownWhenNotesDifferFromFocus() {
+        runBlocking {
+            database = Room.inMemoryDatabaseBuilder(
+                ApplicationProvider.getApplicationContext(),
+                com.liftoff.app.data.LiftoffDatabase::class.java,
+            ).build()
+
+            // Plan notes differ from sortie focus.
+            val fp = FlightPlan(
+                id = 1, sortieId = 1, source = FlightPlanSource.GENERATED,
+                title = "Run", estimatedMinutes = null,
+                warmup = null, notes = "Keep cadence at 180.", runKind = null,
+                targetDistance = null, targetPace = null, rawJson = "{}",
+            )
+            val plan = FlightPlanDetail(fp, emptyList(), emptyList())
+
+            composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    FlightPlanSection(
+                        plan = plan,
+                        sortieType = SortieType.RUN,
+                        sortieFocus = "Tempo",
+                    )
+                }
+            }
+
+            // Focus row shows sortie focus.
+            composeRule.onNodeWithText("easy").assertDoesNotExist()
+            composeRule.onNodeWithText("Focus").assertExists()
+            composeRule.onNodeWithText("Tempo").assertExists()
+
+            // Coach note appears because notes differ from sortie focus.
+            composeRule.onNodeWithText("Coach: ").assertExists()
+            composeRule.onNodeWithText("Keep cadence at 180.").assertExists()
         }
     }
 }

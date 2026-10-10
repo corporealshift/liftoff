@@ -126,7 +126,7 @@ private fun PlannedContent(state: LaunchpadState.Planned, viewModel: LaunchpadVi
     Spacer(Modifier.height(16.dp))
     PatternTrack(chips = state.chips)
     Spacer(Modifier.height(20.dp))
-    FlightPlanSection(plan = state.plan, sortieType = state.sortieType)
+    FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
 }
 
 @Composable
@@ -148,7 +148,7 @@ private fun InFlightContent(state: LaunchpadState.InFlight, viewModel: Launchpad
     PatternTrack(chips = state.chips)
     if (state.plan != null) {
         Spacer(Modifier.height(20.dp))
-        FlightPlanSection(plan = state.plan, sortieType = state.sortieType)
+        FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
     }
 }
 
