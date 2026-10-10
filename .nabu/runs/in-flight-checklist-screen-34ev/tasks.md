@@ -1,6 +1,6 @@
 # Tasks for In-Flight Checklist Screen
 
-- [ ] Add state fields to InFlightState.kt
+- [x] Add state fields to InFlightState.kt
   - `Ready.weightUnit: WeightUnit` and `SetRow.plannedWeightLabel: String`, `plannedCountLabel: String`. Fill them in `deriveInFlight`. No existing test constructs `Ready` or `SetRow`, so this is additive-only. Existing tests (`InFlightStatesTest`, `InFlightViewModelTest`) must pass unchanged.
   - Commit message: "feat(inflight): add weightUnit and planned labels to InFlightState"
 
