@@ -2,14 +2,15 @@
 
 ## Approach
 
-The brief asks to replace the two placeholder composables (`LaunchpadScreen`, `MissionScreen`) with real screens that read from Room and react to state changes. The domain logic (state machines, rollover, next-sortie selection) is already written in pure Kotlin under `domain/` and exercised through `MissionManager`. The theme composables (`TitleBlock`, `PatternTrack`, `InkRuledListRow`, `PrimaryButton`, `UnderlinedTextButton`, offset-shadow helpers, `LiftoffIcons`) are already built.
+Replace the placeholder `LaunchpadScreen` and `MissionScreen` with real screens. They read Room live and act through `MissionManager`, which `AppContainer` provides.
 
-The plan follows the existing architecture pattern: each screen gets a **ViewModel** (state-holder + coroutine scope) that queries Room via DAOs and exposes a `State` sealed interface describing which Launchpad state is current. The ViewModel uses `Flow` from the DAOs so the UI updates live when the database changes. A simple In-Flight placeholder route is added to `ShellNav`.
+The work splits into three layers, matching the code that already exists:
 
-This fits the codebase because:
-- It mirrors how `MissionControlScreen` already works (reads `settingsStore` and `equipmentDao` through `AppContainer`).
-- Domain logic stays pure; only data access and UI wiring go in the ViewModel.
-- No new dependencies or architectural shifts — just Compose + Room + coroutines, which the project already uses.
+1. **Derivation (plain Kotlin, testable with Robolectric).** For each screen, a class takes `LiftoffDatabase` and `MissionManager` and exposes `fun observe(): Flow<...State>`. It holds no Compose or Android UI code, so a test can seed an in-memory DB, call `manager.onAppOpen()` and read `observe().first { it !is Loading }`.
+2. **State holders.** These are plain classes like `MissionControlViewModel` and `EquipmentViewModel`: a constructor that takes a `CoroutineScope`, no androidx `ViewModel` superclass, a `StateFlow` collected from the derivation, and action methods that call `MissionManager`.
+3. **Composables.** They are built only from `com.liftoff.app.ui.theme` parts: `TitleBlock`, `PatternTrack`, `InkRuledListRow`, `PrimaryButton`, `UnderlinedTextButton`, `OffsetShadowBox` and `LiftoffIcons`.
+
+"Ensure the current week" is `MissionManager.onAppOpen()`. `MainActivity` runs it every time the activity reaches STARTED, which covers both app open and return to the foreground.
 
 ## Files involved
 
@@ -17,105 +18,124 @@ This fits the codebase because:
 
 | File | Purpose |
 |---|---|
-| `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadViewModel.kt` | Reads current week's mission/sorties/flight-plan from Room; exposes `LaunchpadState`; handles launch, scrub (with confirmation), confirm, pattern editing. |
-| `app/src/main/java/com/liftoff/app/ui/mission/MissionViewModel.kt` | Reads current week's mission/sorties/flight-plan; exposes `MissionScreenState`. |
-| `app/src/main/java/com/liftoff/app/ui/inflight/InFlightScreen.kt` | Simple placeholder: shows sortie title, back button. |
+| `app/src/main/java/com/liftoff/app/ui/sortie/PlanFormat.kt` | Pure formatting functions: week eyebrow date (`OCT 5`), sortie label (`SORTIE 2 OF 5 · LIFT`), exercise load (`3×8 · 135`, `3×8 · BW`, `3×45 s`), Flight Plan head (`≈55 min · 14 sets`), and pattern chip states from a pattern plus sorties. |
+| `app/src/main/java/com/liftoff/app/ui/sortie/FlightPlanSection.kt` | Shared composable used by both screens: the "FLIGHT PLAN" head over a 3 dp ink rule, then either the exercise rows or the run summary, then the coach note. It lives outside `ui/theme`, which keeps `PreviewsTest`'s count of 9 theme previews valid. |
+| `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadState.kt` | The sealed `LaunchpadState` and the `LaunchpadStates(db, manager)` derivation class. |
+| `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadViewModel.kt` | Plain state holder. Actions: `toggleChip(i)`, `addChip()`, `removeChip()`, `confirm()`, `launch(onLaunched)`, `requestScrub()`, `setScrubReason()`, `confirmScrub()`, `cancelScrub()`. |
+| `app/src/main/java/com/liftoff/app/ui/mission/MissionState.kt` | `MissionTabState`, `SortieDetailState` and the `MissionStates(db, manager)` derivation, with `observe()` and `observeSortie(sortieId)`. |
+| `app/src/main/java/com/liftoff/app/ui/mission/MissionViewModel.kt` | Plain state holder for the tab. |
+| `app/src/main/java/com/liftoff/app/ui/inflight/InFlightScreen.kt` | Placeholder that shows the sortie's Flight Plan title and a Back control. |
 
 ### Modified files
 
 | File | Change |
 |---|---|
-| `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt` | Replace placeholder with real screen composable that dispatches to state-specific sub-composables (draft, planned, pending, in-flight-resume, closed). |
-| `app/src/main/java/com/liftoff/app/ui/mission/MissionScreen.kt` | Replace placeholder with real screen: pattern track, outline notes, sortie list. Tapping a sortie shows plan or record. |
-| `app/src/main/java/com/liftoff/app/ui/LiftoffShell.kt` | Wire ViewModel factories through `LiftoffApplication.container`; pass to `LaunchpadScreen` and `MissionScreen`. Add In-Flight route to navigation. |
-| `app/src/main/java/com/liftoff/app/ui/ShellNav.kt` | Add `inFlightSortieId: Long?` field, a route for in-flight, and back-navigation handling. |
-| `app/src/main/java/com/liftoff/app/LiftoffApplication.kt` | Ensure container is accessible to ViewModels (already done via `container` property). |
-| `app/src/main/java/com/liftoff/app/data/MissionDao.kt` | Add `getByWeekStartFlow(weekStart)` returning `Flow<MissionWithSorties>` (the existing `observeWeek` already does this, but make it public). |
-| `app/src/main/java/com/liftoff/app/data/FlightPlanDao.kt` | Ensure `getPlan(sortieId)` is accessible; verify it returns null when no plan exists. |
-| `app/src/main/java/com/liftoff/app/data/SortieDao.kt` | Add `getInFlight()` already exists; add `observeCurrentWeekSorties(missionId: Long): Flow<List<Sortie>>`. |
+| `app/src/main/java/com/liftoff/app/data/MissionManager.kt` | Add `val currentWeekStart: StateFlow<LocalDate?>`. It starts null and is set at the end of `onAppOpen()`, after the transaction commits. The screens observe the week from it, so they move to the new week when rollover runs. No other behavior changes. |
+| `app/src/main/java/com/liftoff/app/data/FlightPlanDao.kt` | Add `observeChanges(): Flow<Int>`, a `@Query` that selects from `flightPlan`, `plannedExercise`, `plannedSet` and `runSegment` (for example a sum of `COUNT(*)` subqueries). It exists only as a change signal, so the screens re-read the plan through `getPlan()` whenever a plan table changes, including the later Regenerate and generation writes. |
+| `app/src/main/java/com/liftoff/app/MainActivity.kt` | In `onCreate`, add `lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { container.missionManager.onAppOpen() } }`. `lifecycle-runtime-ktx` is already a dependency. |
+| `app/src/main/java/com/liftoff/app/ui/ShellNav.kt` | Add `inFlightSortieId: Long? = null`, `openInFlight(id)`, and `back()` from In-Flight that clears it. `select()` also clears it. Extend `encode`/`decode` with an optional in-flight part so the route survives recreation. Existing encodings (`Mission`, `Landed|1`) must decode as before, and bad input still decodes to `ShellNav()`. |
+| `app/src/main/java/com/liftoff/app/ui/LiftoffShell.kt` | Get `container` once at the top, the same way the Mission Control branch already does. Add a branch: `missionControlOpen` → Mission Control; else if `inFlightSortieId != null` → `InFlightScreen`, full height with no top bar or bottom bar, matching `in-flight.html`; else the tabs. Pass `onOpenInFlight = { nav = nav.openInFlight(it) }` to `LaunchpadScreen`. Light nav-bar icons apply when Mission Control or In-Flight is open, because both sit on cream. |
+| `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt` | The real screen. It takes `container` and `onOpenInFlight`. |
+| `app/src/main/java/com/liftoff/app/ui/mission/MissionScreen.kt` | The real screen. It takes `container`. Sortie detail is a `rememberSaveable` selected-id, with a `BackHandler` that returns to the list. |
+| `app/src/main/java/com/liftoff/app/ui/theme/PatternTrack.kt` | Add `ChipState.Scrubbed` (see Decisions) and handle it in `chipSizeDp` and `PatternChipView`. Do not add a new `@Preview`. |
+| `app/src/test/java/com/liftoff/app/ui/LiftoffShellTest.kt` | Several tests assert the placeholder copy ("Your next Flight Plan will appear here.", "This week's pattern and sorties will appear here.", "THIS WEEK"), which this work removes. Replace those assertions with real screen content: the draft's `CONFIRM` button on Launchpad, and the Mission tab's title. Room loads off the main thread, so wait with `composeRule.waitUntil(5_000) { onAllNodesWithText(...).fetchSemanticsNodes().isNotEmpty() }`. Keep every behavior the tests check: tab switching, back handling, recreation, and nav-bar icon contrast. `placeholderScreensShowTheirCopy` keeps only the Landed placeholder check. |
+| `app/src/test/java/com/liftoff/app/ui/ShellNavTest.kt` | Add cases for the in-flight route, its back behavior and its encode/decode round trip. |
+| `ARCHITECTURE.md` | Mark M2 as done in the milestone table: "Done — Regenerate comes with generation (M3); In-Flight is a placeholder until M4". Update the `ui` row in the package table: Launchpad and Mission are real screens, Landed is still a placeholder. |
+
+Nothing else changes. `MissionDao.observeWeek(weekStart)` already returns the mission with its sorties sorted by index, so no new mission or sortie DAO methods are needed. `LiftoffApplication` already exposes `container`.
 
 ### Tests (new)
 
 | File | Purpose |
 |---|---|
-| `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadViewModelTest.kt` | Robolectric tests for each Launchpad state derived from DB: draft, PLANNED lift with seeded exercises, PLANNED run, PENDING, IN_FLIGHT, closed. |
-| `app/src/test/java/com/liftoff/app/ui/mission/MissionViewModelTest.kt` | Tests for Mission tab data derivation: pattern track display, outline notes, sortie list with states. |
+| `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadStatesTest.kt` | Robolectric tests against an in-memory DB and a `MissionManager` with a fixed clock, set up like `MissionManagerTest`. One test per state: Loading before `onAppOpen`; Draft with the default pattern on a fresh DB; PLANNED lift with seeded exercises (an ACTIVE mission, a LIFT sortie in PLANNED, and `writePlan` with exercises whose sets are mixed, bodyweight and timed), checking the eyebrow, title, rows, load strings, head and coach note; PLANNED run after confirming `RLRLR`, which is sortie 1 with Launch available; PENDING after scrubbing that run, which also shows that scrub advances to sortie 2; IN_FLIGHT after launch; Closed. It also checks that the state updates live, with no resubscription, after confirm, scrub and launch. |
+| `app/src/test/java/com/liftoff/app/ui/mission/MissionStatesTest.kt` | Tests the Mission tab derivation: pattern chips from mixed sortie states (landed, scrubbed, current and upcoming); outline notes present and absent; sortie rows with index, type, focus and state; a draft mission; and the sortie detail for a planned sortie (the plan), a PENDING sortie ("No Flight Plan yet"), a landed sortie (the record) and a scrubbed sortie (the record with its reason). |
+| `app/src/test/java/com/liftoff/app/ui/sortie/PlanFormatTest.kt` | Plain JUnit tests for every formatter, including weight `135.0` → `135`, `22.5` → `22.5`, null weight → `BW`, seconds → `45 s`, differing sets, a null estimate, and singular "1 set". |
 
 ## Order of work
 
-### Step 1: Navigation support for In-Flight route
+### Step 1: Ensure the current week, and the change signal
 
-Add `inFlightSortieId` to `ShellNav`, a `goInFlight(sortieId)` method, and back-navigation handling. Update `LiftoffShell` to render the In-Flight placeholder when `shellNav.inFlightSortieId != null`. This is a small, safe change that the Launchpad will depend on.
+- Add `currentWeekStart` to `MissionManager`. Add the `repeatOnLifecycle(STARTED)` call in `MainActivity`.
+- Add `FlightPlanDao.observeChanges()`.
+- Run the existing `MissionManagerTest` and DAO tests. They must still pass.
 
-### Step 2: Launchpad screen and ViewModel
+### Step 2: Formatting and shared parts
 
-Build the real `LaunchpadScreen` and `LaunchpadViewModel`:
+- Write `PlanFormat.kt` with its tests.
+- Write `FlightPlanSection`. For a lift it shows one `InkRuledListRow` per exercise: index `01`, `02` and so on, then the name and the load. For a run it shows the run summary rows: focus, target distance and pace when present, and one row per segment with its description and distance or minutes. Under the list comes the coach note: "Coach:" in `Teal` with weight 600, then the text in `Muted` using `LiftoffType.note()`.
+- Add `ChipState.Scrubbed` to `PatternTrack`.
 
-**State model (sealed interface in ViewModel):**
-- `Draft` — no confirmed mission this week; shows editable pattern chips + Confirm button.
-- `Planned(LiftPlanData)` — sortie is PLANNED, type LIFT; shows eyebrow, title, pattern track, flight plan list, coach note (if any), Launch button, Scrub button.
-- `Planned(RunPlanData)` — same but for RUN type; shows run summary instead of exercise list.
-- `Pending` — sortie is PENDING; status line "Flight Plan not ready yet"; Scrub where Launch would be.
-- `InFlightResume` — an IN_FLIGHT sortie exists across all missions; shows Resume button.
-- `Closed` — mission is CLOSED; short completion state.
+### Step 3: Launchpad derivation and state
 
-**Key composable pieces (top to bottom, matching PLANNED mockup):**
-1. Eyebrow: "WEEK OF {DATE} · SORTIE {N} OF {TOTAL} · {TYPE}" + title in 68sp display type.
-2. Pattern track with chips showing landed/current/upcoming states.
-3. "FLIGHT PLAN" section head with estimated minutes and set count, over ruled list of exercises (red index, name, load like "3×8 · 135"). For runs: show title, focus, target distance/segments.
-4. Coach note with "Coach:" in teal when plan has notes.
-5. PrimaryButton Launch (72dp red, rocket glyph, offset shadow).
-6. UnderlinedTextButton Scrub.
+`LaunchpadState`:
+- `Loading`: `currentWeekStart` is null, or the week's mission row isn't there yet.
+- `Draft(weekStart, pattern, missionId)`: the mission is `DRAFT`.
+- `Planned(header, chips, plan: FlightPlanDetail, sortieId)`: the current sortie is PLANNED. Lift and run are both handled by `FlightPlanSection`, based on whether the plan has exercises or the sortie's type.
+- `Pending(header, chips, sortieId)`.
+- `InFlight(header, chips, plan: FlightPlanDetail?, sortieId)`.
+- `Closed(weekStart, chips, landedCount, total)`: the mission is `CLOSED`, or it is ACTIVE with no current sortie.
 
-**Draft state:** same parts but pattern chips are editable (tap to toggle R/L, add/remove, 1-7 sorties), Confirm button instead of Launch.
+`header` holds the eyebrow (`WEEK OF OCT 5 · SORTIE 2 OF 5 · LIFT`) and the title. The sortie number is `index + 1`, the total is `pattern.length`, and the type is `RUN` or `LIFT`.
 
-### Step 3: Mission screen and ViewModel
+Derivation: `manager.currentWeekStart.filterNotNull().flatMapLatest { missionDao.observeWeek(it) }`, combined with `flightPlanDao.observeChanges()`, then `mapLatest`. The current sortie is `currentSortie(sorties)` from the domain package, and its plan is read with `flightPlanDao.getPlan(id)`. In-flight is the current sortie's own state. Rollover in `onAppOpen` already scrubs in-flight sorties from past weeks.
 
-Build `MissionScreen` and `MissionViewModel`:
-- Week's pattern track at top.
-- Outline notes if present.
-- Each sortie with index, type (run/lift), focus, state.
-- Tapping a sortie shows its Flight Plan detail or a short record for landed/scrubbed sorties (including scrub reason).
+### Step 4: Launchpad screen
 
-### Step 4: In-Flight placeholder
+The layout follows `launchpad.html`. Content scrolls: `TitleBlock` (the eyebrow, then the title in `LiftoffType.screenTitle()`, 68 sp), then `PatternTrack`, then `FlightPlanSection`. The actions are pinned at the bottom, padded 20 dp at the sides and 14 dp at the bottom. Each state:
 
-Simple screen showing the sortie's title and a back button. A later brief will build the real checklist here.
+- **Planned:** `PrimaryButton("Launch", icon = LiftoffIcons.rocket(), iconAtEnd = true)` with the default 72 dp height, then `UnderlinedTextButton("Scrub")`. There is no Regenerate button.
+- **Pending:** a status line, "Flight Plan not ready yet.", in place of the Flight Plan list, and `UnderlinedTextButton("Scrub")` in the Launch slot.
+- **InFlight:** the same summary, with `PrimaryButton("Resume", rocket)` that calls `onOpenInFlight(sortieId)`.
+- **Draft:** editable chips (see Decisions), then `PrimaryButton("Confirm")`. Each chip edit calls `manager.setPattern(missionId, newPattern)`, so the draft persists and the screen stays live.
+- **Closed:** the completion state.
+- **Scrub:** opens a confirmation dialog (see Decisions). Confirming calls `manager.scrub(sortieId, reason)`.
+- **Launch:** calls `manager.launch(sortieId)`, then `onOpenInFlight(sortieId)`.
 
-### Step 5: Wire everything into LiftoffShell
+Every action catches `IllegalStateException`, which covers `IllegalTransitionException`. On a failure it stays put and re-runs `manager.onAppOpen()`, because the state is probably stale, for example after a week boundary. Actions must never crash the scope.
 
-Pass `AppContainer` from `LiftoffApplication` to each screen so ViewModels can access DAOs. Use `ViewModelProvider` or manual instantiation (project has no DI framework).
+### Step 5: Mission tab
 
-### Step 6: Tests
+`MissionTabState`: `Loading`; then `Week(weekStart, status, chips, outlineNotes, rows)`, where each row is index, type, focus and state.
 
-Robolectric tests against an in-memory Room database for:
-- Each Launchpad state and how it derives from DB state.
-- Mission tab data derivation.
-- State transitions (launch → IN_FLIGHT, scrub → SCRUBBED, confirm → ACTIVE with sorties).
+- Eyebrow: `WEEK OF OCT 5`. Title: `Mission`.
+- Then the pattern track, then the outline notes (in `LiftoffType.note()`) if any.
+- Then one `InkRuledListRow` per sortie: index `01`, the title `Lift · full body`, and the state label as the detail (`PLANNED`, `PENDING`, `IN FLIGHT`, `LANDED`, `SCRUBBED`). Each row is clickable.
+- **Draft:** the chips are all upcoming, and a line reads "Not confirmed yet. Confirm this Mission on the Launchpad."
+- **Sortie detail** (`observeSortie(id)`): a `TitleBlock` with eyebrow `SORTIE 2 · LIFT · LANDED` and the plan title, or the focus if there is no plan. Then:
+  - PLANNED, IN_FLIGHT, or PENDING with a plan: `FlightPlanSection`.
+  - PENDING with no plan: "No Flight Plan yet."
+  - LANDED: a record. It shows the landed date, "N of M sets landed" when there is a lift plan, the run distance and minutes if recorded, and notes.
+  - SCRUBBED: "Scrubbed", then the reason, or "No reason given". If any sets were checked before the scrub, it also shows "N of M sets landed".
+  - An `UnderlinedTextButton("Back")` and the system back both return to the list.
 
-### Step 7: Update ARCHITECTURE.md
+### Step 6: In-Flight placeholder and shell wiring
 
-Mark milestone M2 as done in the milestone table.
+`InFlightScreen(sortieId, container, onBack)` reads the plan title once, falling back to `Sortie N`. It shows `TitleBlock(eyebrow = "IN FLIGHT · SORTIE N", title = <title>)`, a line saying the In-Flight checklist comes later, and `UnderlinedTextButton("Back")`. Wire up the `ShellNav` and `LiftoffShell` changes listed above.
+
+### Step 7: Tests, shell test update, docs
+
+Write the tests listed above and update `LiftoffShellTest` and `ShellNavTest`. Update `ARCHITECTURE.md`.
 
 ## Testing
 
-**Unit tests (Robolectric):**
-- `LaunchpadViewModelTest`: seed an in-memory DB with each state configuration; verify ViewModel exposes the correct `LaunchpadState`; test launch, scrub, confirm actions.
-- `MissionViewModelTest`: seed a mission with sorties in various states; verify sortie list, pattern track data, outline notes display.
+- Robolectric derivation tests for each Launchpad state (draft, PLANNED lift with seeded exercises, PLANNED run, PENDING, IN_FLIGHT, closed) and for the Mission tab, as listed above.
+- Pure tests for the formatters, and `ShellNav` tests for the In-Flight route.
+- The existing `LiftoffShellTest`, updated for the real screens, still covers the shell.
+- **Project gate:** `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
 
-**Manual verification:**
-- Fresh install → opens to draft for current week with default RLRLR pattern.
-- Confirm → sortie 1 (a run under default pattern) shows as PLANNED with Launch available.
-- Scrub → advances to next sortie.
-- Launch → sets sortie IN_FLIGHT, opens In-Flight placeholder.
-
-**Project gate:** `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTests` passes.
+Manual check, if a device is available:
+- A fresh install opens to a draft with `RLRLR`.
+- Confirm shows sortie 1, Run, as PLANNED with Launch.
+- Scrub, then confirm the dialog, shows sortie 2 as PENDING.
+- On a planned sortie, Launch opens the In-Flight placeholder; Back returns to Launchpad showing Resume.
 
 ## Risk and uncertainty
 
-1. **ViewModel lifecycle with Flow.** The ViewModel must cancel DAO flows on dispose to avoid leaks. Robolectric's coroutine support needs the correct rule (`MainDispatcherRule` or similar).
-2. **Pattern editing UX.** The brief says "editable R/L pattern chips (tap to toggle, add, remove; 1-7 sorties)". This is a small interaction surface but needs careful Compose state management. The plan uses a `List<Char>` state that the ViewModel exposes and updates through commands.
-3. **Run vs Lift display.** For run sorties, the brief says "show the run summary (title, focus, any target distance or segments)". Since M2 doesn't have generated run plans yet (only SIMPLE_RUN), the summary will be minimal: title "Run", focus text, and no distance/segments. This is correct per the design — generated run plans come in M6.
-4. **Coach note for simple run plans.** The `simpleRunPlan` sets `notes = sortie.focus`. The brief says show coach note "when the plan has notes". A simple run's focus as a coach note is acceptable; if it looks odd, we can gate it on non-null and non-empty notes.
+1. **Room off the main thread in shell tests.** Compose idling doesn't track Room's executor, so the shell tests need `waitUntil`.
+2. **The `observeChanges` signal.** Room re-runs a Flow query on every invalidation of the tables it reads, including tables in subqueries. If that doesn't hold, fall back to observing `observeWeek` alone: today every plan write happens in the same transaction as a sortie state change.
+3. **`PreviewsTest` counts exactly 9 previews in `ui/theme`.** Don't add previews there. Previews in `ui/launchpad`, `ui/mission` or `ui/sortie` are fine.
+4. **Week boundary while the app stays in the foreground.** Rollover runs only on open or return to the foreground, as the brief asks. If an action fails because the state is stale, it re-runs `onAppOpen()`.
 
 ## Decisions
 
@@ -123,6 +143,7 @@ Mark milestone M2 as done in the milestone table.
 - **Choice:** Pattern chips are rendered as circles (same visual as upcoming state) that toggle R↔L on tap. A "+" chip at the end adds a sortie (up to 7); tapping an existing chip's edge removes it. The Confirm button is disabled until the pattern changes from default or the user explicitly confirms.
 - **Alternative:** A text input for the pattern string.
 - **Why:** Chips match the visual language of the rest of the screen and are immediately understandable as toggleable items.
+- Changed by review: the plan chose edge-tap removal and a Confirm button that starts disabled. The review chose the interaction Mission Control already uses: tap a chip to toggle R↔L, a "−" button removes the last sortie and a "+" button appends an R (1–7, with each button disabled at its limit), and Confirm is always enabled. The reason: the brief's done criteria require confirming the unchanged default pattern, edge taps on a 44 dp circle are not discoverable, and the owner already knows the Mission Control control.
 
 **2. What happens when Launch is pressed on a PLANNED sortie?**
 - **Choice:** The ViewModel calls `MissionManager.launch(sortieId)`, then navigates to the In-Flight route with that sortie's ID.
@@ -148,3 +169,44 @@ Mark milestone M2 as done in the milestone table.
 - **Choice:** "Flight Plan not ready yet."
 - **Alternative:** "Coach is planning…" or "Waiting for generation".
 - **Why:** The brief explicitly says "a status line saying no Flight Plan is ready yet". This matches that wording directly.
+
+**7. Added by review: what does the Scrub confirmation look like?**
+- **Choice:** A dialog built from theme parts: a `Paper` card with a 2 dp ink border and the offset shadow. It reads "Scrub sortie N?", has an optional reason field in the text-field style Mission Control uses, a "Scrub" `PrimaryButton`, and a "Cancel" `UnderlinedTextButton`. A blank reason is stored as null.
+- **Alternative:** A stock Material `AlertDialog` with no reason field.
+- **Why:** The Mission tab shows the scrub reason, so the owner needs a way to give one. Without the field, the only reason that could ever appear is "week ended". `design/README.md` says not to ship stock M3 visuals.
+
+**8. Added by review: how does the pattern track show a scrubbed sortie?**
+- **Choice:** A new `ChipState.Scrubbed`: a 44 dp `Sand` circle with a 2 dp ink border and the letter in `Muted`.
+- **Alternative:** Draw scrubbed sorties as landed (a check mark) or as upcoming.
+- **Why:** Both alternatives misstate what happened, and scrubbing is a core action in this milestone.
+
+**9. Added by review: how is an exercise's load written?**
+- **Choice:**
+  - If every set has the same reps (or seconds) and weight: `N×reps · weight` (`3×8 · 135`). With no weight: `3×8 · BW`. For timed sets: `3×45 s`.
+  - If the sets differ: the per-set values joined with `/`, then the weight, or a `min–max` weight range (`8/8/6 · 135`).
+  - Weights drop a trailing `.0` and show no unit, as in the mockup.
+- **Alternative:** Always show the first set only.
+- **Why:** This matches the three forms in `launchpad.html` and doesn't misstate plans whose sets vary.
+
+**10. Added by review: when is the coach note shown?**
+- **Choice:** When the plan's `notes` is non-blank and differs from the sortie's focus.
+- **Alternative:** Whenever `notes` is non-null.
+- **Why:** A `SIMPLE_RUN` plan stores the focus ("easy") as its notes, and the run summary already shows the focus. Showing it again as "Coach: easy" would repeat it and credit the coach with a default.
+
+**11. Added by review: titles for the states that have no plan title.**
+- **Choice:**
+  - Draft: eyebrow `WEEK OF OCT 5 · DRAFT`, title `New Mission`.
+  - PENDING: the usual sortie eyebrow, with the sortie's focus (for example `Full body`) as the title, or `Lift`/`Run` if it has no focus.
+  - Closed: eyebrow `WEEK OF OCT 5 · MISSION CLOSED`, title `Mission complete`, the pattern track, and "N of M sorties landed."
+- **Alternative:** Reuse the placeholder heading ("This week / Launchpad").
+- **Why:** Every state keeps the same 68 sp layout, and every title says what is on screen.
+
+**12. Added by review: what does IN_FLIGHT show besides Resume?**
+- **Choice:** The same eyebrow, title, pattern track and Flight Plan list as PLANNED, with Resume in the Launch slot and no Scrub.
+- **Alternative:** Resume and Scrub together.
+- **Why:** The brief lists only Resume for this state. Scrubbing a sortie that is in flight belongs to the In-Flight screen that a later brief builds.
+
+**13. Added by review: what shows before the current week has been ensured?**
+- **Choice:** A `Loading` state that draws only the background. Both screens read the week from `MissionManager.currentWeekStart`, which `onAppOpen()` sets.
+- **Alternative:** Compute the week from the clock inside each screen.
+- **Why:** One place decides the current week. The screens also never show a stale week between returning to the foreground and the rollover finishing.
