@@ -1,6 +1,6 @@
 # Tasks: Launchpad and Mission screens
 
-- [ ] Step 1 — Ensure the current week, and the change signal
+- [x] Step 1 — Ensure the current week, and the change signal
   Add `currentWeekStart` (StateFlow<LocalDate?>) to MissionManager; set it at the end of `onAppOpen()` after the transaction commits. Add `repeatOnLifecycle(Lifecycle.State.STARTED)` call in MainActivity so `container.missionManager.onAppOpen()` runs on app open and foreground return. Add `FlightPlanDao.observeChanges(): Flow<Int>` selecting from flightPlan, plannedExercise, plannedSet, runSegment as a change signal. Run existing MissionManagerTest and DAO tests to confirm they still pass.
   No new test files; only updates to existing code plus verification that existing tests pass.
 
