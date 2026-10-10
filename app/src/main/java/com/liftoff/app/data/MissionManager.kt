@@ -46,8 +46,8 @@ class MissionManager(
             }
             var mission = db.missionDao().getByWeekStart(weekStart)
             if (mission == null) {
-                mission = newDraft(weekStart, settings.defaultPattern)
-                db.missionDao().insert(mission)
+                val draft = newDraft(weekStart, settings.defaultPattern)
+                mission = draft.copy(id = db.missionDao().insert(draft))
             }
             mission
         }

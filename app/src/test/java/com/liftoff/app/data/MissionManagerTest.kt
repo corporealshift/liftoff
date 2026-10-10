@@ -93,11 +93,11 @@ class MissionManagerTest {
 
     @Test
     fun onAppOpenDoesNotDuplicateDraft() = runBlocking {
-        manager.onAppOpen()
+        val mission1 = manager.onAppOpen()
         val mission2 = manager.onAppOpen()
         // Same mission — no duplicate created.
-        assertEquals(1, missionDao.getByWeekStart(LocalDate.of(2026, 1, 12))!!.id)
-        assertEquals(mission2.id, 1L)
+        assertEquals(mission1.id, mission2.id)
+        assertEquals(mission1.id, missionDao.getByWeekStart(LocalDate.of(2026, 1, 12))!!.id)
     }
 
     @Test
@@ -345,22 +345,27 @@ class MissionManagerTest {
 
     @Test
     fun scrubStoresReasonAndPreparesNextSortie() = runBlocking {
-        val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.DRAFT)
-        manager.confirm(mId) // creates sortie 0 as PLANNED
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RR", MissionStatus.DRAFT)
+        manager.confirm(mId) // creates sorties
 
         val sorties = sortieDao.getForMission(mId)
         assertEquals(SortieType.RUN, sorties[0].type)
         assertEquals(SortieState.PLANNED, sorties[0].state)
+        assertEquals(SortieType.RUN, sorties[1].type)
+        assertEquals(SortieState.PENDING, sorties[1].state)
 
-        // Scrub the only sortie — closes mission.
+        // Scrub sortie 0 with a reason.
         manager.scrub(sorties[0].id, "weather")
 
         val s0 = sortieDao.get(sorties[0].id)!!
         assertEquals(SortieState.SCRUBBED, s0.state)
         assertEquals("weather", s0.scrubReason)
 
-        val mission = missionDao.get(mId)!!
-        assertEquals(MissionStatus.CLOSED, mission.status)
+        // Sortie 1 should now be PLANNED with a simple run plan.
+        val updated = sortieDao.getForMission(mId)
+        assertEquals(SortieState.PLANNED, updated[1].state)
+        val plan = flightPlanDao.getPlan(updated[1].id)!!
+        assertEquals(FlightPlanSource.SIMPLE_RUN, plan.plan.source)
     }
 
     @Test
