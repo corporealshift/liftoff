@@ -131,6 +131,16 @@ abstract class FlightPlanDao(private val db: LiftoffDatabase) {
     protected abstract fun getSegments(planId: Long): List<RunSegment>
 
     @Query(
+        """SELECT (
+               (SELECT COUNT(*) FROM flightPlan) +
+               (SELECT COUNT(*) FROM plannedExercise) +
+               (SELECT COUNT(*) FROM plannedSet) +
+               (SELECT COUNT(*) FROM runSegment)
+           )"""
+    )
+    abstract fun observeChanges(): Flow<Int>
+
+    @Query(
         """UPDATE plannedSet SET actualReps = :actualReps, actualSeconds = :actualSeconds,
            actualWeight = :actualWeight, status = :status
            WHERE id = :setId"""
