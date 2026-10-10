@@ -1009,3 +1009,665 @@ Done when:
 - ARCHITECTURE.md marks M2, M3, M5 and M6 done. M0 says what exists and that the live measurement (LiveCoachTest) hasn't been run.
 - `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
 
+**Check:** not met. Built and merged so far: the Space Age design and theme, the navigation shell, Mission Control (settings and equipment), the Room data layer, the Mission/sortie domain logic with rollover, and the Launchpad and Mission screens. The round-4 In-Flight checklist run stopped with its session paused. It only committed its brief, plan, verify.sh and tasks; no code was written, and InFlightScreen.kt is still the 'The In-Flight checklist comes later' placeholder. Because of that, nothing else in round 4 started. Still missing: set logging, notes, Land, scrub from In-Flight, run landing and resume-after-kill; the Landed history and Re-fly; export/import; Test connection; the whole of coach generation (coach/ template, schemas, validator, prompt builder, copied DaemonClient, GenerationWorker, wiring, Regenerate, the planning and offline statuses, generated run plans); and the ARCHITECTURE.md milestones M0 and M3–M6. Two small Launchpad drifts also remain: a stock M3 text field in the scrub dialog and duplicate −/+ controls on the draft. This round makes every run smaller. The In-Flight checklist is split into state and actions with no UI, then the screen. Land/notes/scrub and runs/reopen become separate runs. Landed and Re-fly are split, and so is the validator. The generation worker is split into its core flow and its resilience. The wiring is split into queueing and the Launchpad UI.
+
+## Round 5
+
+### 1. In-Flight checklist state and actions (no UI)
+
+Build the logic behind the In-Flight checklist, where the owner logs a lift sortie at the gym. This brief has no UI work. The next brief builds the screen on top of it. Read DESIGN.md §2, §5.2 and §6, and the 'In-Flight' section of `design/README.md`, first.
+
+An earlier run that tried to build this logic and the whole screen together stopped before writing any code. Build only what is listed here, and commit as soon as each part compiles and its tests pass.
+
+Build on what's already in the repo:
+- `FlightPlanDao` in `com.liftoff.app.data`:
+  - `getPlan(sortieId)`: exercises with display names, sets and segments, all in stored order
+  - `observeChanges()`
+  - `updateSetActuals(setId, actualReps, actualSeconds, actualWeight, status)`
+  - `addExtraSet(plannedExerciseId, reps, seconds, weight)`, which appends the set and marks it added
+  - `updateExercise(plannedExerciseId, skipped, userNotes)`
+- `SortieDao` and `SettingsStore` (weight unit), reached through `AppContainer`
+- `formatWeight` in `ui/sortie/PlanFormat.kt`. It may be made `internal` for reuse, with no change to its behaviour.
+- the plain state-holder pattern that `LaunchpadViewModel` / `LaunchpadState` and `MissionViewModel` / `MissionState` use in `com.liftoff.app.ui`. This is not an AndroidX ViewModel.
+
+**State (in `com.liftoff.app.ui.inflight`).** A flow of the In-Flight state for one sortie, rebuilt from Room on every change, and a pure derivation function that tests can call on a fresh `getPlan` read. It provides:
+- the eyebrow 'IN FLIGHT · SORTIE n' (n is 1-based), and the title: the plan title, else the sortie focus, else 'Sortie n'
+- a set counter of DONE sets over all sets, added sets included. Skipped sets count as finished for progress but not as done.
+- one progress segment per set in display order: done, skipped or open
+- one card per exercise with a status:
+  - skipped, when the exercise is skipped
+  - done, when every set is done or skipped
+  - active, for the first exercise that still has an open set
+  - upcoming, for the rest
+  Each card also carries its done count and set count.
+- per set: 'SET n', the planned and actual values, a label for weight ('35 LB' or '20 KG' in the configured unit, or 'BW' when there is no weight) and a label for count ('× 10' for reps, '45 s' for seconds), whether it was added, and whether the weight or count deviates from the plan (DONE sets only)
+- the current set: the first open set of the active card
+- a 'no checklist' state for a sortie with no plan or no exercises (run sorties)
+
+**Warning.** `observeChanges()` returns a row count that doesn't change on UPDATE. Room still re-emits it on every write to those tables, and that re-emission is what makes a check-off visible. Don't put `distinctUntilChanged` on it. Deduplicating the derived state is fine.
+
+**Actions.** Each one writes to Room immediately and caches nothing:
+- check a set: DONE, with actuals equal to the planned values
+- uncheck a set: OPEN, with actuals cleared
+- save an edit: DONE with the given actuals. Planned values stay unchanged.
+- skip a set, and reopen a skipped set
+- skip an exercise: set the flag and mark its open sets skipped. Done sets keep their actuals. This is one transaction.
+- unskip an exercise: clear the flag and reopen the sets that were skipped. This is one transaction.
+- add a set: pre-filled from the exercise's last set, using its actuals if that set is done and its planned values otherwise
+
+A plain state holder exposes the state as a `StateFlow` and runs the actions on a coroutine scope. The screen in the next brief will use it.
+
+Don't change the Room schema. `SchemaExportTest` must keep passing. Lift plans can't be generated yet, so tests seed plans through `writePlan`.
+
+Must not break: the placeholder `InFlightScreen` and `InFlightScreenTest`, the Launchpad and Mission screens, `MissionManager` and the domain tests, Mission Control, the shell, and the build gate. Follow CLAUDE.md: the §2 vocabulary (never 'session' for a sortie), LF endings, `area: lowercase summary` commit messages, and staging named files only.
+
+Done when:
+- Robolectric tests against an in-memory database, seeded with a LIFT sortie of three exercises (weighted, bodyweight and mixed), cover:
+  - the initial card states, counter, labels and current set
+  - one-tap check and uncheck
+  - an edit with a deviation, where the actual differs and the planned value is kept
+  - finishing an exercise, so it becomes done and the next one becomes active
+  - skipping and reopening a set
+  - skipping and unskipping an exercise
+  - adding a set, including that it turns a done card active again
+  - the state from a fresh database read being identical to the state the flow emitted after a mix of actions
+  - no plan giving the 'no checklist' state
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 2. In-Flight checklist screen
+
+Replace the placeholder In-Flight screen with the real checklist UI. Read DESIGN.md §6, the 'In-Flight' section of `design/README.md`, and `design/screens/in-flight.html` first. The HTML is a static mockup where 1 px = 1 dp.
+
+Build on what's already in the repo:
+- the In-Flight state, its derivation, its actions and its plain state holder in `com.liftoff.app.ui.inflight`, added by the previous brief. Use them; don't re-derive state in the UI.
+- `InFlightScreen(sortieId, container, onBack)`, which Launch and Resume on the Launchpad already open. Keep its signature.
+- the theme in `com.liftoff.app.ui.theme`:
+  - color tokens (Teal, TealLight, Mustard, Red, Sand, Paper, Ink, Cream, Muted, Rule, White)
+  - `DuoStripe`, the offset-shadow helpers, `LiftoffType`, `LiftoffIcons` (including check), `UnderlinedTextButton` and `PrimaryButton`
+
+**Header.**
+- A teal header with the mustard eyebrow, the title in cream, and the counter on the right ('05' large in mustard, '/14' in cream, 'SETS' under it).
+- Under it, a progress bar with one segment per set:
+  - mustard when done
+  - outlined teal_light when open
+  - filled teal_light when skipped
+- Then the mustard and red bands.
+
+**Cards.**
+- **Done:** a sand row with a 2 dp ink border, the name struck through, and 'n/n LANDED' in teal.
+- **Skipped:** the same row, saying 'SKIPPED'.
+- **Active:** a paper card with a 2 dp ink border, an ink header bar (a mustard index and the uppercase name in cream) and the ink offset shadow.
+- **Upcoming:** the same card without the shadow.
+- Tapping a collapsed done or skipped row expands it into a full card, so a mis-tap can be fixed. Tapping its header collapses it again.
+- The footer of an active or upcoming card has '+ Add set · Note · Skip' (Unskip on an expanded skipped card). Note is shown disabled; the next brief makes it work.
+
+**Set rows (58 dp).**
+- Each row shows 'SET n' (red for the current set, muted otherwise), the weight, the reps or seconds, and a 48 dp check box with a 2 dp ink border and 4 dp corners.
+- The box is white when open, red with a white check when done, and shows a muted dash when skipped.
+- One tap on the box checks the set. Tapping a done box unchecks it, and tapping a skipped box reopens it.
+- A deviating value shows the actual in red with a small muted 'of <planned>'.
+- Tapping the numbers, or a long press on the row, opens a stepper in the theme's style. Use a plain Dialog with custom content, not AlertDialog or a bottom sheet. It has:
+  - − and + controls for weight (±5 lb or ±2.5 kg; 0 means bodyweight) and for reps (±1) or seconds (±5)
+  - Save, which marks the set done with those values
+  - Skip set
+  - Cancel
+
+**Bottom area.** A 3 dp ink rule at the top of a cream footer that stays in view. It holds a Back text button for now. The Land button replaces it in the next brief, so don't show a Land button that does nothing.
+
+A sortie with no checklist shows the header without the counter, with a short muted line.
+
+The UI must not cache state. Every tap goes through the actions and the screen re-renders from Room, so after a process kill, reopening the route shows exactly what was left. Nothing uses the network.
+
+Must not break: the state and action tests from the previous brief, the Launchpad and Mission screens, Mission Control, the shell, and the build gate. `InFlightScreenTest` must keep passing; update it only where the placeholder text is gone. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- For a seeded lift plan, the screen shows the header, progress and cards in done, active and upcoming states as in the mockup.
+- A Robolectric Compose test on a seeded in-memory or test database shows that tapping a check box marks the set done in Room and updates the counter.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 3. Notes, Land and In-Flight scrub
+
+Finish the lift In-Flight flow: notes, landing and scrubbing from In-Flight. Read DESIGN.md §5.1 and §6, the 'In-Flight' section of `design/README.md`, and `design/screens/in-flight.html` first.
+
+Build on what's already in the repo:
+- the In-Flight checklist screen, state and actions in `com.liftoff.app.ui.inflight`. The card footer has a disabled 'Note' cell, and the bottom area holds a Back button where Land goes.
+- `MissionManager` in `com.liftoff.app.data`, reached through `AppContainer`:
+  - `land(sortieId)` sets the sortie LANDED with its time, marks open sets not done, advances to the next sortie, prepares its plan, and closes the Mission after the last one
+  - `scrub(sortieId, reason)` keeps the checked sets
+- `SortieDao` (the Sortie row has `notes`) and `FlightPlanDao.updateExercise` (exercise `userNotes`)
+- the theme: `InkButton` (ink with a red offset shadow), `UnderlinedTextButton`, `LiftoffIcons.flag`, and the text-field style used in Mission Control
+- the shell's navigation state in `com.liftoff.app.ui` (`ShellNav`, `LiftoffShell`)
+
+**Notes.**
+- Each exercise card's 'Note' opens an optional free-text note for that exercise.
+- There is also one note for the whole sortie, reachable from the In-Flight screen.
+- Both are saved to Room as they are entered, and come back after a process kill.
+- Use the Mission Control text-field style, not stock M3 visuals.
+
+**Land.** A 64 dp ink Land button with the flag glyph and a red offset shadow, as in the mockup, replacing the Back button in the bottom area.
+- If any sets are unchecked, ask for confirmation first, saying how many. Unchecked sets are recorded as not done.
+- Landing goes through `MissionManager.land`, then returns to the Launchpad. The Launchpad then shows the next sortie, or the closed state after the last one.
+
+**Scrub from In-Flight.**
+- An underlined Scrub action with a confirmation and an optional reason, in the themed text-field style.
+- It keeps the sets already checked, then returns to the Launchpad.
+- Keep a way back to the Launchpad that doesn't land, such as system back. The Launchpad keeps offering Resume.
+
+Put the logic in plain Kotlin that a Robolectric test can drive against an in-memory database. Nothing uses the network. Don't change the Room schema.
+
+Must not break: the checklist and its tests, the Launchpad and Mission screens, `MissionManager` and the domain tests, Mission Control, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Launch → log → Land works for a seeded lift plan, and an in-flight lift sortie can be scrubbed from In-Flight.
+- Robolectric tests cover:
+  - exercise and sortie notes persisting
+  - landing with and without unchecked sets, with the unchecked ones recorded as not done
+  - the next sortie becoming current, and the Mission closing after the last sortie
+  - scrub from In-Flight keeping the checked sets
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 4. Run sorties in flight, reopening, and Launchpad polish
+
+Make In-Flight work for run sorties, reopen the app into an in-flight sortie, and fix two small Launchpad drifts. Read DESIGN.md §5.3, §6 and §9 and `design/README.md` first.
+
+Build on what's already in the repo:
+- the In-Flight screen in `com.liftoff.app.ui.inflight`, with its lift checklist, notes, Land (through `MissionManager.land`) and Scrub. Today a run sortie shows a 'no checklist' state.
+- the Sortie row's `runDistance` and `runMinutes`, and the settings distance unit (mi or km)
+- the simple 'Run' Flight Plan (source SIMPLE_RUN) that `MissionManager` creates for runs
+- the shell in `com.liftoff.app.ui` (`ShellNav`, `LiftoffShell`, MainActivity)
+- `MissionManager.onAppOpen()`, which the app runs on open and on return to the foreground
+- the Launchpad in `com.liftoff.app.ui.launchpad`
+
+**Run sorties.**
+- A run's In-Flight screen shows its plan in the design style: title, focus or notes, run kind, target distance and pace, and segments when present. There are no set rows.
+- Land offers optional distance and duration fields, with distance in the configured unit, and stores them on the sortie. Both may be left blank, and are then stored as empty.
+- There is no unchecked-sets confirmation for runs.
+- Scrub works as it does for lifts.
+
+**Reopening.**
+- While a sortie is IN_FLIGHT, a cold start of the app opens straight into its In-Flight screen.
+- Back from In-Flight goes to the Launchpad, which still offers Resume.
+- If the week ends while a sortie is in flight, the existing rollover scrubs it with 'week ended' when the app comes back to the foreground. The In-Flight screen must then return to the Launchpad instead of acting on a sortie that is no longer in flight.
+
+**Launchpad polish.**
+- The Launchpad scrub dialog uses a stock M3 OutlinedTextField with a floating label. Use the same themed reason field as the In-Flight scrub.
+- The draft state draws its −/+ pattern controls twice, once under the chips and once in the bottom bar. Keep one set, disabled at 1 and at 7.
+
+Put the logic in plain Kotlin that a Robolectric test can drive. Nothing uses the network. Don't change the Room schema.
+
+Must not break: lift In-Flight and its tests, the Launchpad and Mission screens, `MissionManager` and the domain tests, Mission Control, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Launch → Land works for a simple run.
+- Tests cover:
+  - run distance and duration being saved, and being saved as empty when left blank
+  - the start destination being In-Flight when a sortie is IN_FLIGHT, and the Launchpad otherwise
+  - In-Flight leaving when its sortie is no longer IN_FLIGHT
+- ARCHITECTURE.md marks M4 done and describes `ui` with a real In-Flight screen.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 5. Landed history screen
+
+Replace the Landed tab's placeholder with the real history screen. Read DESIGN.md §5.1 and §9 and `design/README.md` first. Landed isn't mocked up. Build it from the design's parts:
+- eyebrow and display title
+- section heads
+- ink-ruled rows
+- paper cards with 2 dp ink borders
+- red deviations, as on In-Flight
+
+Build on what's already in the repo:
+- `LandedScreen` in `com.liftoff.app.ui.landed` (a placeholder today), and the shell
+- `SortieDao.observeHistory()` (landed and scrubbed sorties, newest first), `MissionDao`, and `FlightPlanDao.getPlan(sortieId)`, which carries planned and actual set values, skipped flags and notes
+- the plain state-holder pattern used by the Launchpad and Mission screens, and the formatting helpers in `com.liftoff.app.ui.sortie`
+- the themed text-field style used in Mission Control and In-Flight
+
+**List.**
+- History is newest first and grouped by week, under heads like 'WEEK OF OCT 5'.
+- Each row shows the date, the type (run or lift), the plan title or focus, and whether the sortie landed or was scrubbed. A scrubbed row shows its reason.
+- An empty history shows a short empty state.
+- The list updates live from Room.
+
+**Detail view.** Tapping a row opens it; back returns to the list.
+- **Lift:** each exercise with every set's planned and actual values. Deviations are in red, and skipped and not-done sets are marked. Show added sets, exercise notes and the sortie note.
+- **Run:** the plan summary and the recorded distance and duration, in the configured units.
+- **Scrubbed sortie:** the reason, and any sets checked before the scrub.
+- A landed sortie can't be edited, except its sortie note, which can be edited here (§5.1).
+
+Put the history and detail derivation in plain Kotlin that a Robolectric test can drive against an in-memory database. Compose UI tests are not required. Don't change the Room schema.
+
+Must not break: In-Flight, the Launchpad and Mission screens, `MissionManager` and the domain tests, Mission Control, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- The Landed tab lists history newest first, grouped by week, with a working detail view for a landed lift, a landed run and a scrubbed sortie.
+- Robolectric tests cover:
+  - grouping and ordering across two weeks
+  - the detail of a lift with deviations, skipped, not-done and added sets
+  - a run's recorded values
+  - a scrubbed sortie's reason and partial sets
+  - editing the sortie note of a landed sortie
+- ARCHITECTURE.md marks Landed as built under M5.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 6. Re-fly
+
+Add Re-fly (DESIGN.md §5.4): reusing a previous Flight Plan when a new one can't be generated. Read DESIGN.md §5.1, §5.4 and §13 ('Re-fly') first.
+
+Build on what's already in the repo:
+- the pure domain package `com.liftoff.app.domain`. It has no Android imports (ARCHITECTURE.md invariant 2).
+- `MissionManager` in `com.liftoff.app.data`, with one transaction per operation, and `FlightPlanDao` (`getPlan`, and `writePlan` with `FlightPlanDraft`)
+- the Launchpad's PENDING state in `com.liftoff.app.ui.launchpad` (LaunchpadState, LaunchpadViewModel, LaunchpadScreen)
+
+**Choosing the source.** A pure function picks the source plan for a PENDING sortie:
+- the most recent LANDED sortie of the same type that has a plan
+- preferring one whose focus matches the current sortie's focus, and otherwise falling back to the same type only
+- nothing, when there is no such plan
+
+**Copying.** A `MissionManager` operation copies that plan onto the current PENDING sortie in one transaction:
+- copy planned values only, never actuals
+- don't copy added sets
+- clear skipped flags and user notes
+- copy run fields and segments for a run
+- the copy's source is REFLY, and the sortie becomes PLANNED
+- it works with no network
+- it refuses a sortie that isn't the current PENDING one
+
+**Launchpad.** On the PENDING state, show a Re-fly action next to Scrub when a source plan exists. When none exists, say so instead of showing a dead button. Coach generation doesn't exist yet, so for now Re-fly is offered on any PENDING sortie. A later brief will limit it to failed or offline generation.
+
+Don't change the Room schema.
+
+Must not break: In-Flight, Landed, the Launchpad and Mission screens, `MissionManager` and the domain tests, Mission Control, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Pure unit tests cover the §13 Re-fly cases:
+  - it prefers the same type and focus
+  - it falls back to the same type only
+  - it picks the most recent plan
+  - it ignores scrubbed sorties
+  - it returns nothing when there is no landed plan of that type
+- Robolectric tests show that the copy has planned values and no actuals, no added sets, source REFLY, and leaves the sortie PLANNED; that it needs no network; and that the Launchpad PENDING state shows Re-fly only when a source exists.
+- ARCHITECTURE.md marks Re-fly as built under M5, with export/import still to come.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 7. Database export and import in Mission Control
+
+Add backup and restore. Read DESIGN.md §8 ('Export and import'), §10 ('Lost or reset phone') and §13 first. The phone holds the only copy of the training history, so this is the backup story.
+
+Build on what's already in the repo:
+- `LiftoffDatabase` in `com.liftoff.app.data` (version 1) with its tables: mission, sortie, flightPlan, plannedExercise, plannedSet, runSegment, exercise, generation and equipment
+- the Mission Control screen and its view model in `com.liftoff.app.ui.control`
+- `MissionManager.onAppOpen()`, which makes sure the current week has a Mission
+- kotlinx.serialization, which is already a dependency
+
+**Export.**
+- Mission Control has an Export action. It opens the system file picker to create a `.json` file, defaulting to a name like `liftoff-2026-10-10.json`.
+- It writes the whole database: every row of every table, ids included, plus a format version and the Room schema version.
+- Field names in the file are snake_case.
+- Settings and the daemon token are not part of the export, and Mission Control says so near the button.
+
+**Import.** Mission Control has an Import action. It opens the system file picker to choose a file and loads it into the database in one transaction, keeping ids so every reference stays intact.
+- Import is allowed only into an empty database. A fresh install creates the current week's draft as soon as it opens, so a database whose only content is one DRAFT Mission with no sorties also counts as empty, and that draft is replaced.
+- Anything else is refused with a clear message, and nothing is changed.
+- A file that isn't a Liftoff export, has an unknown format version or is malformed is refused with a clear message, and nothing is changed.
+- After a successful import, run `onAppOpen()` so rollover and the current week are settled, and show how much was restored.
+
+Both actions run off the main thread and report success or failure in Mission Control in the design style: a section head, ink-ruled rows, buttons from `ui.theme`, and no stock M3 tonal surfaces. Put the export/import logic in `com.liftoff.app.data`, separate from the UI, so a Robolectric test can drive it with in-memory databases and streams.
+
+Don't change the Room schema.
+
+Must not break: the settings and equipment editing in Mission Control, the data layer and its tests, the other screens, and the build gate. Follow CLAUDE.md conventions.
+
+Done when:
+- Export, then import into a new in-memory database, gives an identical database: every row in every table compares equal. The test seeds:
+  - Missions in each status
+  - sorties in each state
+  - lift and run plans with actuals and added sets
+  - exercises and generations
+  - active and inactive equipment
+- Tests cover refusing a non-empty database, accepting one that holds only a fresh draft, and refusing a malformed or wrong-version file, each with the database left unchanged.
+- ARCHITECTURE.md's `data` row mentions export/import, M1's note no longer lists export/import as missing, and M5 is marked done.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 8. Coach workspace template, schemas and schema checker
+
+Create the coach workspace template, the output schemas, and a small JSON Schema checker. Read DESIGN.md §7.1, §7.1.1, §7.5, §11, §12 and §15 (decision 14) first. Nothing in the UI changes. The next brief adds the semantic validator and the fixtures on top of this.
+
+**Coach workspace template (`coach/` at the repo root).**
+- `coach/README.md`: the one-time PC setup from §7.1:
+  - copy the folder out to its own path
+  - run `git init` there; it is never part of this repo
+  - turn off nabu's verify gate for that path in `~/.nabu/config.json`, with the exact snippet from §7.1
+  - note the daemon host, port (default 8737) and token for Mission Control
+- `coach/COACH.md`: the coach's standing instructions, with every point §7.1.1 says it MUST contain:
+  - its role
+  - never ask questions
+  - the final message is exactly one JSON object, with no prose and no code fence
+  - the programming principles
+  - reuse exercise names
+  - memory and the `liftoff-progress` note
+  - no writes outside notes and memory
+
+**Schemas.** Add `app/src/main/resources/schemas/outline.json`, `lift-plan.json` and `run-plan.json`, with the JSON Schemas from §7.5.1–§7.5.3 verbatim. Make sure they are on the unit-test classpath.
+
+**Schema checker (`com.liftoff.app.coach`).**
+- Pure Kotlin with no Android imports (ARCHITECTURE.md invariant 2). A test already guards this.
+- An in-house checker for exactly the subset §7.5 uses: type, const, enum, required, additionalProperties, minimum and maximum, minLength and maxLength, minItems and maxItems. Don't add a JSON Schema library.
+- Parse with kotlinx.serialization.
+- Load the schemas from the resource files, so the files are the single source of truth.
+- It returns a list of errors, and each one names its JSON path and its problem specifically, because errors are later sent back verbatim in repair prompts. Examples: `exercises[2].sets: must have at least 1 item`, `kind: "jog" is not one of easy, tempo, intervals, long, recovery`, `sorties[0]: unexpected property "day"`.
+
+Must not break: everything already built and its tests, and the build gate. Follow CLAUDE.md conventions and use snake_case JSON fields.
+
+Done when:
+- Unit tests run the checker on each of the three schemas, with valid documents passing and with at least one violation of each keyword in the subset, each giving its path-specific message.
+- `coach/README.md` and `coach/COACH.md` exist with the §7.1 and §7.1.1 content.
+- ARCHITECTURE.md's `coach` row lists the schemas and schema checker. M0 says the workspace template and schemas exist.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 9. Coach reply validator and fixtures
+
+Build the phone-side validation of coach replies (DESIGN.md §7.6). Read DESIGN.md §7.5, §7.6 and §13 ('Validator') first. No UI changes. Later briefs add the prompt builder and the generation worker, which call this validator.
+
+Build on what's already in the repo:
+- the schema files in `app/src/main/resources/schemas/`
+- the in-house JSON Schema checker in `com.liftoff.app.coach`
+- the `coach/` workspace template
+
+**Validator (`com.liftoff.app.coach`).**
+- Pure Kotlin with no Android imports.
+- A pure function from (raw reply text, generation context) to either a parsed result in plain coach types (an outline, a lift plan or a run plan) or a list of human-readable errors.
+- The context holds the generation kind, the Mission pattern, the type of the sortie being planned, the active equipment keys and the configured sortie length.
+
+It follows §7.6 exactly:
+- trim the text, and unwrap a single surrounding Markdown code fence
+- parse exactly one JSON object; prose before or after it is an error
+- check the schema with the existing checker
+- run the semantic checks:
+  - the outline has one entry per pattern position, with indexes 0..n-1 and each type matching the pattern
+  - each lift set has exactly one of reps or seconds
+  - every equipment id is in the active equipment list
+  - estimated_minutes is at most 1.25 × the sortie length
+  - exercise names are unique within the plan
+  - the plan type matches the sortie
+
+Every error names its path and problem, for example `exercises[2].equipment: "barbell" is not in the equipment list`.
+
+**Fixtures.** Add recorded-style coach replies under `app/src/test/resources/fixtures/`:
+- valid: an outline, a lift plan, a run plan, and a valid plan wrapped in one code fence
+- invalid:
+  - bad JSON
+  - prose around the JSON
+  - a schema violation
+  - unknown equipment
+  - an inactive equipment key
+  - an outline that doesn't match the pattern
+  - both reps and seconds on one set
+  - an over-length sortie
+  - duplicate exercise names
+  - a plan type that doesn't match the sortie
+
+Must not break: the schema checker and its tests, everything already built, and the build gate. Follow CLAUDE.md conventions.
+
+Done when:
+- Tests run the validator against every fixture. Valid ones parse into the expected values. Each invalid class gives its specific message, with the path in it.
+- ARCHITECTURE.md's `coach` row lists the validator and fixtures. M0 says the template, schemas and validator exist, and that the live reliability measurement has not been run.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 10. Coach prompt builder with golden files
+
+Build the prompts the coach receives. Read DESIGN.md §7.2, §7.4, §7.6 (repair prompts), §7.7 and §13 ('Prompt builder') first. No UI changes. The generation worker in a later brief calls this.
+
+Build on what's already in the repo:
+- `com.liftoff.app.coach`: the exercise-name normalizer, the validator, and the schema files in `app/src/main/resources/schemas/` (outline.json, lift-plan.json, run-plan.json)
+- the settings store in `com.liftoff.app.settings` (objectives, constraints, sortie length, units, history window)
+- the Room DAOs in `com.liftoff.app.data`: missions, sorties, Flight Plans with planned and actual sets, active equipment, and exercises
+
+**Pure prompt builder (`com.liftoff.app.coach`, no Android imports).** A pure function from plain input types to prompt text. The same inputs MUST give byte-identical text. There is one prompt for an OUTLINE and one for a FLIGHT_PLAN (lift or run). The sections are Markdown, in the §7.4 order:
+1. Task: 'Write the outline for this week' or 'Write the Flight Plan for sortie N of this week'.
+2. Instructions, worded as in §7.4.
+3. Athlete profile: objectives, constraints, target sortie length in minutes, and units (lb or kg; mi or km).
+4. Equipment: every active item as `key — name — notes`, plus the line saying exercises may use only these ids and bodyweight needs none.
+5. This week:
+   - the pattern, with each sortie's index, type and state
+   - the outline focus of each sortie, when an outline exists
+   - for a Flight Plan, which sortie is being planned
+6. History: landed and scrubbed sorties within the history window counted back from a given date, newest first, one block per sortie in the §7.4 format:
+   - the date, type, title, and whether it landed or was scrubbed
+   - per exercise, the sets as done, e.g. `3×8 @135 lb ✓, 1×6 @135 lb (planned 8)`, with seconds as `3×45 s ✓`
+   - the notes
+   Skipped and not-done sets must be recognisable.
+7. Exercises used before: every exercise name in that history, sorted alphabetically, with no duplicates.
+8. Output schema: the schema text for this kind, verbatim from the resource file.
+
+Also provide the repair prompt, 'Your reply was not valid: <errors>. Reply again with only the corrected JSON object.', with the validator's errors listed.
+
+**Gathering inputs.** Add a loader, backed by Room and settings, outside the pure package. It builds the builder's input types for a given Mission (and sortie, for a Flight Plan) and a 'today' date, leaving out inactive equipment. The window, date and zone must be injectable for tests.
+
+**Golden files.** Expected prompts live under `app/src/test/resources/` and are compared byte for byte. Keep LF endings.
+
+Must not break: the validator and its fixtures, the data layer, every screen, and the build gate. Follow CLAUDE.md conventions.
+
+Done when:
+- Golden-file tests cover an outline prompt, a lift Flight Plan prompt with an outline, and a run Flight Plan prompt, and building twice gives identical text.
+- Tests cover:
+  - the history formatting: a deviation, skipped sets, seconds, bodyweight, notes and a scrubbed sortie
+  - the 28-day window edge: day 28 is in, day 29 is out
+  - a custom window
+  - newest-first order
+  - the exercise names sorted and de-duplicated
+  - inactive equipment being left out
+- A Robolectric test shows the loader builds the expected inputs from an in-memory database.
+- ARCHITECTURE.md's `coach` row lists the prompt builder.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 11. Copied nabu client and Test connection
+
+Bring nabu's client code into Liftoff and add 'Test connection' to Mission Control. Read DESIGN.md §3, §7.3 step 1, §9 ('Mission Control'), §10 and §11 ('Reused from nabu') first, and ARCHITECTURE.md invariants 3 and 4.
+
+**Copy the nabu client.** nabu's Android client is on this machine at `C:/Users/corpo/Documents/projects/nabu/clients/android/app/src/main/java/com/nabu/client/`, and the protocol spec is at `C:/Users/corpo/Documents/projects/nabu/protocol/spec.md`.
+- Copy `net/DaemonClient.kt` and the protocol files it needs into `app/src/main/java/com/liftoff/app/nabu/`. That means `protocol/Events.kt`, `protocol/RpcCodes.kt`, and whichever file defines what DaemonClient imports.
+- Change only the package and import lines. Don't edit the logic, so the copy stays comparable with upstream.
+- Each copied file starts with a short header comment recording the source path and the nabu commit it came from (the output of `git -C C:/Users/corpo/Documents/projects/nabu rev-parse HEAD`).
+- Don't copy files Liftoff doesn't need. If a copied file pulls in something unneeded, copy the smallest set that compiles. Add a dependency only if the copied code needs one that isn't already declared, and match nabu's version.
+- If the nabu checkout can't be read, stop and report it. Don't write a client from scratch.
+- Nothing in nabu changes.
+
+**Test connection (Mission Control).**
+- A 'Test connection' action in Mission Control's Connection section. It uses the host, port and token currently stored in settings, connects the way nabu's own client does, and runs `nabu.hello` with client `liftoff`.
+- On success it shows the daemon version and the protocol version.
+- On failure it shows a clear message for each case:
+  - unreachable or timed out: 'Mission Control offline — check the PC and Tailscale'
+  - authentication rejected
+  - empty host or token
+  - a protocol major-version mismatch: 'Liftoff speaks nabu protocol 1.x, the daemon speaks N.x'
+- It runs off the main thread, shows that it's working while it runs, gives up after a reasonable timeout, and closes the connection afterwards.
+- Use the design's parts (ink-ruled rows, buttons from `ui.theme`), not stock M3 visuals.
+- Put the logic in plain Kotlin, outside Compose, that a test can drive.
+
+Also give `AppContainer` a way to build a connected client from the current settings, so the generation worker in a later brief can reuse it. Keep `AppContainer` hand-built, with no DI framework.
+
+Must not break: the settings and equipment editing in Mission Control, export/import, the other screens, and the build gate. Follow CLAUDE.md conventions.
+
+Done when:
+- The copied files compile under `com.liftoff.app.nabu` with their source headers.
+- Tests against a fake daemon (an OkHttp MockWebServer WebSocket scripting `nabu.hello`, in the style of nabu's own client tests) cover success showing both versions, a major-version mismatch, a refused connection, and missing settings.
+- ARCHITECTURE.md's `nabu` row is marked as existing, with the source commit, and M1's note no longer lists Test connection as missing.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 12. GenerationWorker core flow
+
+Build the WorkManager worker that runs one coach generation through nabu, covering the main path. Read DESIGN.md §7.2, §7.3, §7.6 and §10, the nabu protocol spec at `C:/Users/corpo/Documents/projects/nabu/protocol/spec.md` (session create, send_prompt with client_id, subscribe and events_after, state_change, ui.ask, permission.request, stop), and ARCHITECTURE.md invariants 3, 6, 7 and 8 first.
+
+The next brief adds resilience: resuming paused sessions, catching up from the cursor after a drop, unreachable retries, and cancel and supersede. A later brief wires generations into the app. Build only what is listed here.
+
+Build on what's already in the repo:
+- the copied nabu client in `com.liftoff.app.nabu`, and `AppContainer`'s way to build a connected client from settings
+- the pure prompt builder, repair prompt and validator in `com.liftoff.app.coach`, and the loader that gathers prompt inputs from Room and settings
+- `Generation` and `GenerationDao`. A Generation has kind, missionId, sortieId, status (QUEUED/RUNNING/SUCCEEDED/FAILED/CANCELLED), nabuSessionId, lastEventId, attempt, error, createdAt and finishedAt.
+- `FlightPlanDao.writePlan` with `FlightPlanDraft`, and `MissionManager` with the domain functions in `com.liftoff.app.domain`
+- `androidx.work` and `work-testing`, which are already dependencies
+
+**The worker (`com.liftoff.app.work`).** A `CoroutineWorker` that takes a generation id and follows §7.3:
+- The row is RUNNING while the worker runs.
+- Connect and send hello. A major-version mismatch is a permanent failure with the §10 message.
+- Create the nabu session only if the row has none yet, and store the session id before anything else. The session uses:
+  - workspace: the coach path from settings
+  - permission_mode 'auto'
+  - labels `["liftoff", "liftoff:outline"]` or `["liftoff", "liftoff:flight-plan"]`, never starting with `run:`
+  - a one-line description
+- Send the prompt with `client_id = "<generationId>-<attempt>"`.
+- Subscribe, saving `lastEventId` on the row as events arrive. The turn ends at the first state_change after our message whose `to` is idle, completed, blocked, paused or error, with a 20-minute limit.
+- **idle or completed:** validate the last assistant message.
+  - Valid: store the result and mark the row SUCCEEDED.
+  - Invalid: send up to 2 repair prompts in the same session, incrementing attempt each time.
+  - Still invalid after that: FAILED with 'invalid output', keeping the error list in `error`.
+- **blocked:** FAILED with 'coach needed input'.
+- Answer an incoming ui.ask with 'Decide yourself; there is nobody to ask.' and a permission.request with deny, then keep waiting.
+- **paused, error, or a connection failure:** return a retry for now. The next brief refines this.
+- Stop the nabu session on SUCCEEDED or a permanent failure.
+
+**Storing results.** One Room transaction:
+- **OUTLINE:**
+  - activate the DRAFT Mission with one sortie per pattern letter, each with the outline's focus and rationale
+  - store the outline notes
+  - make sortie 1 current through the existing advance-and-prepare step; a run with run generation off still gets its simple 'Run' plan
+- **FLIGHT_PLAN:**
+  - write the lift plan (title, estimated minutes, warmup, notes, exercises with equipment ids, rest and sets) or the run plan (run kind, target distance and pace, and segments)
+  - source GENERATED, with `rawJson` set to the validated JSON
+  - set the sortie PLANNED if it was PENDING
+
+**Enqueue helper.** Unique work `gen-<generationId>`, policy KEEP, a network-connected constraint, and exponential backoff starting at 1 minute. Expose it through `AppContainer`.
+
+Don't change the Room schema unless it's unavoidable; if it is, add a real migration, never a destructive one. The worker lives in `work`, not in `coach`, which stays free of Android imports.
+
+Must not break: the coach validator and prompt builder tests, `MissionManager` and the domain tests, every screen, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Robolectric tests run the worker against a fake nabu daemon (an OkHttp MockWebServer WebSocket that scripts the protocol) for:
+  - the happy path for an outline and for a lift Flight Plan
+  - invalid, then repair, then success
+  - two failed repairs ending FAILED with the errors kept
+  - blocked
+  - a ui.ask being answered
+  - a major-version mismatch failing permanently
+  - the session being stopped at the end
+- ARCHITECTURE.md's `work` row is marked as existing.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 13. GenerationWorker resilience, cancel and supersede
+
+Make the generation worker resumable and safe to cancel. Read DESIGN.md §7.3 (steps 4–6, 'Unreachable daemon', 'Retries before giving up', 'Superseded results'), §10 and §13 ('Integration tests'), and the nabu protocol spec at `C:/Users/corpo/Documents/projects/nabu/protocol/spec.md` (events_after, resume, stop), first.
+
+Build on what's already in the repo:
+- `GenerationWorker` and its enqueue helper in `com.liftoff.app.work`, with its fake-daemon tests. It already connects, creates the session once, sends prompts with `client_id = "<generationId>-<attempt>"`, saves `lastEventId`, validates and repairs, stores results and stops the session.
+- `Generation` and `GenerationDao`, and `AppContainer`
+
+**Resilience.**
+- **paused:** call `nabu.session.resume` before returning a retry.
+- **error:** return a retry.
+- **Reconnecting after a dropped connection or a killed worker:** reuse the stored session id, never create a second session, and catch up with `events_after` from the stored `lastEventId`.
+- **A retried send:** reuse the same `client_id`, so the daemon doesn't take the prompt twice.
+- **Unreachable daemon** (connection refused or timed out):
+  - return a retry, and record on the row that the coach is offline, so a later brief can show 'Mission Control offline'
+  - clear that mark once a connection succeeds
+  - after 8 attempts, mark the row FAILED with 'coach unreachable'
+
+**Cancel and supersede.**
+- A cancel helper cancels the work, stops the nabu session if there is one, and marks the row CANCELLED. Expose it through `AppContainer`.
+- Results are stored only if the generation is still current: not CANCELLED, and the newest non-cancelled generation for its sortie (for a Flight Plan) or Mission (for an outline). A late result for a superseded or cancelled generation is dropped, and its session is stopped.
+
+Don't change the Room schema unless it's unavoidable; if it is, add a real migration, never a destructive one.
+
+Must not break: the worker's existing tests, the coach and domain tests, every screen, and the build gate. Follow CLAUDE.md conventions.
+
+Done when:
+- Robolectric fake-daemon tests cover:
+  - a paused session being resumed
+  - a connection drop mid-turn, resuming from the stored cursor without creating a second session
+  - send_prompt reusing the same client_id on retry
+  - an unreachable daemon being marked offline, retrying, and then failing as 'coach unreachable' after 8 attempts
+  - cancel stopping the nabu session and marking the row CANCELLED
+  - a result for a cancelled or superseded generation not being stored
+- ARCHITECTURE.md marks M3's worker as built, with app wiring still to come.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 14. Queue coach generations from Missions and sorties
+
+Turn coach generation on in the Mission and sortie flow: an outline on confirm, and a Flight Plan whenever a sortie becomes current and needs one. Read DESIGN.md §4.2, §4.3, §5.3, §7.2 and §7.3 ('Superseded results') first. The Launchpad's status display and Regenerate come in the next brief; this brief changes the flow and keeps the UI working.
+
+Build on what's already in the repo:
+- `GenerationWorker`, its enqueue and cancel helpers and its result storing in `com.liftoff.app.work`, reached through `AppContainer`. Storing an OUTLINE result activates the Mission and makes sortie 1 current.
+- `MissionManager` in `com.liftoff.app.data`. `confirm` currently takes the 'Continue without outline' path, and `advance` has an `AwaitGeneration` branch, decided in `domain/SortiePlanning.kt`, that does nothing yet.
+- Re-fly, scrub and the week-ended rollover in `MissionManager`
+- the 'Generate run plans' setting, and the daemon host and token settings
+
+**Outline.**
+- Confirm freezes the pattern and queues an OUTLINE generation. The Mission stays a DRAFT until the outline is stored.
+- A 'continue without outline' operation keeps today's confirm behaviour and cancels any outline generation still open.
+- 'Retry' queues a fresh outline generation after a failure.
+- If no daemon host or token is set, confirm doesn't queue a generation that can't succeed. Report that to the caller, so the Launchpad can offer 'Continue without outline'.
+- Until the next brief adds the status display, the Launchpad's draft state must at least show that the coach is planning, and offer 'Continue without outline', so the app is never stuck.
+
+**Flight Plans.**
+- Whenever a sortie becomes current and needs generation (a lift, or a run with the toggle on), create a FLIGHT_PLAN Generation row and enqueue it after the transaction commits. That covers sortie 1 after the outline, the next sortie after landing, and the next sortie after a scrub.
+- With the toggle off, runs keep getting the simple 'Run' plan.
+- The toggle is read at that moment. Changing it never alters an existing plan.
+- Add a regenerate operation for a PLANNED or PENDING current sortie that queues a new FLIGHT_PLAN generation. The current plan stays until the new result replaces it.
+
+**Supersede and cleanup.** Starting a new generation for a sortie cancels any queued or running one for that sortie, including its nabu session. Re-fly, scrub, landing and the week-ended rollover also cancel a sortie's open generation, so a late result can never overwrite them.
+
+Don't change the Room schema unless it's unavoidable; if it is, add a real migration, never a destructive one.
+
+Must not break: the worker and its fake-daemon tests, In-Flight, Landed, Re-fly, export/import, Mission Control, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Robolectric tests with an in-memory database and WorkManager's test helpers show:
+  - confirm queues an outline, and its result activates the Mission and queues sortie 1's Flight Plan
+  - continue-without-outline cancels the outline generation
+  - landing and scrubbing queue the next sortie's Flight Plan
+  - with the toggle on, a run sortie queues a generation; with it off, the run gets a simple 'Run' plan
+  - regenerate supersedes an open generation, and its late result is ignored
+  - Re-fly, scrub and rollover cancel an open generation
+  - with no host or token set, no generation is queued
+- ARCHITECTURE.md marks M6 done and M3's wiring as built.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 15. Generation status, Regenerate and Re-fly rules on the Launchpad
+
+Show coach generation on the Launchpad, as DESIGN.md §9 ('Launchpad') and §10 describe, and finish the milestone records. Read DESIGN.md §4.2, §5.4, §7.3, §9 and §10, `design/README.md` and `design/screens/launchpad.html` first.
+
+Build on what's already in the repo:
+- the Launchpad (`LaunchpadState`, `LaunchpadViewModel`, `LaunchpadScreen` in `com.liftoff.app.ui.launchpad`), with its Draft, Planned, Pending, InFlight and Closed states, and Re-fly on PENDING
+- `MissionManager`'s generation operations: confirm queues an outline; continue without outline; retry; regenerate; Re-fly; scrub
+- the Generation rows: status, error with the validator's error list, the offline mark the worker records, and nabuSessionId
+- the theme composables (`UnderlinedTextButton`, `PrimaryButton`, ink-ruled rows)
+
+**Draft while the outline runs.**
+- 'Coach is planning the week…', or 'Mission Control offline — retrying' when the worker has marked the coach offline.
+- On failure: the reason, with Retry and 'Continue without outline'.
+- With no daemon host or token set: say so, and offer 'Continue without outline'.
+
+**PLANNED.**
+- An underlined Regenerate text button next to Scrub, as in `design/screens/launchpad.html`.
+- While a regeneration runs, the current plan stays visible and launchable, with a short 'Coach is re-planning…' line.
+
+**PENDING.** The generation status:
+- 'Coach is planning…'
+- 'Mission Control offline — retrying'
+- a failure with its reason, and the validator's error list when there is one
+- Retry, Re-fly and Scrub. Re-fly is now offered only when the generation failed, the coach is offline, or no connection is configured (§5.4).
+- 'View in nabu', which shows the nabu session id so it can be opened in nabu's app
+
+Status updates live from Room. Use the design's parts, with no stock M3 visuals. Put the state derivation in plain Kotlin that a Robolectric test can drive.
+
+Must not break: the generation flow and worker tests, In-Flight, Landed, Re-fly, export/import, Mission Control, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Robolectric tests show each Launchpad status is derived correctly from the database:
+  - outline planning, offline and failed
+  - no connection configured
+  - PENDING planning, offline, and failed with errors
+  - PLANNED re-planning
+  - Re-fly shown only when §5.4 allows
+- ARCHITECTURE.md's package table and milestones reflect what is built. M2, M3, M5 and M6 are done. M0 says the template, schemas, validator and prompt builder exist and that the live measurement (LiveCoachTest) hasn't been run.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
