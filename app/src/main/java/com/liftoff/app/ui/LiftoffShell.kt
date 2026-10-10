@@ -118,8 +118,9 @@ fun LiftoffShell() {
 
                 // Content area.
                 Box(Modifier.weight(1f)) {
+                    val container = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container
                     when (nav.tab) {
-                        Tab.Launchpad -> LaunchpadScreen()
+                        Tab.Launchpad -> LaunchpadScreen(container)
                         Tab.Mission -> MissionScreen()
                         Tab.Landed -> LandedScreen()
                     }

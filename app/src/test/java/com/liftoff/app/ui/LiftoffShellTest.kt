@@ -7,7 +7,10 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.liftoff.app.LiftoffApplication
 import com.liftoff.app.MainActivity
+import kotlinx.coroutines.runBlocking
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,10 +27,20 @@ class LiftoffShellTest {
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
     }
 
+    @Before
+    fun setup() {
+        // Trigger onAppOpen before the UI is composed so Launchpad shows Draft content.
+        runBlocking {
+            (composeRule.activity.applicationContext as LiftoffApplication)
+                .container.missionManager.onAppOpen()
+        }
+        composeRule.waitForIdle()
+    }
+
     @Test
     fun appOpensOnLaunchpad() {
         // The app opens on the Launchpad tab — check unique screen content.
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
     }
 
     @Test
@@ -42,7 +55,7 @@ class LiftoffShellTest {
 
         // Navigate back to Launchpad.
         composeRule.onNodeWithContentDescription("Launchpad").performClick()
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
     }
 
     @Test
@@ -53,7 +66,7 @@ class LiftoffShellTest {
 
         // System back should go to Launchpad.
         pressBack()
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
     }
 
     @Test
@@ -149,7 +162,7 @@ class LiftoffShellTest {
     @Test
     fun navBarIconsAreLightOnTabsAndDarkOnMissionControl() {
         // On tabs, the bottom bar background is Ink (dark), so nav bar icons should be light.
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
 
         val a = composeRule.activity
         fun light(): Boolean = WindowCompat.getInsetsController(a.window, a.window.decorView)
@@ -169,8 +182,8 @@ class LiftoffShellTest {
     @Test
     fun placeholderScreensShowTheirCopy() {
         // Launchpad copy.
-        composeRule.onNodeWithText("THIS WEEK").assertIsDisplayed()
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+        composeRule.onNodeWithText("WEEK OF JAN 12 · DRAFT").assertIsDisplayed()
 
         // Mission copy.
         composeRule.onNodeWithContentDescription("Mission").performClick()
