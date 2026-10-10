@@ -16,7 +16,7 @@
   Write the real `LaunchpadScreen.kt`: content scrolls (TitleBlock eyebrow + title, PatternTrack, FlightPlanSection); actions pinned at bottom. Each state renders per the plan (Planned: Launch button + Scrub; Pending: status line + Scrub; InFlight: Resume; Draft: editable chips + Confirm; Closed: completion; Scrub: confirmation dialog with Paper card). Actions catch IllegalStateException and re-run onAppOpen() on failure.
   Tests: LaunchpadStatesTest (new file) — Robolectric tests against in-memory DB and MissionManager with fixed clock: Loading before onAppOpen, Draft with default pattern, PLANNED lift with seeded exercises, PLANNED run after confirm, PENDING after scrub, IN_FLIGHT after launch, Closed. Also checks live state updates after confirm, scrub, launch.
 
-- [ ] Step 4 — Mission tab derivation, state holder, and screen
+- [x] Step 4 — Mission tab derivation, state holder, and screen
   Write `MissionState.kt`: MissionTabState (Loading, Week) with the `MissionStates(db, manager)` derivation, plus SortieDetailState and `observeSortie(sortieId)`.
   Write `MissionViewModel.kt`: plain state holder for the tab.
   Write the real `MissionScreen.kt`: this week's pattern track, outline notes, InkRuledListRow per sortie (index, type, focus, state). Sortie detail via rememberSaveable selected-id with BackHandler: PLANNED/IN_FLIGHT/PENDING with plan → FlightPlanSection; PENDING no plan → "No Flight Plan yet"; LANDED → record; SCRUBBED → record with reason.
