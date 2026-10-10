@@ -1,4 +1,4 @@
-- [ ] Add the checklist state model and derivation function
+- [x] Add the checklist state model and derivation function
   Make `formatWeight` internal in PlanFormat.kt. Write InFlightState.kt with all sealed types, data classes, and the pure deriveInFlight() function including weight/count label helpers. Write InFlightStatesTest.kt with four tests: initialState, kgUnitLabel, titleFallbacks, noChecklist — each exercising deriveInFlight on fresh getPlan reads against the fixture (3-exercise LIFT sortie).
   Done when the file compiles and all four test methods pass.
 
