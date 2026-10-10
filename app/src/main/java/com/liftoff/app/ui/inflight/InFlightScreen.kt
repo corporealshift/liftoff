@@ -24,15 +24,17 @@ fun InFlightScreen(
     onBack: () -> Unit,
 ) {
     var planTitle by remember(sortieId) { mutableStateOf<String?>(null) }
+    var sortieNumber by remember(sortieId) { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(sortieId) {
         val plan = container.database.flightPlanDao().getPlan(sortieId)
         planTitle = plan?.plan?.title
+        sortieNumber = container.database.sortieDao().get(sortieId)?.index
     }
 
-    val sortieLabel = "SORTIE $sortieId"
+    val sortieLabel = "SORTIE ${sortieNumber?.let { it + 1 } ?: "N"}"
     val eyebrow = "IN FLIGHT · $sortieLabel"
-    val title = planTitle ?: "Sortie $sortieId"
+    val title = planTitle ?: "Sortie ${sortieNumber?.let { it + 1 } ?: "N"}"
 
     Column(
         modifier = Modifier
