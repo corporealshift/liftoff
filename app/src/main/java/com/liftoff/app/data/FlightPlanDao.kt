@@ -200,4 +200,99 @@ abstract class FlightPlanDao(private val db: LiftoffDatabase) {
            )"""
     )
     abstract suspend fun markOpenSetsNotDone(sortieId: Long)
+
+    // --- protected reads ---
+
+    @Query("SELECT * FROM plannedSet WHERE id = :setId")
+    protected abstract fun getSet(setId: Long): PlannedSet?
+
+    @Query("SELECT * FROM plannedExercise WHERE id = :id")
+    protected abstract fun getPlannedExercise(id: Long): PlannedExercise?
+
+    @Query("SELECT * FROM plannedSet WHERE plannedExerciseId = :plannedExerciseId ORDER BY `order` DESC LIMIT 1")
+    protected abstract fun getLastSet(plannedExerciseId: Long): PlannedSet?
+
+    // --- helpers ---
+
+    @Query(
+        """UPDATE plannedSet SET status = 'SKIPPED'
+           WHERE status = 'OPEN' AND plannedExerciseId = :id"""
+    )
+    protected abstract fun skipOpenSets(id: Long)
+
+    @Query(
+        """UPDATE plannedSet SET status = 'OPEN', actualReps = NULL, actualSeconds = NULL, actualWeight = NULL
+           WHERE status = 'SKIPPED' AND plannedExerciseId = :id"""
+    )
+    protected abstract fun reopenSkippedSets(id: Long)
+
+    private suspend fun clearSkip(plannedExerciseId: Long) {
+        val row = getPlannedExercise(plannedExerciseId) ?: return
+        if (row.skipped) {
+            updateExercise(plannedExerciseId, false, row.userNotes)
+        }
+    }
+
+    // --- public action methods ---
+
+    @Transaction
+    open suspend fun checkSet(setId: Long) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, set.reps, set.seconds, set.weight, SetStatus.DONE)
+        clearSkip(set.plannedExerciseId)
+    }
+
+    @Transaction
+    open suspend fun uncheckSet(setId: Long) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, null, null, null, SetStatus.OPEN)
+        clearSkip(set.plannedExerciseId)
+    }
+
+    @Transaction
+    open suspend fun saveSetEdit(setId: Long, reps: Int?, seconds: Int?, weight: Double?) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, reps, seconds, weight, SetStatus.DONE)
+        clearSkip(set.plannedExerciseId)
+    }
+
+    @Transaction
+    open suspend fun skipSet(setId: Long) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, null, null, null, SetStatus.SKIPPED)
+    }
+
+    @Transaction
+    open suspend fun reopenSet(setId: Long) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, null, null, null, SetStatus.OPEN)
+        clearSkip(set.plannedExerciseId)
+    }
+
+    @Transaction
+    open suspend fun skipExercise(id: Long) {
+        val ex = getPlannedExercise(id) ?: return
+        updateExercise(id, true, ex.userNotes)
+        skipOpenSets(id)
+    }
+
+    @Transaction
+    open suspend fun unskipExercise(id: Long) {
+        val ex = getPlannedExercise(id) ?: return
+        updateExercise(id, false, ex.userNotes)
+        reopenSkippedSets(id)
+    }
+
+    @Transaction
+    open suspend fun addSet(plannedExerciseId: Long): Long {
+        val last = getLastSet(plannedExerciseId)
+        val (reps, seconds, weight) = when {
+            last == null -> Triple(null, null, null)
+            last.status == SetStatus.DONE -> Triple(last.actualReps, last.actualSeconds, last.actualWeight)
+            else -> Triple(last.reps, last.seconds, last.weight)
+        }
+        val newId = addExtraSet(plannedExerciseId, reps, seconds, weight)
+        clearSkip(plannedExerciseId)
+        return newId
+    }
 }
