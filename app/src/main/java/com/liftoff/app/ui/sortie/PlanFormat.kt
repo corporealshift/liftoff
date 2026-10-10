@@ -32,7 +32,7 @@ private fun formatSetUnit(set: PlannedSet): String {
 }
 
 /** Format weight for display: `135` (no trailing `.0`), `22.5`, or empty string for BW. */
-private fun formatWeight(weight: Double?): String {
+internal fun formatWeight(weight: Double?): String {
     return if (weight == null) "" else {
         if (weight == weight.toLong().toDouble()) weight.toLong().toString() else weight.toString()
     }
