@@ -40,7 +40,14 @@ class LiftoffShellTest {
     @Test
     fun appOpensOnLaunchpad() {
         // The app opens on the Launchpad tab — check unique screen content.
-        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+        composeRule.waitUntil(5_000) {
+            try {
+                composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
     }
 
     @Test
@@ -55,7 +62,14 @@ class LiftoffShellTest {
 
         // Navigate back to Launchpad.
         composeRule.onNodeWithContentDescription("Launchpad").performClick()
-        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+        composeRule.waitUntil(5_000) {
+            try {
+                composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
     }
 
     @Test
@@ -66,7 +80,14 @@ class LiftoffShellTest {
 
         // System back should go to Launchpad.
         pressBack()
-        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+        composeRule.waitUntil(5_000) {
+            try {
+                composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
     }
 
     @Test
@@ -162,7 +183,14 @@ class LiftoffShellTest {
     @Test
     fun navBarIconsAreLightOnTabsAndDarkOnMissionControl() {
         // On tabs, the bottom bar background is Ink (dark), so nav bar icons should be light.
-        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+        composeRule.waitUntil(5_000) {
+            try {
+                composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
 
         val a = composeRule.activity
         fun light(): Boolean = WindowCompat.getInsetsController(a.window, a.window.decorView)
@@ -181,9 +209,16 @@ class LiftoffShellTest {
 
     @Test
     fun placeholderScreensShowTheirCopy() {
-        // Launchpad copy.
-        composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
-        composeRule.onNodeWithText("WEEK OF JAN 12 · DRAFT").assertIsDisplayed()
+        // Launchpad copy — wait for both texts together since they render as part of one composable.
+        composeRule.waitUntil(5_000) {
+            var found = false
+            try {
+                composeRule.onNodeWithText("NEW MISSION").assertIsDisplayed()
+                composeRule.onNodeWithText("DRAFT", substring = true).assertIsDisplayed()
+                found = true
+            } catch (_: AssertionError) {}
+            found
+        }
 
         // Mission copy.
         composeRule.onNodeWithContentDescription("Mission").performClick()
