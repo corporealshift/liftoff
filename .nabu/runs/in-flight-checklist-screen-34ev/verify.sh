@@ -1,59 +1,71 @@
 #!/usr/bin/env bash
-# Verify that the In-Flight Checklist Screen brief is done.
-# Run from repository root with: bash .nabu/runs/in-flight-checklist-screen-34ev/verify.sh
+# Verify that the In-Flight checklist screen brief is done.
+# Run from the repository root: bash .nabu/runs/in-flight-checklist-screen-34ev/verify.sh
+set -uo pipefail
 
-set -euo pipefail
-
-cd "$(git rev-parse --show-toplevel)"
-
-echo "=== Build and test ==="
-OUTPUT="$(bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest 2>&1 || true)"
-echo "$OUTPUT"
-
-# The gate must pass — assemble + all unit tests.
-if ! echo "$OUTPUT" | grep -q 'BUILD SUCCESSFUL'; then
-    echo "FAIL: build or tests did not succeed" >&2
-    exit 1
-fi
+cd "$(git rev-parse --show-toplevel)" || exit 1
 
 XML_DIR="app/build/test-results/testDebugUnitTest"
 
-# ── Brief requirement: screen renders header, progress and cards for a seeded lift plan ---
-# Existing InFlightScreenTest exercises (eyebrow assertions) cover this.
-# We require both existing tests to pass — at least one proves the screen renders correctly.
+# Clear old results so a stale XML can never stand in for a test that did not run.
+rm -rf "$XML_DIR"
 
-if ! [ -f "$XML_DIR/TEST-com.liftoff.app.ui.inflight.InFlightScreenTest.xml" ]; then
-    echo "FAIL: InFlightScreenTest did not run (no XML result)" >&2
+echo "=== Build and test (same gate as CI) ==="
+if ! bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest; then
+    echo "FAIL: build gate (:app:assembleDebug :app:testDebugUnitTest) did not pass" >&2
     exit 1
 fi
 
-# Check that InFlightScreenTest has no failures or errors.
-TEST_COUNT=$(grep -oP 'tests="\K[0-9]+' "$XML_DIR/TEST-com.liftoff.app.ui.inflight.InFlightScreenTest.xml" | head -1)
-FAIL_COUNT=$(grep -oP 'failures="\K[0-9]+' "$XML_DIR/TEST-com.liftoff.app.ui.inflight.InFlightScreenTest.xml" | head -1)
-ERROR_COUNT=$(grep -oP 'errors="\K[0-9]+' "$XML_DIR/TEST-com.liftoff.app.ui.inflight.InFlightScreenTest.xml" | head -1)
+# require_test <fully.qualified.Class> <methodName>
+# Passes only if the test ran and has no failure, error or skipped result.
+require_test() {
+    local cls="$1" name="$2"
+    local xml="$XML_DIR/TEST-$cls.xml"
+    if [ ! -f "$xml" ]; then
+        echo "FAIL: $cls did not run (no result file)" >&2
+        return 1
+    fi
+    awk -v n="$name" '
+        /<testcase / {
+            inside = 0
+            if (index($0, " name=\"" n "\"")) {
+                found = 1; inside = 1
+                if ($0 ~ /\/>[[:space:]]*$/) inside = 0
+            }
+        }
+        inside && /<(failure|error|skipped)/ { bad = 1 }
+        inside && /<\/testcase>/ { inside = 0 }
+        END { if (!found) exit 2; if (bad) exit 3; exit 0 }
+    ' "$xml"
+    case $? in
+        0) echo "PASS: $cls.$name" ;;
+        2) echo "FAIL: $cls.$name did not run" >&2; return 1 ;;
+        3) echo "FAIL: $cls.$name failed, errored or was skipped" >&2; return 1 ;;
+        *) echo "FAIL: could not read results for $cls.$name" >&2; return 1 ;;
+    esac
+}
 
-echo "InFlightScreenTest: $TEST_COUNT tests, $FAIL_COUNT failures, $ERROR_COUNT errors"
+SCREEN=com.liftoff.app.ui.inflight.InFlightScreenTest
+status=0
 
-if [ "$FAIL_COUNT" != "0" ] || [ "$ERROR_COUNT" != "0" ]; then
-    echo "FAIL: InFlightScreenTest has failures or errors — screen rendering unverified" >&2
+# Brief, Must not break: the existing InFlightScreenTest tests must still run and pass
+# (only their placeholder-dependent waits may change, per plan Step 8).
+require_test "$SCREEN" inFlightShowsSortieNumberNotDatabaseId || status=1
+require_test "$SCREEN" inFlightFallbackTitleUsesSortieNumber || status=1
+
+# Brief, Done when 1: for a seeded lift plan (Robolectric Compose test on the test database),
+# with the first exercise's sets checked, the screen shows the header with the counter
+# (e.g. "03/07"), a collapsed done row reading "3/3 LANDED", the active card and an
+# upcoming card (their uppercase names).
+require_test "$SCREEN" seededLiftPlanShowsHeaderProgressAndCards || status=1
+
+# Brief, Done when 2: on a seeded test database, tapping an open set's check box
+# ("Check off Bench Press SET 1") updates the counter ("00/07" -> "01/07") and Room then
+# holds that set as DONE with actuals equal to the planned values.
+require_test "$SCREEN" checkingASetMarksItDoneInRoomAndUpdatesCounter || status=1
+
+if [ "$status" -ne 0 ]; then
+    echo "=== FAIL: brief not done ===" >&2
     exit 1
 fi
-
-# ── Brief requirement: tapping a checkbox marks the set done in Room and updates the counter ---
-# Plan Step 8 names this test: checkingASetMarksItDoneInRoomAndUpdatesCounter
-# It seeds a mission + LIFT sortie, clicks "Check off Bench Press SET 1", waits for counter to update,
-# then asserts the set is DONE in Room with actuals equal to planned values.
-
-if ! grep -q 'checkingASetMarksItDoneInRoomAndUpdatesCounter' "$XML_DIR/TEST-com.liftoff.app.ui.inflight.InFlightScreenTest.xml"; then
-    echo "FAIL: checkingASetMarksItDoneInRoomAndUpdatesCounter did not run — checkbox → Room behaviour unverified" >&2
-    exit 1
-fi
-
-# Check that this specific test has no failures.
-# Extract the testcase element for this test and check it has no failure/error child.
-if grep -A3 'name="checkingASetMarksItDoneInRoomAndUpdatesCounter"' "$XML_DIR/TEST-com.liftoff.app.ui.inflight.InFlightScreenTest.xml" | grep -q '<failure\|<error'; then
-    echo "FAIL: checkingASetMarksItDoneInRoomAndUpdatesCounter failed" >&2
-    exit 1
-fi
-
 echo "=== All brief requirements verified ==="
