@@ -152,7 +152,7 @@ class MissionStates(
             }
 
             SortieState.LANDED -> {
-                val exerciseCount = plan?.exercises?.size ?: 0
+                val totalSets = plan?.exercises?.sumOf { it.sets.size } ?: 0
                 val landedSets = plan?.exercises?.sumOf { ex ->
                     ex.sets.count { s -> s.status == SetStatus.DONE }
                 } ?: 0
@@ -162,7 +162,7 @@ class MissionStates(
                     focus = sortie.focus,
                     sortieType = sortie.type,
                     landedAt = sortie.landedAt ?: 0,
-                    planExerciseCount = exerciseCount,
+                    planExerciseCount = totalSets,
                     planLandedCount = landedSets,
                     runDistance = sortie.runDistance,
                     runMinutes = sortie.runMinutes,
@@ -171,7 +171,7 @@ class MissionStates(
             }
 
             SortieState.SCRUBBED -> {
-                val exerciseCount = plan?.exercises?.size ?: 0
+                val totalSets = plan?.exercises?.sumOf { it.sets.size } ?: 0
                 val landedSets = plan?.exercises?.sumOf { ex ->
                     ex.sets.count { s -> s.status == SetStatus.DONE }
                 } ?: 0
@@ -181,7 +181,7 @@ class MissionStates(
                     focus = sortie.focus,
                     sortieType = sortie.type,
                     reason = sortie.scrubReason,
-                    planExerciseCount = exerciseCount,
+                    planExerciseCount = totalSets,
                     planLandedCount = landedSets,
                 )
             }

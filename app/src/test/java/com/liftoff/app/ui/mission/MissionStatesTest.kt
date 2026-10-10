@@ -292,4 +292,121 @@ class MissionStatesTest {
         assertEquals("sick", scrubbed.reason)
         assertEquals(SortieType.LIFT, scrubbed.sortieType)
     }
+
+    // ── Landed sortie with multi-set plan shows correct set counts ───
+
+    @Test
+    fun landedSortieWithMultiSetPlanShowsCorrectCount() = runBlocking {
+        val mission = manager.onAppOpen()
+        missionDao.update(mission.copy(status = MissionStatus.ACTIVE, pattern = "R"))
+
+        // 3 exercises × 3 sets each = 9 total sets; mark 7 as DONE.
+        val sortieId = sortieDao.insert(Sortie(missionId = mission.id, index = 0, type = SortieType.LIFT, focus = "Full body",
+            focusRationale = null, state = SortieState.LANDED, launchedAt = System.currentTimeMillis(),
+            landedAt = 1705000000000L, scrubReason = null, notes = null, runDistance = null, runMinutes = null))
+
+        flightPlanDao.writePlan(sortieId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Full Body", estimatedMinutes = 55,
+            warmup = null, notes = null, runKind = null, targetDistance = null,
+            targetPace = null, rawJson = "{}",
+            exercises = listOf(
+                com.liftoff.app.data.ExerciseDraft(
+                    name = "Squat", equipmentIds = emptyList(), restSeconds = 120, notes = null,
+                    sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 135.0),
+                        SetDraft(reps = 8, seconds = null, weight = 135.0),
+                        SetDraft(reps = 6, seconds = null, weight = 155.0)
+                    )
+                ),
+                com.liftoff.app.data.ExerciseDraft(
+                    name = "Bench Press", equipmentIds = emptyList(), restSeconds = 90, notes = null,
+                    sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 135.0),
+                        SetDraft(reps = 8, seconds = null, weight = 135.0),
+                        SetDraft(reps = 6, seconds = null, weight = 155.0)
+                    )
+                ),
+                com.liftoff.app.data.ExerciseDraft(
+                    name = "Row", equipmentIds = emptyList(), restSeconds = 90, notes = null,
+                    sets = listOf(
+                        SetDraft(reps = 10, seconds = null, weight = 95.0),
+                        SetDraft(reps = 10, seconds = null, weight = 95.0),
+                        SetDraft(reps = 8, seconds = null, weight = 115.0)
+                    )
+                )
+            ),
+            segments = emptyList()
+        ))
+
+        // Mark 7 of the 9 sets as DONE.
+        for (exercise in flightPlanDao.getPlan(sortieId)!!.exercises) {
+            val sets = exercise.sets
+            // First two exercises: all 3 sets DONE; third exercise: first set DONE, last 2 OPEN.
+            if (exercise.plannedExercise.order < 2) {
+                sets.forEach { s -> db.flightPlanDao().updateSetActuals(s.id, s.reps, s.seconds, s.weight, SetStatus.DONE) }
+            } else {
+                db.flightPlanDao().updateSetActuals(sets[0].id, sets[0].reps, sets[0].seconds, sets[0].weight, SetStatus.DONE)
+            }
+        }
+
+        val detail = states.observeSortie(sortieId).first { it !is SortieDetailState.Loading }
+        assertTrue(detail is SortieDetailState.Landed)
+        val landed = detail as SortieDetailState.Landed
+        // planExerciseCount must be total sets (9), not exercise count (3).
+        assertEquals(9, landed.planExerciseCount)
+        assertEquals(7, landed.planLandedCount)
+    }
+
+    // ── Scrubbed sortie with multi-set plan shows correct set counts ─
+
+    @Test
+    fun scrubbedSortieWithMultiSetPlanShowsCorrectCount() = runBlocking {
+        val mission = manager.onAppOpen()
+        missionDao.update(mission.copy(status = MissionStatus.ACTIVE, pattern = "R"))
+
+        // 2 exercises × 4 sets each = 8 total sets; mark 3 as DONE.
+        val sortieId = sortieDao.insert(Sortie(missionId = mission.id, index = 0, type = SortieType.LIFT, focus = "Bench",
+            focusRationale = null, state = SortieState.SCRUBBED, launchedAt = null, landedAt = null,
+            scrubReason = "wrist pain", notes = null, runDistance = null, runMinutes = null))
+
+        flightPlanDao.writePlan(sortieId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Upper Body", estimatedMinutes = 45,
+            warmup = null, notes = null, runKind = null, targetDistance = null,
+            targetPace = null, rawJson = "{}",
+            exercises = listOf(
+                com.liftoff.app.data.ExerciseDraft(
+                    name = "Bench Press", equipmentIds = emptyList(), restSeconds = 90, notes = null,
+                    sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 135.0),
+                        SetDraft(reps = 8, seconds = null, weight = 135.0),
+                        SetDraft(reps = 6, seconds = null, weight = 155.0),
+                        SetDraft(reps = 6, seconds = null, weight = 155.0)
+                    )
+                ),
+                com.liftoff.app.data.ExerciseDraft(
+                    name = "Overhead Press", equipmentIds = emptyList(), restSeconds = 90, notes = null,
+                    sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 95.0),
+                        SetDraft(reps = 8, seconds = null, weight = 95.0),
+                        SetDraft(reps = 6, seconds = null, weight = 105.0),
+                        SetDraft(reps = 6, seconds = null, weight = 105.0)
+                    )
+                )
+            ),
+            segments = emptyList()
+        ))
+
+        // Mark 3 of the 8 sets as DONE (first exercise: first 2 sets; second exercise: first set).
+        val plan = flightPlanDao.getPlan(sortieId)!!
+        db.flightPlanDao().updateSetActuals(plan.exercises[0].sets[0].id, null, null, null, SetStatus.DONE)
+        db.flightPlanDao().updateSetActuals(plan.exercises[0].sets[1].id, null, null, null, SetStatus.DONE)
+        db.flightPlanDao().updateSetActuals(plan.exercises[1].sets[0].id, null, null, null, SetStatus.DONE)
+
+        val detail = states.observeSortie(sortieId).first { it !is SortieDetailState.Loading }
+        assertTrue(detail is SortieDetailState.Scrubbed)
+        val scrubbed = detail as SortieDetailState.Scrubbed
+        // planExerciseCount must be total sets (8), not exercise count (2).
+        assertEquals(8, scrubbed.planExerciseCount)
+        assertEquals(3, scrubbed.planLandedCount)
+    }
 }

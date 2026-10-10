@@ -152,7 +152,7 @@ private fun SortieDetailView(state: SortieDetailState, onBack: () -> Unit) {
 @Composable
 private fun LandedDetailView(state: SortieDetailState.Landed) {
     val landedDate = Instant.ofEpochMilli(state.landedAt)
-        .atZone(java.time.ZoneOffset.UTC)
+        .atZone(java.time.ZoneId.systemDefault())
         .toLocalDate()
 
     TitleBlock(
