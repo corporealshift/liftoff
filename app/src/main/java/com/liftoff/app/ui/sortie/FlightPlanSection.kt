@@ -6,7 +6,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -23,11 +22,19 @@ fun FlightPlanSection(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        // FLIGHT PLAN head
-        Text(
-            text = "FLIGHT PLAN",
-            style = LiftoffType.sectionHead(),
-        )
+        // FLIGHT PLAN head with estimated minutes and set count
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "FLIGHT PLAN",
+                style = LiftoffType.sectionHead(),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = formatPlanHead(plan),
+                style = LiftoffType.eyebrow(),
+                color = Muted,
+            )
+        }
 
         // 3 dp ink rule (1 px in the mockup ≈ 1 dp; brief says 3 dp)
         Spacer(Modifier.height(2.dp))
