@@ -263,4 +263,233 @@ class FlightPlanDaoTest {
         assertEquals(true, updatedDetail.exercises[0].plannedExercise.skipped)
         assertEquals("felt weak today", updatedDetail.exercises[0].plannedExercise.userNotes)
     }
+
+    @Test
+    fun checkSetCopiesPlannedValuesIntoActuals() = runBlocking {
+        val sortieId = makeSortie()
+        val draft = FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Test Plan", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                SetDraft(reps = 10, seconds = null, weight = 35.0),
+                SetDraft(reps = 8, seconds = null, weight = 40.0)
+            ))),
+            segments = emptyList()
+        )
+        flightPlanDao.writePlan(sortieId, draft)
+
+        val detail = flightPlanDao.getPlan(sortieId)!!
+        val setId = detail.exercises[0].sets[0].id
+
+        flightPlanDao.checkSet(setId)
+
+        val updatedDetail = flightPlanDao.getPlan(sortieId)!!
+        val updatedSet = updatedDetail.exercises[0].sets[0]
+        assertEquals(10, updatedSet.actualReps)
+        assertNull(updatedSet.actualSeconds)
+        assertEquals(35.0, updatedSet.actualWeight!!, 0.001)
+        assertEquals(SetStatus.DONE, updatedSet.status)
+    }
+
+    @Test
+    fun skipExerciseKeepsDoneSetActualsAndUserNotes() = runBlocking {
+        val sortieId = makeSortie()
+        val draft = FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Test Plan", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                SetDraft(reps = 10, seconds = null, weight = 35.0),
+                SetDraft(reps = 8, seconds = null, weight = 40.0)
+            ))),
+            segments = emptyList()
+        )
+        flightPlanDao.writePlan(sortieId, draft)
+
+        val detail = flightPlanDao.getPlan(sortieId)!!
+        val exerciseId = detail.exercises[0].plannedExercise.id
+        val set1Id = detail.exercises[0].sets[0].id
+
+        // Check set 1 to make it DONE with actuals
+        flightPlanDao.checkSet(set1Id)
+
+        // Set userNotes on the exercise
+        flightPlanDao.updateExercise(exerciseId, skipped = false, userNotes = "working on strength")
+
+        // Skip the exercise
+        flightPlanDao.skipExercise(exerciseId)
+
+        val updatedDetail = flightPlanDao.getPlan(sortieId)!!
+        val ex = updatedDetail.exercises[0].plannedExercise
+        assertEquals(true, ex.skipped)
+        assertEquals("working on strength", ex.userNotes)
+
+        // Set 1 stays DONE with its actuals
+        val set1 = updatedDetail.exercises[0].sets[0]
+        assertEquals(10, set1.actualReps)
+        assertEquals(35.0, set1.actualWeight!!, 0.001)
+        assertEquals(SetStatus.DONE, set1.status)
+
+        // Set 2 becomes SKIPPED with null actuals
+        val set2 = updatedDetail.exercises[0].sets[1]
+        assertEquals(SetStatus.SKIPPED, set2.status)
+        assertNull(set2.actualReps)
+    }
+
+    @Test
+    fun unskipExerciseReopensSkippedSets() = runBlocking {
+        val sortieId = makeSortie()
+        val draft = FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Test Plan", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                SetDraft(reps = 10, seconds = null, weight = 35.0),
+                SetDraft(reps = 8, seconds = null, weight = 40.0)
+            ))),
+            segments = emptyList()
+        )
+        flightPlanDao.writePlan(sortieId, draft)
+
+        val detail = flightPlanDao.getPlan(sortieId)!!
+        val exerciseId = detail.exercises[0].plannedExercise.id
+
+        // Skip the exercise — both sets become SKIPPED
+        flightPlanDao.skipExercise(exerciseId)
+
+        var updatedDetail = flightPlanDao.getPlan(sortieId)!!
+        assertEquals(true, updatedDetail.exercises[0].plannedExercise.skipped)
+        assertEquals(SetStatus.SKIPPED, updatedDetail.exercises[0].sets[0].status)
+        assertEquals(SetStatus.SKIPPED, updatedDetail.exercises[0].sets[1].status)
+
+        // Unskip the exercise
+        flightPlanDao.unskipExercise(exerciseId)
+
+        updatedDetail = flightPlanDao.getPlan(sortieId)!!
+        assertEquals(false, updatedDetail.exercises[0].plannedExercise.skipped)
+        assertEquals(SetStatus.OPEN, updatedDetail.exercises[0].sets[0].status)
+        assertEquals(SetStatus.OPEN, updatedDetail.exercises[0].sets[1].status)
+    }
+
+    @Test
+    fun addSetPreFillsFromLastSetActualsWhenDone() = runBlocking {
+        val sortieId = makeSortie()
+        val draft = FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Test Plan", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                SetDraft(reps = 10, seconds = null, weight = 35.0),
+                SetDraft(reps = 8, seconds = null, weight = 40.0)
+            ))),
+            segments = emptyList()
+        )
+        flightPlanDao.writePlan(sortieId, draft)
+
+        val detail = flightPlanDao.getPlan(sortieId)!!
+        val exerciseId = detail.exercises[0].plannedExercise.id
+        val lastSetId = detail.exercises[0].sets[1].id
+
+        // Check the last set so it is DONE with its actuals
+        flightPlanDao.checkSet(lastSetId)
+
+        // Add a set — should pre-fill from the DONE set's actuals (8 reps, 40.0 weight)
+        val newSetId = flightPlanDao.addSet(exerciseId)
+        assertTrue(newSetId > 0)
+
+        val updatedDetail = flightPlanDao.getPlan(sortieId)!!
+        val newSet = updatedDetail.exercises[0].sets.find { it.id == newSetId }!!
+        assertEquals(2, newSet.order) // appended after the last set (order 1)
+        assertEquals(true, newSet.added)
+        assertEquals(SetStatus.OPEN, newSet.status)
+        // Pre-filled from the DONE set's actuals into planned values
+        assertEquals(8, newSet.reps)
+        assertNull(newSet.seconds)
+        assertEquals(40.0, newSet.weight!!, 0.001)
+        assertNull(newSet.actualReps)
+    }
+
+    @Test
+    fun addSetPreFillsFromPlannedValuesWhenLastNotDone() = runBlocking {
+        val sortieId = makeSortie()
+        val draft = FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Test Plan", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                SetDraft(reps = 10, seconds = null, weight = 35.0),
+                SetDraft(reps = 8, seconds = null, weight = 40.0)
+            ))),
+            segments = emptyList()
+        )
+        flightPlanDao.writePlan(sortieId, draft)
+
+        val detail = flightPlanDao.getPlan(sortieId)!!
+        val exerciseId = detail.exercises[0].plannedExercise.id
+
+        // Don't check the last set — it stays OPEN
+        // Add a set — should pre-fill from the OPEN set's planned values (8 reps, 40.0 weight)
+        val newSetId = flightPlanDao.addSet(exerciseId)
+        assertTrue(newSetId.compareTo(0L) > 0)
+
+        val updatedDetail = flightPlanDao.getPlan(sortieId)!!
+        val newSet = updatedDetail.exercises[0].sets.find { it.id == newSetId }!!
+        assertEquals(2, newSet.order)
+        assertEquals(true, newSet.added)
+        assertEquals(SetStatus.OPEN, newSet.status)
+        // Pre-filled from planned values of the last (OPEN) set
+        assertEquals(8, newSet.reps)
+        assertEquals(40.0, newSet.weight!!, 0.001)
+        assertNull(newSet.actualReps)
+    }
+
+    @Test
+    fun addSetWithNoSetsUsesNulls() = runBlocking {
+        val sortieId = makeSortie()
+        val draft = FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Test Plan", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = emptyList())),
+            segments = emptyList()
+        )
+        flightPlanDao.writePlan(sortieId, draft)
+
+        val detail = flightPlanDao.getPlan(sortieId)!!
+        val exerciseId = detail.exercises[0].plannedExercise.id
+
+        // Add a set when there are no existing sets — should pre-fill all nulls
+        val newSetId = flightPlanDao.addSet(exerciseId)
+        assertTrue(newSetId.compareTo(0L) > 0)
+
+        val updatedDetail = flightPlanDao.getPlan(sortieId)!!
+        val newSet = updatedDetail.exercises[0].sets.find { it.id == newSetId }!!
+        assertEquals(0, newSet.order)
+        assertEquals(true, newSet.added)
+        assertEquals(SetStatus.OPEN, newSet.status)
+        assertNull(newSet.reps)
+        assertNull(newSet.seconds)
+        assertNull(newSet.weight)
+    }
+
+    @Test
+    fun checkSetOnNonExistentIdDoesNothing() = runBlocking {
+        val sortieId = makeSortie()
+        flightPlanDao.writePlan(sortieId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Test Plan", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(SetDraft(reps = 10, seconds = null, weight = 35.0)))),
+            segments = emptyList()
+        ))
+
+        // Should not throw
+        flightPlanDao.checkSet(99999L)
+
+        val detail = flightPlanDao.getPlan(sortieId)!!
+        assertEquals(SetStatus.OPEN, detail.exercises[0].sets[0].status)
+    }
+
+    @Test
+    fun skipExerciseOnNonExistentIdDoesNothing() = runBlocking {
+        val sortieId = makeSortie()
+        flightPlanDao.writePlan(sortieId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Test Plan", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(SetDraft(reps = 10, seconds = null, weight = 35.0)))),
+            segments = emptyList()
+        ))
+
+        // Should not throw
+        flightPlanDao.skipExercise(99999L)
+
+        val detail = flightPlanDao.getPlan(sortieId)!!
+        assertEquals(false, detail.exercises[0].plannedExercise.skipped)
+    }
 }
