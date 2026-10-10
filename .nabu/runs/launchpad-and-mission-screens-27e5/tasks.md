@@ -32,7 +32,7 @@
 
 ## Blockers from the final review
 
-- [ ] Show the current sortie as a Current chip on the pattern track
+- [x] Show the current sortie as a Current chip on the pattern track
   In app/src/main/java/com/liftoff/app/ui/sortie/PlanFormat.kt, deriveChips maps PENDING, PLANNED and IN_FLIGHT all to ChipState.Upcoming, so ChipState.Current never appears outside previews. The brief asks for a pattern track 'with landed, current and upcoming chips', and the mockup draws the current sortie as the larger 52 dp chip. deriveChips should mark the sortie returned by currentSortie(sorties) as Current, on both Launchpad and the Mission tab. Tests that would show it: PlanFormatTest.deriveChipsMixedStates and MissionStatesTest.patternChipsFromMixedSortieStates. The second one currently asserts Upcoming for index 2, which is the current PLANNED sortie.
 - [ ] Put the estimated minutes and set count in the FLIGHT PLAN head
   app/src/main/java/com/liftoff/app/ui/sortie/FlightPlanSection.kt shows only the text 'FLIGHT PLAN'. formatPlanHead ('≈55 min · 14 sets') is written and tested but nothing in the UI calls it. The brief requires a 'FLIGHT PLAN' head 'with the estimated minutes and set count'. FlightPlanSection should show formatPlanHead(plan) next to the head.
