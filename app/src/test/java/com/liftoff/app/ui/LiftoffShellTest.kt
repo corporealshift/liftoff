@@ -3,11 +3,16 @@ package com.liftoff.app.ui
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.liftoff.app.LiftoffApplication
 import com.liftoff.app.MainActivity
+import kotlinx.coroutines.runBlocking
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,17 +29,37 @@ class LiftoffShellTest {
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
     }
 
+    // The bottom-bar label "MISSION" and the Mission screen title both match hasText("MISSION"),
+    // so onNodeWithText throws "expected exactly 1 node". Exclude the selectable (bottom bar) item.
+    private val missionTitle = hasText("MISSION") and !isSelectable()
+
+    private fun waitFor(matcher: SemanticsMatcher) {
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Before
+    fun setup() {
+        // Trigger onAppOpen before the UI is composed so Launchpad shows Draft content.
+        runBlocking {
+            (composeRule.activity.applicationContext as LiftoffApplication)
+                .container.missionManager.onAppOpen()
+        }
+        composeRule.waitForIdle()
+    }
+
     @Test
     fun appOpensOnLaunchpad() {
         // The app opens on the Launchpad tab — check unique screen content.
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        waitFor(hasText("CONFIRM"))
     }
 
     @Test
     fun bottomBarReachesEveryTab() {
-        // Navigate to Mission via bottom bar.
+        // Navigate to Mission via bottom bar — check the real screen title.
         composeRule.onNodeWithContentDescription("Mission").performClick()
-        composeRule.onNodeWithText("This week's pattern and sorties will appear here.").assertIsDisplayed()
+        waitFor(missionTitle)
 
         // Navigate to Landed via bottom bar.
         composeRule.onNodeWithContentDescription("Landed").performClick()
@@ -42,18 +67,18 @@ class LiftoffShellTest {
 
         // Navigate back to Launchpad.
         composeRule.onNodeWithContentDescription("Launchpad").performClick()
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        waitFor(hasText("CONFIRM"))
     }
 
     @Test
     fun systemBackFromATabGoesToLaunchpad() {
-        // Go to Mission tab.
+        // Go to Mission tab — check the real screen title.
         composeRule.onNodeWithContentDescription("Mission").performClick()
-        composeRule.onNodeWithText("This week's pattern and sorties will appear here.").assertIsDisplayed()
+        waitFor(missionTitle)
 
         // System back should go to Launchpad.
         pressBack()
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        waitFor(hasText("CONFIRM"))
     }
 
     @Test
@@ -65,16 +90,16 @@ class LiftoffShellTest {
 
     @Test
     fun selectedTabSurvivesRecreation() {
-        // Navigate to Mission tab.
+        // Navigate to Mission tab — check the real screen title.
         composeRule.onNodeWithContentDescription("Mission").performClick()
-        composeRule.onNodeWithText("This week's pattern and sorties will appear here.").assertIsDisplayed()
+        waitFor(missionTitle)
 
         // Recreate the activity (simulates rotation).
         composeRule.activityRule.scenario.recreate()
         composeRule.waitForIdle()
 
         // Should still be on Mission tab.
-        composeRule.onNodeWithText("This week's pattern and sorties will appear here.").assertIsDisplayed()
+        waitFor(missionTitle)
     }
 
     @Test
@@ -134,22 +159,22 @@ class LiftoffShellTest {
 
     @Test
     fun systemBackFromMissionControlReturnsToTabItWasOpenedFrom() {
-        // Navigate to Mission tab, then open Mission Control.
+        // Navigate to Mission tab — check the real screen title.
         composeRule.onNodeWithContentDescription("Mission").performClick()
-        composeRule.onNodeWithText("This week's pattern and sorties will appear here.").assertIsDisplayed()
+        waitFor(missionTitle)
 
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
         composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
 
         // System back should close Mission Control and return to the tab it was opened from.
         pressBack()
-        composeRule.onNodeWithText("This week's pattern and sorties will appear here.").assertIsDisplayed()
+        waitFor(missionTitle)
     }
 
     @Test
     fun navBarIconsAreLightOnTabsAndDarkOnMissionControl() {
         // On tabs, the bottom bar background is Ink (dark), so nav bar icons should be light.
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
+        waitFor(hasText("CONFIRM"))
 
         val a = composeRule.activity
         fun light(): Boolean = WindowCompat.getInsetsController(a.window, a.window.decorView)
@@ -168,17 +193,7 @@ class LiftoffShellTest {
 
     @Test
     fun placeholderScreensShowTheirCopy() {
-        // Launchpad copy.
-        composeRule.onNodeWithText("THIS WEEK").assertIsDisplayed()
-        composeRule.onNodeWithText("Your next Flight Plan will appear here.").assertIsDisplayed()
-
-        // Mission copy.
-        composeRule.onNodeWithContentDescription("Mission").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("THIS WEEK").assertIsDisplayed()
-        composeRule.onNodeWithText("This week's pattern and sorties will appear here.").assertIsDisplayed()
-
-        // Landed copy.
+        // Landed copy — still a placeholder.
         composeRule.onNodeWithContentDescription("Landed").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("HISTORY").assertIsDisplayed()

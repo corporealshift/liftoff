@@ -17,7 +17,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-enum class ChipState { Landed, Current, Upcoming }
+enum class ChipState { Landed, Current, Upcoming, Scrubbed }
 data class PatternChip(val letter: String, val state: ChipState)
 
 /** Circle diameter for each chip state. */
@@ -25,6 +25,7 @@ internal fun chipSizeDp(state: ChipState): Int = when (state) {
     ChipState.Landed -> 44
     ChipState.Current -> 52
     ChipState.Upcoming -> 44
+    ChipState.Scrubbed -> 44
 }
 
 @Composable
@@ -117,6 +118,22 @@ private fun PatternChipView(chip: PatternChip) {
                 Text(
                     text = chip.letter,
                     color = Ink,
+                    fontFamily = BigShoulders,
+                    fontWeight = FontWeight.W800,
+                    fontSize = 22.sp,
+                )
+            }
+            ChipState.Scrubbed -> {
+                Canvas(modifier = Modifier.size(sizeDp)) {
+                    drawCircle(color = Sand)
+                    drawCircle(
+                        color = Ink,
+                        style = Stroke(width = density.run { 2.dp.toPx() }),
+                    )
+                }
+                Text(
+                    text = chip.letter,
+                    color = Muted,
                     fontFamily = BigShoulders,
                     fontWeight = FontWeight.W800,
                     fontSize = 22.sp,

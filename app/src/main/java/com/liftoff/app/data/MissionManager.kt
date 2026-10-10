@@ -18,6 +18,7 @@ import com.liftoff.app.domain.weekHasEnded
 import com.liftoff.app.domain.weekStartOf
 import com.liftoff.app.settings.Settings
 import com.liftoff.app.settings.SettingsStore
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import java.time.Clock
 import java.time.LocalDate
@@ -30,10 +31,12 @@ class MissionManager(
     private val zone: () -> ZoneId = { ZoneId.systemDefault() }
 ) {
 
+    val currentWeekStart = MutableStateFlow<LocalDate?>(null)
+
     suspend fun onAppOpen(): Mission {
         val settings = settingsStore.settings.first()
-        return db.withTransaction {
-            val weekStart = currentWeekStart()
+        val weekStart = currentWeekOf(clock, zone)
+        val mission = db.withTransaction {
             for (pastMission in db.missionDao().getUnclosedBefore(weekStart)) {
                 val sorties = db.sortieDao().getForMission(pastMission.id)
                 val result = rollover(pastMission, sorties, weekStart)
@@ -51,6 +54,8 @@ class MissionManager(
             }
             mission
         }
+        currentWeekStart.value = weekStart
+        return mission
     }
 
     suspend fun setPattern(missionId: Long, pattern: String) {
@@ -64,7 +69,7 @@ class MissionManager(
     suspend fun confirm(missionId: Long) {
         val settings = settingsStore.settings.first()
         db.withTransaction {
-            val weekStart = currentWeekStart()
+            val weekStart = currentWeekOf(clock, zone)
             val mission = db.missionDao().get(missionId)!!
             check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
                 "Can only confirm the current week's draft"
@@ -143,6 +148,6 @@ class MissionManager(
         }
     }
 
-    private fun currentWeekStart(): LocalDate =
+    private fun currentWeekOf(clock: Clock, zone: () -> ZoneId): LocalDate =
         weekStartOf(clock.instant().atZone(zone()).toLocalDate())
 }

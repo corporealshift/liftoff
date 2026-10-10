@@ -31,4 +31,7 @@ interface SortieDao {
         "ORDER BY m.weekStart DESC, s.`index` DESC"
     )
     fun observeHistory(): Flow<List<Sortie>>
+
+    @Query("SELECT * FROM sortie WHERE id = :sortieId")
+    fun observeById(sortieId: Long): Flow<Sortie?>
 }
