@@ -121,7 +121,7 @@ fun LiftoffShell() {
                     val container = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container
                     when (nav.tab) {
                         Tab.Launchpad -> LaunchpadScreen(container)
-                        Tab.Mission -> MissionScreen()
+                        Tab.Mission -> MissionScreen(container)
                         Tab.Landed -> LandedScreen()
                     }
                 }
