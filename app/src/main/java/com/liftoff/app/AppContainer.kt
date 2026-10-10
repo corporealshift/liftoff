@@ -19,4 +19,8 @@ class AppContainer(context: Context) {
     val database: LiftoffDatabase by lazy {
         Room.databaseBuilder(appContext, LiftoffDatabase::class.java, "liftoff.db").build()
     }
+
+    val missionManager: com.liftoff.app.data.MissionManager by lazy {
+        com.liftoff.app.data.MissionManager(database, settingsStore)
+    }
 }
