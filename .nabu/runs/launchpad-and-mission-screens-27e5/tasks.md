@@ -10,7 +10,7 @@
   Add `ChipState.Scrubbed` to PatternTrack: 44 dp Sand circle, 2 dp ink border, letter in Muted. Handle it in `chipSizeDp` and `PatternChipView`. Do not add a new @Preview.
   Tests: PlanFormatTest (new file).
 
-- [ ] Step 3 — Launchpad derivation, state holder, and screen
+- [x] Step 3 — Launchpad derivation, state holder, and screen
   Write `LaunchpadState.kt`: sealed LaunchpadState (Loading, Draft, Planned, Pending, InFlight, Closed) with the derivation class `LaunchpadStates(db, manager)` deriving from `manager.currentWeekStart`, `missionDao.observeWeek()`, and `flightPlanDao.observeChanges()`.
   Write `LaunchpadViewModel.kt`: plain state holder with actions toggleChip, addChip, removeChip, confirm, launch, requestScrub, setScrubReason, confirmScrub, cancelScrub.
   Write the real `LaunchpadScreen.kt`: content scrolls (TitleBlock eyebrow + title, PatternTrack, FlightPlanSection); actions pinned at bottom. Each state renders per the plan (Planned: Launch button + Scrub; Pending: status line + Scrub; InFlight: Resume; Draft: editable chips + Confirm; Closed: completion; Scrub: confirmation dialog with Paper card). Actions catch IllegalStateException and re-run onAppOpen() on failure.
