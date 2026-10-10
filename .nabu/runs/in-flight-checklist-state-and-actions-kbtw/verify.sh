@@ -1,127 +1,100 @@
 #!/usr/bin/env bash
-# Verify: In-Flight checklist state and actions (no UI) — definition of done
-set -euo pipefail
+# Verify: In-Flight checklist state and actions (no UI). This is the definition of done.
+# Runs the CI gate, then checks the JUnit XML to confirm that each named test
+# ran and passed. Gradle exits 0 even when a test it was meant to run doesn't exist.
+set -uo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)" || exit 1
 
-# ── Gate: build + full test suite ────────────────────────────────────────
-# This must fail now, before the work is done. The named tests below are what
-# make it pass once they exist and succeed.
+RESULTS="app/build/test-results/testDebugUnitTest"
+LOG="$(mktemp)"
+
+# Delete old results so a stale XML from an earlier run can't count as a pass.
+rm -rf "$RESULTS"
+
 echo "=== Gate: assembleDebug + testDebugUnitTest ==="
-bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --info > /tmp/liftoff-test.log 2>&1 || { echo "GATE FAILED"; cat /tmp/liftoff-test.log; exit 1; }
+if ! bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest > "$LOG" 2>&1; then
+    tail -n 80 "$LOG"
+    echo "GATE FAILED"
+    exit 1
+fi
+echo "  gate passed"
 
-# ── Check that each required test ran and passed ─────────────────────────
-# The brief lists these behaviors. Each test name below must appear in the
-# output as a PASSED test. Gradle passes when a name matches no test, so we
-# verify every named test actually ran.
 PASS=0
 FAIL=0
 
+# check_test <fully.qualified.Class> <methodName> <label>
+# A test passes when its <testcase> element is self-closing: no <failure>, <error> or <skipped>.
 check_test() {
-    local label="$1"
-    local pattern="$2"
-    if grep -q "$pattern" /tmp/liftoff-test.log; then
-        echo "  ✓ $label"
+    local cls="$1" name="$2" label="$3"
+    local xml="$RESULTS/TEST-$cls.xml"
+    if [ -f "$xml" ] && grep -F "<testcase name=\"$name\" classname=\"$cls\"" "$xml" | grep -q '/>[[:space:]]*$'; then
+        echo "  ✓ $label ($name)"
         PASS=$((PASS + 1))
     else
-        echo "  ✗ $label — NOT RUN"
+        echo "  ✗ $label ($cls.$name): did not run or did not pass"
         FAIL=$((FAIL + 1))
     fi
 }
 
+S="com.liftoff.app.ui.inflight.InFlightStatesTest"
+V="com.liftoff.app.ui.inflight.InFlightViewModelTest"
+
 echo ""
-echo "=== Required tests ==="
+echo "=== Derivation on a fresh getPlan read ==="
 
-# Initial card states, counter, labels and current set
-# (Plan §Step 1: eyebrow IN FLIGHT·SORTIE 2, title=plan title, counter 0/7, cards [ACTIVE,UPCOMING,UPCOMING], labels include 35 LB, ×10, BW, 45s)
-check_test "Initial state" \
-    'InFlightStatesTest.*initialState'
+# Eyebrow 'IN FLIGHT · SORTIE 2', plan title, counter 0/7, 7 open segments,
+# cards [ACTIVE, UPCOMING, UPCOMING] with 0/3, 0/2, 0/2, labels 35 LB / × 10 / BW / 45 s,
+# current set = first bench set, nothing added, no deviations.
+check_test "$S" initialState "Initial card states, counter, labels and current set"
 
-# KG weight unit — with WeightUnit.KG the label is 20 KG
-# (Plan §Step 1: KG decision)
-check_test "KG unit" \
-    'InFlightStatesTest.*kg'
+# Weight label in the configured unit: KG gives '20 KG'.
+check_test "$S" kgUnitLabel "Weight label in KG"
 
-# Title fallbacks — blank plan title falls back to focus; blank title + null focus gives Sortie n
-# (Plan §Step 1: title fallback)
-check_test "Title fallbacks" \
-    'InFlightStatesTest.*titleFallback'
+# A blank plan title falls back to the focus, and then to 'Sortie n'.
+check_test "$S" titleFallbacks "Title fallbacks"
 
-# No checklist — sortie with no plan, and RUN sortie with exercises-only plan
-# (Plan §Step 1: NoChecklist carries eyebrow and title)
-check_test "No checklist" \
-    'InFlightStatesTest.*noChecklist'
+# No plan, and a run plan with no exercises, both give NoChecklist.
+# Decision: 'A no checklist state still carries the eyebrow and title'.
+check_test "$S" noChecklist "No checklist for a sortie with no plan or no exercises"
 
-# Check and uncheck — one tap gives DONE with actuals=planned, counter 1/7; uncheck gives OPEN, null actuals, counter 0/7
-# (Plan §Step 3: check/uncheck behavior)
-check_test "Check and uncheck" \
-    'InFlightViewModelTest.*checkAndUncheck\|InFlightViewModelTest.*checkSet\|InFlightViewModelTest.*uncheckSet'
-
-# Edit with deviation — saveEdit(8, null, 40.0): DONE with actuals 8/40.0, planned stays 10/35.0, both deviation flags true
-# (Plan §Step 3: edit with deviation)
-check_test "Edit with deviation" \
-    'InFlightViewModelTest.*edit\|InFlightStatesTest.*edit'
-
-# Finish an exercise — check all bench sets; bench DONE (3/3), push-up ACTIVE, currentSetId=push-up set 1
-# (Plan §Step 3: finishing transitions card status)
-check_test "Finish exercise" \
-    'InFlightViewModelTest.*finish\|InFlightStatesTest.*finish'
-
-# Skip and reopen a set — set becomes SKIPPED, counter unchanged; reopening makes it OPEN again
-# (Plan §Step 3: skip/reopen set)
-check_test "Skip and reopen set" \
-    'InFlightViewModelTest.*skipSet\|InFlightStatesTest.*skipSet'
-
-# Skip and unskip an exercise — bench SKIPPED, sets 2-3 SKIPPED, set 1 stays DONE; unskip reopens sets 2-3, bench ACTIVE again
-# (Plan §Step 3: skip/unskip exercise)
-check_test "Skip and unskip exercise" \
-    'InFlightViewModelTest.*skipExercise\|InFlightStatesTest.*skipExercise'
-
-# Add a set — pre-filled from last set's actuals if DONE, planned otherwise; turns done card active again
-# (Plan §Step 3: addSet pre-fill logic)
-check_test "Add set" \
-    'InFlightViewModelTest.*addSet\|InFlightStatesTest.*addSet'
-
-# Fresh read equals the flow — after mix of actions, deriveInFlight(getPlan(sortieId)) == state.value
-# (Plan §Step 3: fresh-read equality)
-check_test "Fresh read equals flow" \
-    'InFlightViewModelTest.*freshRead\|InFlightStatesTest.*freshRead'
-
-# No plan gives no checklist state — holder emits NoChecklist for a sortie with no plan
-# (Plan §Step 3: NoChecklist emission)
-check_test "No plan → NoChecklist" \
-    'InFlightViewModelTest.*noPlan\|InFlightStatesTest.*noPlan'
-
-# ── DAO action tests ─────────────────────────────────────────────────────
 echo ""
-echo "=== DAO action tests ==="
+echo "=== State holder actions through the StateFlow ==="
 
-# checkSet copies planned values into actuals
-# (Plan §Step 2: checkSet)
-check_test "DAO: checkSet" \
-    'FlightPlanDaoTest.*checkSet'
+# Check gives DONE with actuals = planned, 1/7 and a DONE segment. Uncheck gives OPEN, null actuals, 0/7.
+check_test "$V" checkAndUncheck "One-tap check and uncheck"
 
-# skipExercise keeps a DONE set's actuals and the exercise's userNotes
-# (Plan §Step 2: skipExercise preserves actuals + notes)
-check_test "DAO: skipExercise" \
-    'FlightPlanDaoTest.*skipExercise'
+# Edit gives DONE with actual 8 reps / 40.0. Planned stays 10 / 35.0, and both deviation flags are set.
+# Decision: 'Weight and count labels on a DONE set' (labels show the actuals).
+check_test "$V" editWithDeviation "Edit with a deviation keeps the planned values"
 
-# unskipExercise reopens the SKIPPED sets
-# (Plan §Step 2: unskipExercise)
-check_test "DAO: unskipExercise" \
-    'FlightPlanDaoTest.*unskipExercise'
+# Checking every bench set makes bench DONE (3/3), push-up ACTIVE and current set = push-up set 1.
+check_test "$V" finishExercise "Finishing an exercise activates the next one"
 
-# addSet pre-fills from last set's actuals when DONE, planned values otherwise
-# (Plan §Step 2: addSet pre-fill)
-check_test "DAO: addSet" \
-    'FlightPlanDaoTest.*addSet'
+# Skipped set: counter unchanged, SKIPPED segment. Reopen makes it OPEN again.
+check_test "$V" skipAndReopenSet "Skip and reopen a set"
 
-# ── Summary ───────────────────────────────────────────────────────────────
+# Skip bench after checking set 1: card SKIPPED, sets 2-3 SKIPPED, set 1 keeps its actuals, push-up ACTIVE.
+# Unskip reopens sets 2-3 and bench is ACTIVE again.
+# Decision: 'Unskip an exercise' (reopens every SKIPPED set).
+check_test "$V" skipAndUnskipExercise "Skip and unskip an exercise"
+
+# The added set copies the last set's actuals when it is DONE and its planned values otherwise.
+# It is OPEN, added and labelled 'SET 4'. A done card turns ACTIVE again and the counter becomes x/8.
+check_test "$V" addSet "Add a set"
+
+# After a mix of actions, the state the flow emitted equals deriveInFlight on a fresh getPlan read.
+check_test "$V" freshReadEqualsFlow "Fresh database read equals the emitted state"
+
+# The holder emits NoChecklist for a sortie with no plan.
+check_test "$V" noPlan "No plan gives the no checklist state"
+
 echo ""
 echo "=== Result: $PASS passed, $FAIL failed ==="
+rm -f "$LOG"
 
 if [ "$FAIL" -gt 0 ]; then
-    echo "FAILED — not all required tests ran successfully."
+    echo "FAILED: not every required test ran and passed."
     exit 1
 fi
 
