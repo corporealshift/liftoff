@@ -4,7 +4,7 @@
   Add `currentWeekStart` (StateFlow<LocalDate?>) to MissionManager; set it at the end of `onAppOpen()` after the transaction commits. Add `repeatOnLifecycle(Lifecycle.State.STARTED)` call in MainActivity so `container.missionManager.onAppOpen()` runs on app open and foreground return. Add `FlightPlanDao.observeChanges(): Flow<Int>` selecting from flightPlan, plannedExercise, plannedSet, runSegment as a change signal. Run existing MissionManagerTest and DAO tests to confirm they still pass.
   No new test files; only updates to existing code plus verification that existing tests pass.
 
-- [ ] Step 2 — Formatting, shared parts, ChipState.Scrubbed
+- [x] Step 2 — Formatting, shared parts, ChipState.Scrubbed
   Write `PlanFormat.kt` with pure formatting functions: week eyebrow date (`OCT 5`), sortie label (`SORTIE 2 OF 5 · LIFT`), exercise load (`3×8 · 135`, `3×8 · BW`, `3×45 s`), Flight Plan head (`≈55 min · 14 sets`), and pattern chip states. Write `PlanFormatTest` covering every formatter including weight `135.0` → `135`, `22.5` → `22.5`, null weight → `BW`, seconds → `45 s`, differing sets, null estimate, singular "1 set".
   Write `FlightPlanSection` composable: FLIGHT PLAN head over ink rule, exercise rows (index, name, load) for lifts; run summary rows for runs; coach note ("Coach:" in Teal weight 600 + text in Muted with LiftoffType.note()).
   Add `ChipState.Scrubbed` to PatternTrack: 44 dp Sand circle, 2 dp ink border, letter in Muted. Handle it in `chipSizeDp` and `PatternChipView`. Do not add a new @Preview.
