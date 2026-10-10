@@ -62,7 +62,8 @@ private fun MissionTabContent(state: MissionTabState, onSelect: (Long) -> Unit =
         modifier = Modifier
             .fillMaxSize()
             .background(Cream)
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 20.dp)
+            .verticalScroll(rememberScrollState()),
     ) {
         when (state) {
             is MissionTabState.Loading -> Unit
