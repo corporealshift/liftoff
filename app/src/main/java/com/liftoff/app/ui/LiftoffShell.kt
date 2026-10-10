@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.liftoff.app.R
 import com.liftoff.app.ui.control.MissionControlScreen
+import com.liftoff.app.ui.inflight.InFlightScreen
 import com.liftoff.app.ui.landed.LandedScreen
 import com.liftoff.app.ui.launchpad.LaunchpadScreen
 import com.liftoff.app.ui.mission.MissionScreen
@@ -67,11 +68,12 @@ fun LiftoffShell() {
         nav.back()?.let { nav = it }
     }
 
-    // Switch nav-bar icon contrast: light icons over ink on tabs, dark on Mission Control cream.
+    // Light nav-bar icons over cream (Mission Control, In-Flight); dark icons over ink (tabs).
     val view = LocalView.current
     SideEffect {
         (view.context as? android.app.Activity)?.window?.let {
-            WindowCompat.getInsetsController(it, view).isAppearanceLightNavigationBars = nav.missionControlOpen
+            WindowCompat.getInsetsController(it, view).isAppearanceLightNavigationBars =
+                nav.missionControlOpen || nav.inFlightSortieId != null
         }
     }
 
@@ -86,6 +88,13 @@ fun LiftoffShell() {
                 settingsStore = container.settingsStore,
                 scope = shellScope,
                 equipmentDao = container.database.equipmentDao(),
+                onBack = { nav = nav.back() ?: nav },
+            )
+        } else if (nav.inFlightSortieId != null) {
+            val container = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container
+            InFlightScreen(
+                sortieId = nav.inFlightSortieId!!,
+                container = container,
                 onBack = { nav = nav.back() ?: nav },
             )
         } else {
@@ -120,7 +129,7 @@ fun LiftoffShell() {
                 Box(Modifier.weight(1f)) {
                     val container = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container
                     when (nav.tab) {
-                        Tab.Launchpad -> LaunchpadScreen(container)
+                        Tab.Launchpad -> LaunchpadScreen(container, onOpenInFlight = { nav = nav.openInFlight(it) })
                         Tab.Mission -> MissionScreen(container)
                         Tab.Landed -> LandedScreen()
                     }

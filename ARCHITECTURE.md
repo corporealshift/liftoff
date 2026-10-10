@@ -34,7 +34,7 @@ All source lives under `com.liftoff.app`.
 | `com.liftoff.app.domain` | State machines for Mission and Sortie lifecycle. Pure Kotlin, no Android imports. | ✅ (Week, pattern, Mission and sortie rules, rollover, sortie planning) |
 | `com.liftoff.app.coach` | Prompt builder, validator, JSON schemas. Pure Kotlin, no Android imports. | Started (`ExerciseNames.kt`: exercise-name normalizer, §7.7) |
 | `com.liftoff.app.work` | Android-side workers (`GenerationWorker`). Uses WorkManager and Android APIs. | — |
-| `com.liftoff.app.ui` | Navigation shell, placeholder screens (Launchpad, Mission, Landed), Mission Control stub, theme and shared composables. | ✅ (navigation shell, placeholder screens, Mission Control stub, `ui/theme`) |
+| `com.liftoff.app.ui` | Navigation shell, Launchpad and Mission as real screens, In-Flight as a placeholder screen, Landed as a placeholder, Mission Control stub, theme and shared composables. | ✅ (navigation shell, Launchpad, Mission, In-Flight, Landed, Mission Control stub, `ui/theme`) |
 
 ---
 
@@ -78,7 +78,7 @@ Each milestone ends with the project gate (`./gradlew :app:assembleDebug :app:te
 |---|---|---|
 | M0 | Coach reliability spike — coach workspace, validator, schemas, prompt builder, `LiveCoachTest` | Not started |
 | M1 | Skeleton and data — Room schema, settings, `AppContainer`, theme, navigation shell, Mission Control including the equipment list | Done — test connection and export/import come later |
-| M2 | Missions and sorties — domain state machines, draft/confirm UI, Launchpad, Scrub | Not started |
+| M2 | Missions and sorties — domain state machines, draft/confirm UI, Launchpad, Scrub | Done — Regenerate comes with generation (M3); In-Flight is a placeholder until M4 |
 | M3 | Generation — nabu client copy, `GenerationWorker`, outline + lift plan end to end | Not started |
 | M4 | In flight — In-Flight screen, Launch, Land, resume after process kill | Not started |
 | M5 | Landed and safety nets — history screens, Re-fly, export/import | Not started |

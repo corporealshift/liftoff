@@ -11,6 +11,7 @@ class ShellNavTest {
         val nav = ShellNav()
         assertEquals(Tab.Launchpad, nav.tab)
         assertEquals(false, nav.missionControlOpen)
+        assertEquals(null, nav.inFlightSortieId)
     }
 
     @Test
@@ -107,5 +108,75 @@ class ShellNavTest {
         assertEquals(ShellNav(), ShellNav.decode("UnknownTab"))
         assertEquals(ShellNav(), ShellNav.decode(""))
         assertEquals(ShellNav(), ShellNav.decode("Mission|invalid"))
+    }
+
+    @Test
+    fun openInFlightSetsTheSortieId() {
+        var nav = ShellNav(tab = Tab.Launchpad)
+        nav = nav.openInFlight(42L)
+        assertEquals(Tab.Launchpad, nav.tab)
+        assertEquals(false, nav.missionControlOpen)
+        assertEquals(42L, nav.inFlightSortieId)
+    }
+
+    @Test
+    fun backFromInFlightClearsTheSortieId() {
+        var nav = ShellNav(tab = Tab.Launchpad).openInFlight(7L)
+        nav = nav.back()!!
+        assertEquals(Tab.Launchpad, nav.tab)
+        assertEquals(null, nav.inFlightSortieId)
+    }
+
+    @Test
+    fun inFlightEncodeDecodesRoundTrip() {
+        val nav = ShellNav(tab = Tab.Mission, missionControlOpen = false, inFlightSortieId = 123L)
+        val encoded = nav.encode()
+        assertEquals("Mission|2:123", encoded)
+        assertEquals(nav, ShellNav.decode(encoded))
+    }
+
+    @Test
+    fun inFlightEncodeWithLaunchpadTab() {
+        val nav = ShellNav(tab = Tab.Launchpad, inFlightSortieId = 5L)
+        assertEquals("Launchpad|2:5", nav.encode())
+        assertEquals(nav, ShellNav.decode(nav.encode()))
+    }
+
+    @Test
+    fun backFromInFlightWhileOnMissionGoesToLaunchpad() {
+        var nav = ShellNav(tab = Tab.Mission).openInFlight(99L)
+        // Back clears in-flight -> Launchpad (since select clears tab on back from in-flight)
+        nav = nav.back()!!
+        assertEquals(Tab.Launchpad, nav.tab)
+        assertEquals(null, nav.inFlightSortieId)
+    }
+
+    @Test
+    fun selectFromInFlightGoesToLaunchpadAndClearsInFlight() {
+        val nav = ShellNav(tab = Tab.Mission, inFlightSortieId = 10L)
+        val next = nav.select(Tab.Launchpad)
+        assertEquals(Tab.Launchpad, next.tab)
+        assertEquals(null, next.inFlightSortieId)
+    }
+
+    @Test
+    fun mcAndInFlightEncodeBackwardsCompatible() {
+        // Existing encoding: "Mission|1" should still decode as before.
+        val oldDecoded = ShellNav.decode("Mission|1")
+        assertEquals(Tab.Mission, oldDecoded.tab)
+        assertEquals(true, oldDecoded.missionControlOpen)
+        assertEquals(null, oldDecoded.inFlightSortieId)
+
+        // New encoding: "Launchpad|2:3" should decode with in-flight only.
+        val newDecoded = ShellNav.decode("Launchpad|2:3")
+        assertEquals(Tab.Launchpad, newDecoded.tab)
+        assertEquals(false, newDecoded.missionControlOpen)
+        assertEquals(3L, newDecoded.inFlightSortieId)
+
+        // Both flags + in-flight round-trips correctly.
+        assertEquals(ShellNav(Tab.Launchpad, true, 3L), ShellNav.decode("Launchpad|1|2:3"))
+
+        // Genuinely bad input decodes to default.
+        assertEquals(ShellNav(), ShellNav.decode("Launchpad|2:x"))
     }
 }
