@@ -22,7 +22,7 @@
   Write the real `MissionScreen.kt`: this week's pattern track, outline notes, InkRuledListRow per sortie (index, type, focus, state). Sortie detail via rememberSaveable selected-id with BackHandler: PLANNED/IN_FLIGHT/PENDING with plan → FlightPlanSection; PENDING no plan → "No Flight Plan yet"; LANDED → record; SCRUBBED → record with reason.
   Tests: MissionStatesTest (new file) — pattern chips from mixed sortie states, outline notes present/absent, sortie rows, draft mission, sortie detail for planned/PENDING/landed/scrubbed sorties.
 
-- [ ] Step 5 — In-Flight placeholder, shell wiring, existing test updates, docs
+- [x] Step 5 — In-Flight placeholder, shell wiring, existing test updates, docs
   Write `InFlightScreen.kt`: placeholder showing sortie's Flight Plan title, eyebrow "IN FLIGHT · SORTIE N", and Back button.
   Update `ShellNav.kt`: add inFlightSortieId, openInFlight(id), back(), extend encode/decode with optional in-flight part.
   Update `LiftoffShell.kt`: get container, wire InFlightScreen branch (full height, no bars when active), pass onOpenInFlight to LaunchpadScreen, light nav-bar icons for Mission Control and In-Flight.
