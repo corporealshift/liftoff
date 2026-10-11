@@ -283,6 +283,13 @@ abstract class FlightPlanDao(private val db: LiftoffDatabase) {
         reopenSkippedSets(id)
     }
 
+    // Passing the row's own skipped back is what keeps a note inert.
+    @Transaction
+    open suspend fun saveExerciseNote(plannedExerciseId: Long, note: String?) {
+        val ex = getPlannedExercise(plannedExerciseId) ?: return
+        updateExercise(plannedExerciseId, ex.skipped, note)
+    }
+
     @Transaction
     open suspend fun addSet(plannedExerciseId: Long): Long {
         val last = getLastSet(plannedExerciseId)
