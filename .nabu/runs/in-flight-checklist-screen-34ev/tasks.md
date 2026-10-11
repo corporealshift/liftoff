@@ -18,7 +18,7 @@
 
 ## Blockers from the final review
 
-- [ ] Make the '+ Add set', 'Skip' and 'Unskip' buttons in the card footer work
+- [x] Make the '+ Add set', 'Skip' and 'Unskip' buttons in the card footer work
   InFlightScreen.kt, CardFooter/FooterCell: the caller sets `.clickable { vm.addSet(...) }` (or the skip/unskip action) on the modifier. FooterCell then adds a second `.clickable {}` to it when `enabled` is true. When two clickables are chained on one node, the inner (later) one takes the tap and consumes it, so the real action never runs. In the app, tapping '+ Add set', 'Skip' or 'Unskip' does nothing. That also breaks the mis-tap fix the brief asks for: you can't undo a skip from an expanded skipped card. Give each footer cell a single clickable that runs the action. Add a Compose test in InFlightScreenTest: tap '+ Add set' on the active card and check that Room has one more set and the counter total goes up; tap 'Skip' and then 'Unskip' on a card and check the exercise's `skipped` flag in Room. Note that FooterCell upper-cases the labels, so the tests must look for the rendered text.
 - [ ] Make the Back button work on the no-checklist and loading screens
   InFlightScreen.kt: LoadingContent() and NoChecklistContent() both call `Footer(onBack = {})`, so they ignore the screen's `onBack`. On a sortie with no checklist (for example a RUN sortie opened from the Launchpad), Back does nothing. Pass `onBack` through to both footers. A test in InFlightScreenTest would show it: use a no-plan sortie, click 'Back' and assert the callback ran.
