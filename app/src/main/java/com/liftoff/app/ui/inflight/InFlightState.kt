@@ -20,6 +20,7 @@ sealed interface InFlightState {
         val sortieId: Long,
         val eyebrow: String,          // "IN FLIGHT · SORTIE n", n = sortie.index + 1
         val title: String,            // plan.title (if not blank), else focus, else "Sortie n"
+        val weightUnit: WeightUnit,   // user's configured unit for the stepper
         val doneCount: Int,           // DONE sets over all exercises, added sets included
         val setCount: Int,            // total sets, added sets included
         val progress: List<SetStatus>,// one per set in display order
@@ -52,6 +53,8 @@ data class SetRow(
     val actualWeight: Double?,
     val weightLabel: String,          // "35 LB" / "20 KG" / "BW"
     val countLabel: String,           // "× 10" / "45 s"
+    val plannedWeightLabel: String,   // planned weight formatted like weightLabel: "35 LB" / "BW"
+    val plannedCountLabel: String,    // planned count: bare reps "10" or seconds "45 s"
     val added: Boolean,
     val weightDeviates: Boolean,      // DONE only: actualWeight != plannedWeight
     val countDeviates: Boolean,       // DONE only: actualReps != reps || actualSeconds != seconds
@@ -112,6 +115,21 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
                 plannedSet.actualReps != plannedSet.reps || plannedSet.actualSeconds != plannedSet.seconds
             } else false
 
+            // Planned labels: use the planned values (not actuals) for "of <planned>" display
+            val plannedWeightLabel = if (plannedSet.weight == null) {
+                "BW"
+            } else {
+                "${formatWeight(plannedSet.weight)} ${unit.name}"
+            }
+
+            val plannedCountLabel = if (plannedSet.seconds != null) {
+                "${plannedSet.seconds} s"
+            } else if (plannedSet.reps != null) {
+                "${plannedSet.reps}"
+            } else {
+                ""
+            }
+
             SetRow(
                 setId = plannedSet.id,
                 label = "SET ${setIdx + 1}",
@@ -124,6 +142,8 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
                 actualWeight = plannedSet.actualWeight,
                 weightLabel = weightLabel,
                 countLabel = countLabel,
+                plannedWeightLabel = plannedWeightLabel,
+                plannedCountLabel = plannedCountLabel,
                 added = plannedSet.added,
                 weightDeviates = weightDeviates,
                 countDeviates = countDeviates,
@@ -177,6 +197,7 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
         sortieId = sortie.id,
         eyebrow = eyebrow,
         title = title,
+        weightUnit = unit,
         doneCount = allProgress.count { it == SetStatus.DONE },
         setCount = allProgress.size,
         progress = allProgress,
