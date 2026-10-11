@@ -31,7 +31,7 @@ Rules that apply to every task:
   `FlightPlanDaoTest.skipExerciseKeepsDoneSetActualsAndUserNotes` still pass; nothing outside these
   two files changed. Commit `inflight: add notes-only dao writes`.
 
-- [ ] Carry the notes in the derived state and re-derive on a sortie-row change
+- [x] Carry the notes in the derived state and re-derive on a sortie-row change
   `ui/inflight/InFlightState.kt`: `val note: String?` on `ExerciseCard`, `val sortieNote: String?` on
   both `InFlightState.NoChecklist` and `InFlightState.Ready`; `deriveInFlight` sets
   `note = exerciseDetail.plannedExercise.userNotes` on each card and `sortieNote = sortie.notes` on both
