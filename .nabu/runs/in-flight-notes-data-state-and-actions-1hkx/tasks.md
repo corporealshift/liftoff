@@ -18,7 +18,7 @@ Rules that apply to every task:
   `withTimeout(5_000) { vm.state.first { ... } }`, and a fresh `deriveInFlight(getPlan(...), get(...), WeightUnit.LB)`
   comparison for anything that must survive a process kill).
 
-- [ ] Add the two notes-only DAO writes
+- [x] Add the two notes-only DAO writes
   `data/SortieDao.kt`: `@Query("UPDATE sortie SET notes = :notes WHERE id = :sortieId")`
   `suspend fun updateNotes(sortieId: Long, notes: String?)`. `data/FlightPlanDao.kt`: an
   `@Transaction open suspend fun saveExerciseNote(plannedExerciseId: Long, note: String?)` beside
