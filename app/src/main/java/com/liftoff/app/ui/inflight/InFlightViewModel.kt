@@ -13,10 +13,11 @@ import kotlinx.coroutines.launch
 class InFlightViewModel(
     db: LiftoffDatabase,
     settings: SettingsStore,
-    sortieId: Long,
+    private val sortieId: Long,
     private val scope: CoroutineScope,
 ) {
     private val dao = db.flightPlanDao()
+    private val sortieDao = db.sortieDao()
 
     val state: StateFlow<InFlightState> = InFlightStates(db, settings).observe(sortieId)
         .stateIn(scope, SharingStarted.Lazily, InFlightState.Loading)
@@ -31,4 +32,10 @@ class InFlightViewModel(
     fun skipExercise(id: Long)        { scope.launch { dao.skipExercise(id) } }
     fun unskipExercise(id: Long)      { scope.launch { dao.unskipExercise(id) } }
     fun addSet(id: Long)              { scope.launch { dao.addSet(id) } }
+    fun saveExerciseNote(id: Long, text: String) {
+        scope.launch { dao.saveExerciseNote(id, normalizeNote(text)) }
+    }
+
+    // Blank text becomes null here so the exercise and sortie rules match and the DAOs stay dumb writes.
+    private fun normalizeNote(text: String?): String? = text?.trim()?.takeIf { it.isNotEmpty() }
 }
