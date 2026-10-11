@@ -7,6 +7,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -318,6 +320,108 @@ class InFlightScreenTest {
             assertEquals(SetStatus.DONE, benchSets[0].status)
             assertEquals(10, benchSets[0].actualReps)
             assertEquals(35.0, benchSets[0].actualWeight!!, 0.001)
+        }
+    }
+
+    // ── footerAddSetAndSkipUnskip ────────────────────────────────────
+    // Tapping '+ Add set' on the active card adds one more set to that exercise
+    // and increases the counter total. Tapping 'Skip' then 'Unskip' on an
+    // upcoming card toggles the exercise's `skipped` flag in Room.
+
+    @Test
+    fun footerAddSetAndSkipUnskip() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            // Build fixture: 2 exercises, 5 sets total.
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "Push", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "Upper Push", estimatedMinutes = 40,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 10, seconds = null, weight = 35.0),
+                        SetDraft(reps = 10, seconds = null, weight = 35.0)
+                    )),
+                    ExerciseDraft(name = "Push-up", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 12, seconds = null, weight = null),
+                        SetDraft(reps = 12, seconds = null, weight = null)
+                    )),
+                    ExerciseDraft(name = "Kettlebell Hold", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 20.0)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            // Wait for initial counter "00/05" to appear.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("00/05\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // ── Tap '+ Add set' on the active card (Bench Press, index 0) ──
+            // FooterCell upper-cases labels, so text is "+ ADD SET".
+            composeRule.onAllNodesWithText("+ ADD SET", ignoreCase = false).get(0).performClick()
+
+            // Counter total should go up: "00/06"
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("00/06\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Room should have one more set for the Bench Press exercise.
+            val planAfterAdd = container.database.flightPlanDao().getPlan(sortieId)!!
+            val benchExercise = planAfterAdd.exercises.first { it.displayName == "Bench Press" }
+            assertEquals(3, benchExercise.sets.size)
+
+            // ── Tap 'Skip' on the Kettlebell Hold card (index 2) ─────────
+            composeRule.onAllNodesWithText("SKIP", ignoreCase = false).get(2).performClick()
+
+            // After skipping, the card collapses to a row showing its name.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("Kettlebell Hold").fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Room: Kettlebell Hold should be skipped.
+            val planAfterSkip = container.database.flightPlanDao().getPlan(sortieId)!!
+            val kettlebellExercise = planAfterSkip.exercises.first { it.displayName == "Kettlebell Hold" }
+            assertTrue(kettlebellExercise.plannedExercise.skipped)
+
+            // ── Expand the skipped row, then Unskip ──────────────────────
+            composeRule.onNodeWithText("Kettlebell Hold").performClick()
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("UNSKIP", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("UNSKIP").performClick()
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("UNSKIP", ignoreCase = false).fetchSemanticsNodes().isEmpty()
+            }
+
+            // Room: Kettlebell Hold should no longer be skipped.
+            val planAfterUnskip = container.database.flightPlanDao().getPlan(sortieId)!!
+            val kettlebellExercise2 = planAfterUnskip.exercises.first { it.displayName == "Kettlebell Hold" }
+            assertFalse(kettlebellExercise2.plannedExercise.skipped)
         }
     }
 }

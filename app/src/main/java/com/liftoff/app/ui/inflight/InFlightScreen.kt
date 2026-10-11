@@ -571,10 +571,10 @@ private fun CardFooter(card: ExerciseCard, vm: InFlightViewModel) {
                 modifier = Modifier
                     .weight(1f)
                     .height(44.dp)
-                    .border(BorderStroke(1.dp, Rule), ButtonShape)
-                    .clickable { vm.addSet(card.plannedExerciseId) },
+                    .border(BorderStroke(1.dp, Rule), ButtonShape),
                 text = "+ Add set",
                 enabled = true,
+                onClick = { vm.addSet(card.plannedExerciseId) },
             )
 
             Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(Ink))
@@ -587,6 +587,7 @@ private fun CardFooter(card: ExerciseCard, vm: InFlightViewModel) {
                     .border(BorderStroke(1.dp, Rule), ButtonShape),
                 text = "Note",
                 enabled = false,
+                onClick = {},
             )
 
             Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(Ink))
@@ -603,19 +604,22 @@ private fun CardFooter(card: ExerciseCard, vm: InFlightViewModel) {
                 modifier = Modifier
                     .weight(1f)
                     .height(44.dp)
-                    .border(BorderStroke(1.dp, Rule), ButtonShape)
-                    .clickable(onClick = skipAction),
+                    .border(BorderStroke(1.dp, Rule), ButtonShape),
                 text = skipText,
                 enabled = true,
+                onClick = skipAction,
             )
         }
     }
 }
 
 @Composable
-private fun FooterCell(modifier: Modifier, text: String, enabled: Boolean) {
+private fun FooterCell(modifier: Modifier, text: String, enabled: Boolean, onClick: () -> Unit) {
     Box(
-        modifier = if (enabled) modifier.clickable {} else modifier.semantics { disabled() },
+        modifier = if (enabled)
+            modifier.clickable(onClick = onClick)
+        else
+            modifier.semantics { disabled() },
         contentAlignment = Alignment.Center,
     ) {
         Text(
