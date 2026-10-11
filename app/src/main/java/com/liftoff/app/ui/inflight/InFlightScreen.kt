@@ -22,6 +22,8 @@ import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -236,13 +238,32 @@ private fun ReadyHeader(state: InFlightState.Ready) {
                 }
 
                 if (state.setCount > 0) {
-                    val counterText = "%02d/%02d".format(state.doneCount, state.setCount)
+                    val doneStr = "%02d".format(state.doneCount)
+                    val totalStr = "%02d".format(state.setCount)
+                    val counterText = "$doneStr/$totalStr\nSETS"
+
+                    val style = LiftoffType.headerTitle() // BigShoulders 900, 44 sp base
+                    val annotated = AnnotatedString.Builder(counterText).apply {
+                        addStyle(
+                            SpanStyle(color = Mustard, fontSize = 44.sp),
+                            start = 0,
+                            end = doneStr.length,
+                        )
+                        addStyle(
+                            SpanStyle(color = Cream, fontSize = 22.sp),
+                            start = doneStr.length,
+                            end = doneStr.length + 1 + totalStr.length, // "/14"
+                        )
+                        addStyle(
+                            SpanStyle(color = Cream, fontSize = 13.sp),
+                            start = doneStr.length + 1 + totalStr.length, // "\nSETS"
+                            end = counterText.length,
+                        )
+                    }.toAnnotatedString()
+
                     Text(
-                        text = "$counterText\nSETS",
-                        style = LiftoffType.headerTitle().copy(
-                            color = Cream,
-                            lineHeight = 1.em,
-                        ),
+                        text = annotated,
+                        lineHeight = 1.em,
                     )
                 }
             }
