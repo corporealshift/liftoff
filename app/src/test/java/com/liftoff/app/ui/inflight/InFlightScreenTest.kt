@@ -483,4 +483,155 @@ class InFlightScreenTest {
             assertFalse(kettlebellExercise2.plannedExercise.skipped)
         }
     }
+
+    // ── doneBodyweightSetStepperShowsBW ───────────────────────────────
+    // A DONE set whose actualWeight is null (bodyweight) must open in the
+    // stepper showing "BW" (0), not the planned weight. Tapping the value cell
+    // opens the stepper; the weight line reads "BW". After saving, Room still
+    // holds actualWeight = null.
+
+    @Test
+    fun doneBodyweightSetStepperShowsBW() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "BW", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "BW workout", estimatedMinutes = 20,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Pull-up", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 35.0),
+                        SetDraft(reps = 8, seconds = null, weight = 40.0)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            // Seed Room directly: SET 1 done as BW (null weight), SET 2 still OPEN.
+            val plan = container.database.flightPlanDao().getPlan(sortieId)!!
+            val setId1 = plan.exercises[0].sets[0].id
+            container.database.flightPlanDao().saveSetEdit(setId1, 8, null, null)
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            // Wait for the "Pull-up SET 1 done" content description (CheckBox DONE label).
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithContentDescription("Pull-up SET 1 done", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Tap the weight cell ("BW") to open the stepper dialog.
+            composeRule.onNodeWithText("BW").performClick()
+
+            // Stepper title must appear, confirming the dialog is open.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("PULL-UP · SET 1", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Planned weight must NOT be present in the stepper (the fix seeds from actuals, not planned).
+            // "BW" appears twice: once in the set row on screen, once in the stepper.
+            composeRule.onAllNodesWithText("35 LB").assertCountEquals(0)
+            composeRule.onAllNodesWithText("BW").assertCountEquals(2)
+
+            // Fix reps: tap the second "+" button (count line).
+            composeRule.onAllNodesWithText("+")[1].performClick()
+
+            // Tap Save.
+            composeRule.onNodeWithText("SAVE").performClick()
+
+            // Wait for the screen to redraw from Room: the stepper title must be gone.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("PULL-UP · SET 1", ignoreCase = false).fetchSemanticsNodes().isEmpty()
+            }
+
+            // Then verify Room: status DONE, reps=9, weight=null.
+            val planAfter = container.database.flightPlanDao().getPlan(sortieId)!!
+            assertEquals(SetStatus.DONE, planAfter.exercises[0].sets[0].status)
+            assertEquals(9, planAfter.exercises[0].sets[0].actualReps)
+            assertTrue("actualWeight should remain null for BW", planAfter.exercises[0].sets[0].actualWeight == null)
+        }
+    }
+
+    // ── openSetStepperShowsPlannedWeight ──────────────────────────────
+    // An OPEN set must seed the stepper from the planned weight, not actuals.
+    // A planned 25 LB set should show "25 LB" in the stepper dialog.
+
+    @Test
+    fun openSetStepperShowsPlannedWeight() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "Press", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "Press day", estimatedMinutes = 20,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Overhead Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 6, seconds = null, weight = 25.0),
+                        SetDraft(reps = 6, seconds = null, weight = 30.0)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            // Wait for initial counter.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("00/02\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Tap the weight cell ("25 LB") to open the stepper dialog.
+            composeRule.onNodeWithText("25 LB").performClick()
+
+            // The stepper weight line should show "25 LB" (the planned weight).
+            // After opening, there are 2 occurrences: one on main screen, one in stepper.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("25 LB", ignoreCase = false).fetchSemanticsNodes().size >= 2
+            }
+
+            // Cancel (UnderlinedTextButton uppercases).
+            composeRule.onNodeWithText("CANCEL").performClick()
+        }
+    }
 }

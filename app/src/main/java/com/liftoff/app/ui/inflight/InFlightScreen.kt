@@ -666,12 +666,18 @@ private fun StepperDialog(
     val stepWeight = if (weightUnit == WeightUnit.LB) 5.0 else 2.5
     val stepCount = if (row.plannedSeconds != null || (row.plannedReps == null && row.actualSeconds != null)) 5 else 1
 
-    var editWeight by remember(row.setId) { mutableStateOf(row.actualWeight ?: row.plannedWeight ?: 0.0) }
+    // For DONE sets, seed from actual values only (null weight → 0 = bodyweight).
+    // For OPEN/SKIPPED sets, seed from planned values.
+    val seededWeight = if (row.status == SetStatus.DONE) row.actualWeight ?: 0.0 else (row.plannedWeight ?: 0.0)
+    val seededReps = if (row.status == SetStatus.DONE) row.actualReps ?: 0 else (row.plannedReps ?: 0)
+    val seededSeconds = if (row.status == SetStatus.DONE) row.actualSeconds ?: 0 else (row.plannedSeconds ?: 0)
+
+    var editWeight by remember(row.setId) { mutableStateOf(seededWeight) }
     var editReps by remember(row.setId) {
-        mutableStateOf(row.actualReps ?: row.plannedReps ?: 0)
+        mutableStateOf(seededReps)
     }
     var editSeconds by remember(row.setId) {
-        mutableStateOf(row.actualSeconds ?: row.plannedSeconds ?: 0)
+        mutableStateOf(seededSeconds)
     }
 
     val isSeconds = row.plannedSeconds != null || (row.plannedReps == null && row.actualSeconds != null)
