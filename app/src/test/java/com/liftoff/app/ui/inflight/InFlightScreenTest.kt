@@ -3,8 +3,10 @@ package com.liftoff.app.ui.inflight
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -42,6 +44,9 @@ class InFlightScreenTest {
         container.database.close()
         File(context.cacheDir, "settings.preferences_pb").delete()
     }
+
+    /** Create a CoroutineScope for ViewModel construction in tests. */
+    private fun scopeForTest(): CoroutineScope = CoroutineScope(Dispatchers.Unconfined + Job())
 
     // ── inFlightShowsSortieNumberNotDatabaseId ────────────────────────
     // The In-Flight screen reads the sortie by its database id (a long that grows across weeks)
@@ -89,11 +94,13 @@ class InFlightScreenTest {
                 }
             }
 
-            // Wait for the async LaunchedEffect to load both plan title and sortie number.
-            composeRule.waitForIdle()
+            // Wait for async Room flow to emit state.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("IN FLIGHT \u00b7 SORTIE 4", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
 
             // The eyebrow must contain "SORTIE 4" (index 3 + 1), NOT the db id.
-            composeRule.onNodeWithText("IN FLIGHT · SORTIE 4", ignoreCase = false).assertIsDisplayed()
+            composeRule.onNodeWithText("IN FLIGHT \u00b7 SORTIE 4", ignoreCase = false).assertIsDisplayed()
         }
     }
 
@@ -141,10 +148,176 @@ class InFlightScreenTest {
                 }
             }
 
-            composeRule.waitForIdle()
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("IN FLIGHT \u00b7 SORTIE 1", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
 
             // The eyebrow must contain "SORTIE 1" (index 0 + 1).
-            composeRule.onNodeWithText("IN FLIGHT · SORTIE 1", ignoreCase = false).assertIsDisplayed()
+            composeRule.onNodeWithText("IN FLIGHT \u00b7 SORTIE 1", ignoreCase = false).assertIsDisplayed()
+        }
+    }
+
+    // ── seededLiftPlanShowsHeaderProgressAndCards ─────────────────────
+    // On a seeded lift plan (3 exercises, 7 sets), after checking all sets of the first
+    // exercise, the screen shows the header counter "03/07", a collapsed done row reading
+    // "3/3 LANDED", the active card's uppercase name ("PUSH-UP"), and an upcoming card's
+    // uppercase name ("KETTLEBELL HOLD").
+
+    @Test
+    fun seededLiftPlanShowsHeaderProgressAndCards() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            // Build the same fixture as InFlightViewModelTest: 3 exercises, 7 sets total.
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "Push", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "Upper Push", estimatedMinutes = 40,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 10, seconds = null, weight = 35.0),
+                        SetDraft(reps = 10, seconds = null, weight = 35.0),
+                        SetDraft(reps = 10, seconds = null, weight = 35.0)
+                    )),
+                    ExerciseDraft(name = "Push-up", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 12, seconds = null, weight = null),
+                        SetDraft(reps = 12, seconds = null, weight = null)
+                    )),
+                    ExerciseDraft(name = "Kettlebell Hold", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 20.0),
+                        SetDraft(reps = null, seconds = 45, weight = null)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            // Check all 3 bench sets via the ViewModel so Room is updated.
+            val vm = InFlightViewModel(container.database, settingsStore, sortieId, scopeForTest())
+            val readyState = withTimeout(5_000) {
+                vm.state.first { it is InFlightState.Ready } as InFlightState.Ready
+            }
+            val benchSets = readyState.cards[0].sets.map { it.setId }
+            for (setId in benchSets) {
+                vm.check(setId)
+            }
+            withTimeout(5_000) {
+                vm.state.first { s -> (s as? InFlightState.Ready)?.doneCount == 3 }
+            }
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            // Wait for async Room flow to emit state.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("03/07\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Counter shows "03/07"
+            composeRule.onNodeWithText("03/07\nSETS", ignoreCase = false).assertIsDisplayed()
+
+            // Collapsed done row says "3/3 LANDED"
+            composeRule.onNodeWithText("3/3 LANDED", ignoreCase = false).assertIsDisplayed()
+
+            // Active card (Push-up) shows uppercase name
+            composeRule.onNodeWithText("PUSH-UP", ignoreCase = false).assertIsDisplayed()
+
+            // Upcoming card (Kettlebell Hold) shows uppercase name
+            composeRule.onNodeWithText("KETTLEBELL HOLD", ignoreCase = false).assertIsDisplayed()
+        }
+    }
+
+    // ── checkingASetMarksItDoneInRoomAndUpdatesCounter ────────────────
+    // On a seeded test database, tapping an open set's check box updates the counter and
+    // Room holds that set as DONE with actuals equal to the planned values.
+
+    @Test
+    fun checkingASetMarksItDoneInRoomAndUpdatesCounter() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            // Build fixture: 3 exercises, 7 sets total.
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "Push", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "Upper Push", estimatedMinutes = 40,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 10, seconds = null, weight = 35.0),
+                        SetDraft(reps = 10, seconds = null, weight = 35.0),
+                        SetDraft(reps = 10, seconds = null, weight = 35.0)
+                    )),
+                    ExerciseDraft(name = "Push-up", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 12, seconds = null, weight = null),
+                        SetDraft(reps = 12, seconds = null, weight = null)
+                    )),
+                    ExerciseDraft(name = "Kettlebell Hold", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 20.0),
+                        SetDraft(reps = null, seconds = 45, weight = null)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            // Wait for initial counter "00/07" to appear.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("00/07\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Tap the check box for Bench Press SET 1.
+            composeRule.onNodeWithContentDescription("Check off Bench Press SET 1").performClick()
+
+            // Wait for counter to update to "01/07".
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("01/07\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Assert in Room: first set is DONE with actuals equal to planned values.
+            val plan = container.database.flightPlanDao().getPlan(sortieId)!!
+            val benchSets = plan.exercises[0].sets
+            assertEquals(SetStatus.DONE, benchSets[0].status)
+            assertEquals(10, benchSets[0].actualReps)
+            assertEquals(35.0, benchSets[0].actualWeight!!, 0.001)
         }
     }
 }
