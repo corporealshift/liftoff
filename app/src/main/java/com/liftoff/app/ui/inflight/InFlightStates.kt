@@ -16,10 +16,13 @@ class InFlightStates(
     private val settings: SettingsStore,
 ) {
     fun observe(sortieId: Long): Flow<InFlightState> =
-        db.flightPlanDao().observeChanges()
-            .combine(settings.settings.map { it.weightUnit }.distinctUntilChanged()) { _, unit -> unit }
-            .mapNotNull { unit ->
-                val sortie = db.sortieDao().get(sortieId) ?: return@mapNotNull null
+        combine(
+            db.flightPlanDao().observeChanges(),
+            db.sortieDao().observeById(sortieId),
+            settings.settings.map { it.weightUnit }.distinctUntilChanged(),
+        ) { _, sortie, unit -> sortie to unit }
+            .mapNotNull { (sortie, unit) ->
+                sortie ?: return@mapNotNull null
                 deriveInFlight(db.flightPlanDao().getPlan(sortieId), sortie, unit)
             }
             .flowOn(Dispatchers.IO)
