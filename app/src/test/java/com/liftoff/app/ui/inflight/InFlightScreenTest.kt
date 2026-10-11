@@ -323,6 +323,65 @@ class InFlightScreenTest {
         }
     }
 
+    // ── noChecklistBackButtonTriggersCallback ─────────────────────────
+    // On a sortie with no checklist (e.g. a RUN sortie), tapping 'Back'
+    // in the footer must call the onBack callback. The screen shows
+    // "No checklist for this sortie." and a clickable Back button.
+
+    @Test
+    fun noChecklistBackButtonTriggersCallback() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            // Insert a RUN sortie with no flight plan → NoChecklist state.
+            container.database.sortieDao().insert(Sortie(
+                missionId = mission.id,
+                index = 0,
+                type = SortieType.RUN,
+                focus = "easy jog",
+                focusRationale = null,
+                state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(),
+                landedAt = null,
+                scrubReason = null,
+                notes = null,
+                runDistance = null,
+                runMinutes = null,
+            ))
+
+            val sorties = container.database.sortieDao().getForMission(mission.id)
+            val sortieId = sorties[0].id
+
+            var backCalled = false
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = { backCalled = true },
+                    )
+                }
+            }
+
+            // Wait until the no-checklist message appears.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("No checklist for this sortie.", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Tap 'Back' in the footer (FooterCell upper-cases, but Footer uses UnderlinedTextButton directly with "Back").
+            composeRule.onNodeWithText("Back", ignoreCase = true).performClick()
+
+            assertTrue("onBack callback should have been called", backCalled)
+        }
+    }
+
     // ── footerAddSetAndSkipUnskip ────────────────────────────────────
     // Tapping '+ Add set' on the active card adds one more set to that exercise
     // and increases the counter total. Tapping 'Skip' then 'Unskip' on an

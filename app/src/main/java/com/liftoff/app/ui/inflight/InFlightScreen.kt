@@ -55,8 +55,8 @@ fun InFlightScreen(
             .background(Cream),
     ) {
         when (state) {
-            is InFlightState.Loading -> LoadingContent()
-            is InFlightState.NoChecklist -> NoChecklistContent(state as InFlightState.NoChecklist, expandedSet)
+            is InFlightState.Loading -> LoadingContent(onBack)
+            is InFlightState.NoChecklist -> NoChecklistContent(state as InFlightState.NoChecklist, expandedSet, onBack)
             is InFlightState.Ready -> ReadyContent(
                 state = state as InFlightState.Ready,
                 vm = vm,
@@ -109,7 +109,7 @@ private fun findRowAndCard(state: InFlightState.Ready, setId: Long): RowCard? {
 // ── Loading ────────────────────────────────────────────────────────
 
 @Composable
-private fun LoadingContent() {
+private fun LoadingContent(onBack: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
         Box(
             modifier = Modifier
@@ -119,14 +119,14 @@ private fun LoadingContent() {
         )
         DuoStripe()
         Spacer(Modifier.weight(1f))
-        Footer(onBack = {})
+        Footer(onBack)
     }
 }
 
 // ── No checklist ───────────────────────────────────────────────────
 
 @Composable
-private fun NoChecklistContent(noCheck: InFlightState.NoChecklist, expandedSet: Set<Long>) {
+private fun NoChecklistContent(noCheck: InFlightState.NoChecklist, expandedSet: Set<Long>, onBack: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
         Box(
             modifier = Modifier
@@ -153,7 +153,7 @@ private fun NoChecklistContent(noCheck: InFlightState.NoChecklist, expandedSet: 
                 style = LiftoffType.note().copy(color = Muted),
             )
         }
-        Footer(onBack = {})
+        Footer(onBack)
     }
 }
 
