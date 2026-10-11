@@ -4,7 +4,7 @@
   - `Ready.weightUnit: WeightUnit` and `SetRow.plannedWeightLabel: String`, `plannedCountLabel: String`. Fill them in `deriveInFlight`. No existing test constructs `Ready` or `SetRow`, so this is additive-only. Existing tests (`InFlightStatesTest`, `InFlightViewModelTest`) must pass unchanged.
   - Commit message: "feat(inflight): add weightUnit and planned labels to InFlightState"
 
-- [ ] Rewrite InFlightScreen.kt scaffold, header, cards and footer
+- [x] Rewrite InFlightScreen.kt scaffold, header, cards and footer
   - Replace the placeholder body with the full checklist UI per Steps 1–7 of the plan: holder wiring via `InFlightViewModel`, teal header with eyebrow/title/counter, progress bar, done/skipped collapsed rows, full cards (active/upcoming/expanded), set rows with checkboxes and deviation display, stepper dialog, and bottom Back button. Keep the `InFlightScreen` signature unchanged.
   - Commit message: "feat(inflight): implement checklist screen UI"
 
