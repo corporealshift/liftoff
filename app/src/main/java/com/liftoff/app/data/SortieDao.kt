@@ -34,4 +34,8 @@ interface SortieDao {
 
     @Query("SELECT * FROM sortie WHERE id = :sortieId")
     fun observeById(sortieId: Long): Flow<Sortie?>
+
+    // Notes-only, so a sortie with no Flight Plan can carry a note.
+    @Query("UPDATE sortie SET notes = :notes WHERE id = :sortieId")
+    suspend fun updateNotes(sortieId: Long, notes: String?)
 }

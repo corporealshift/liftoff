@@ -13,6 +13,7 @@ sealed interface InFlightState {
         val sortieId: Long,
         val eyebrow: String,
         val title: String,
+        val sortieNote: String?,
     ) : InFlightState
 
     /** Full checklist state for a LIFT sortie with exercises. */
@@ -26,6 +27,7 @@ sealed interface InFlightState {
         val progress: List<SetStatus>,// one per set in display order
         val cards: List<ExerciseCard>,
         val currentSetId: Long?,      // first OPEN set of the ACTIVE card; null if no active card
+        val sortieNote: String?,      // the sortie row's own note
     ) : InFlightState
 }
 
@@ -39,6 +41,7 @@ data class ExerciseCard(
     val doneCount: Int,               // DONE sets in this exercise
     val setCount: Int,
     val sets: List<SetRow>,
+    val note: String?,                // plannedExercise.userNotes
 )
 
 data class SetRow(
@@ -74,7 +77,7 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
 
     // No checklist: run sorties or a plan with zero exercises
     if (plan == null || plan.exercises.isEmpty()) {
-        return InFlightState.NoChecklist(sortie.id, eyebrow, title)
+        return InFlightState.NoChecklist(sortie.id, eyebrow, title, sortie.notes)
     }
 
     val allProgress = mutableListOf<SetStatus>()
@@ -167,6 +170,7 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
             doneCount = doneCount,
             setCount = sets.size,
             sets = setRows,
+            note = exerciseDetail.plannedExercise.userNotes,
         ))
     }
 
@@ -203,5 +207,6 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
         progress = allProgress,
         cards = cards,
         currentSetId = currentSetId,
+        sortieNote = sortie.notes,
     )
 }
