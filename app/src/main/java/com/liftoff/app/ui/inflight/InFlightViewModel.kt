@@ -35,6 +35,10 @@ class InFlightViewModel(
     fun saveExerciseNote(id: Long, text: String) {
         scope.launch { dao.saveExerciseNote(id, normalizeNote(text)) }
     }
+    // Sortie-row-only write, so a sortie with no Flight Plan can carry a note too.
+    fun saveSortieNote(text: String) {
+        scope.launch { sortieDao.updateNotes(sortieId, normalizeNote(text)) }
+    }
 
     // Blank text becomes null here so the exercise and sortie rules match and the DAOs stay dumb writes.
     private fun normalizeNote(text: String?): String? = text?.trim()?.takeIf { it.isNotEmpty() }

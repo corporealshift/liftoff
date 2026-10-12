@@ -495,6 +495,112 @@ class InFlightViewModelTest {
         assertNull(flightPlanDao.getPlan(sortieId)!!.exercises[0].plannedExercise.userNotes)
     }
 
+    // ── Saving the sortie note on a sortie that has a plan ───────────
+    // Only the sortie row changes, so this also proves the state reacts to a sortie-row-only write.
+
+    @Test
+    fun sortieNoteSavesOnPlannedSortie() = runBlocking {
+        val state = vm.state.first { it is InFlightState.Ready } as InFlightState.Ready
+        val sortieId = state.sortieId
+        assertNull(state.sortieNote)
+
+        vm.saveSortieNote("Felt strong; bench moved at 40 LB")
+        val withNote = withTimeout(5_000) {
+            vm.state.first { s -> s is InFlightState.Ready && s.sortieNote != null }
+        } as InFlightState.Ready
+
+        assertEquals("Felt strong; bench moved at 40 LB", withNote.sortieNote)
+        // No exercise note appeared, so the note came from the sortie row alone.
+        assertTrue(withNote.cards.all { it.note == null })
+        assertEquals("Felt strong; bench moved at 40 LB", sortieDao.get(sortieId)!!.notes)
+        assertEquals(
+            withNote,
+            deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+        )
+
+        vm.saveSortieNote("   ")
+        val cleared = withTimeout(5_000) {
+            vm.state.first { s -> s is InFlightState.Ready && s.sortieNote == null }
+        } as InFlightState.Ready
+
+        assertNull(cleared.sortieNote)
+        assertNull(sortieDao.get(sortieId)!!.notes)
+    }
+
+    // ── A sortie with no Flight Plan carries a sortie note too ───────
+    // The no-checklist state starts null, the save re-derives it, and the note is on the sortie row.
+
+    @Test
+    fun sortieNoteSavesOnSortieWithNoPlan() = runBlocking {
+        val missionId = missionDao.insert(Mission(
+            weekStart = java.time.LocalDate.of(2026, 2, 2),
+            pattern = "run", status = MissionStatus.DRAFT, outlineNotes = null
+        ))
+        val runSortieId = sortieDao.insert(Sortie(
+            missionId = missionId, index = 2, type = SortieType.RUN,
+            focus = "Easy 5k", focusRationale = null, state = SortieState.IN_FLIGHT,
+            launchedAt = System.currentTimeMillis(), landedAt = null,
+            scrubReason = null, notes = null, runDistance = 5.0, runMinutes = 25.0
+        ))
+
+        val runVm = InFlightViewModel(db, settingsStore, runSortieId, scope)
+        val noPlan = withTimeout(5_000) {
+            runVm.state.first { it is InFlightState.NoChecklist }
+        } as InFlightState.NoChecklist
+        assertNull(noPlan.sortieNote)
+
+        runVm.saveSortieNote("Felt strong, 5k at 5:00/km")
+        val withNote = withTimeout(5_000) {
+            runVm.state.first { s -> s is InFlightState.NoChecklist && s.sortieNote != null }
+        } as InFlightState.NoChecklist
+
+        assertEquals("Felt strong, 5k at 5:00/km", withNote.sortieNote)
+        val row = sortieDao.get(runSortieId)!!
+        assertEquals("Felt strong, 5k at 5:00/km", row.notes)
+
+        // A fresh read with no plan at all still carries the note.
+        val derived = deriveInFlight(null, row, WeightUnit.LB) as InFlightState.NoChecklist
+        assertEquals(withNote, derived)
+        assertEquals("Felt strong, 5k at 5:00/km", derived.sortieNote)
+    }
+
+    // ── Padding is dropped, the rest of the text is kept ─────────────
+    // Both notes come back trimmed at the ends only; a line break inside a note survives.
+
+    @Test
+    fun notesAreStoredTrimmed() = runBlocking {
+        val state = vm.state.first { it is InFlightState.Ready } as InFlightState.Ready
+        val sortieId = state.sortieId
+        val benchExerciseId = state.cards[0].plannedExerciseId
+
+        val typedExercise = "  Left shoulder twinge\neased after set 2  "
+        val keptExercise = "Left shoulder twinge\neased after set 2"
+        vm.saveExerciseNote(benchExerciseId, typedExercise)
+        val withExercise = withTimeout(5_000) {
+            vm.state.first { s -> s is InFlightState.Ready && s.cards[0].note == keptExercise }
+        } as InFlightState.Ready
+
+        assertEquals(keptExercise, withExercise.cards[0].note)
+        assertEquals(keptExercise, flightPlanDao.getPlan(sortieId)!!.exercises[0].plannedExercise.userNotes)
+
+        val typedSortie = "\n felt strong today\n5k at 5:00/km \t"
+        val keptSortie = "felt strong today\n5k at 5:00/km"
+        vm.saveSortieNote(typedSortie)
+        val withBoth = withTimeout(5_000) {
+            vm.state.first { s -> s is InFlightState.Ready && s.sortieNote == keptSortie }
+        } as InFlightState.Ready
+
+        assertEquals(keptSortie, withBoth.sortieNote)
+        assertEquals(keptSortie, sortieDao.get(sortieId)!!.notes)
+        // The line break in the middle of each note is still there.
+        assertTrue(withBoth.cards[0].note!!.contains("\n"))
+        assertTrue(withBoth.sortieNote!!.contains("\n"))
+        assertEquals(
+            withBoth,
+            deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+        )
+    }
+
     // ── No plan gives the no checklist state ─────────────────────────
     // The holder emits NoChecklist for a sortie with no plan.
 
