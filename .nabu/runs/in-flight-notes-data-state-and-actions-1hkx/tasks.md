@@ -49,7 +49,7 @@ Rules that apply to every task:
   the note fields are set in one place and not the other). Commit
   `inflight: carry exercise and sortie notes in derived state`.
 
-- [ ] Save an exercise note, with its tests
+- [x] Save an exercise note, with its tests
   `ui/inflight/InFlightViewModel.kt`: make `sortieId` a `private val`, hold
   `private val sortieDao = db.sortieDao()`, add the shared
   `private fun normalizeNote(text: String?): String? = text?.trim()?.takeIf { it.isNotEmpty() }`, and
