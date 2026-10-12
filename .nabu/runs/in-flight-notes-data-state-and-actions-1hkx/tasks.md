@@ -69,7 +69,7 @@ Rules that apply to every task:
   Done when: the gate passes and those three tests ran and passed. Commit
   `inflight: save exercise notes through the view model`.
 
-- [ ] Save the sortie note, including on a sortie with no Flight Plan, with its tests
+- [x] Save the sortie note, including on a sortie with no Flight Plan, with its tests
   `ui/inflight/InFlightViewModel.kt`: `fun saveSortieNote(text: String) { scope.launch { sortieDao.updateNotes(sortieId, normalizeNote(text)) } }`,
   reusing task 3's `normalizeNote`. It never touches the plan tables, which is what makes it work with
   no plan. Plan §5.
