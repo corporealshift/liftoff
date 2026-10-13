@@ -22,9 +22,14 @@ from `testDebugUnitTest` by that test passing today, so `app/build.gradle.kts` i
 
 **Two files, because the two jobs are separate.**
 - `CoachSchema.kt` — the schema side: a small parsed model of a schema document (the 13 keywords
-  below) plus `load(resource)` that reads a resource path and **throws on any keyword it does not
-  implement**, naming the file and the keyword. Rejecting at load is what keeps the checker honest
-  as the schemas grow.
+  below), plus two entry points:
+  - `parse(name: String, text: String)` — builds the model from schema text and **throws on any
+    keyword it does not implement**, naming `name` and the keyword. Rejecting at load is what keeps
+    the checker honest as the schemas grow.
+  - `load(resource: String)` — reads the resource off the classpath (throwing, naming the resource,
+    if it is missing) and hands the text to `parse` with the resource path as the name.
+  `parse` exists so the unsupported-keyword test can state its bad schema inline, without a test
+  resource file.
 - `SchemaChecker.kt` — the document side: `check(JsonElement, CoachSchema): List<SchemaError>`,
   `SchemaError(path, problem)` with `toString() = "$path: $problem"`, so the brief's three example
   lines are exactly what the checker emits. The structured pair is there because the later semantic
@@ -56,9 +61,9 @@ exists. `kotlinx.serialization` imports do not trip it.
 
 | File | What happens |
 |---|---|
-| `app/src/main/java/com/liftoff/app/coach/CoachSchema.kt` (new) | parsed schema model; `load(resource)` off the classpath; the three resource paths as constants; unsupported keyword or malformed schema → error naming the resource and the keyword |
+| `app/src/main/java/com/liftoff/app/coach/CoachSchema.kt` (new) | parsed schema model; `parse(name, text)`; `load(resource)` off the classpath; the three resource paths as constants; unsupported keyword or malformed schema → error naming the resource and the keyword |
 | `app/src/main/java/com/liftoff/app/coach/SchemaChecker.kt` (new) | `check(JsonElement, CoachSchema): List<SchemaError>`; the 13 keywords; path building; fixed traversal order |
-| `app/src/test/java/com/liftoff/app/coach/CoachSchemaLoadTest.kt` (new) | all three files load; a walk asserting every keyword the three files use is one the checker supports; an unsupported keyword and a missing resource both fail loudly, naming the file |
+| `app/src/test/java/com/liftoff/app/coach/CoachSchemaLoadTest.kt` (new) | all three files load; a walk asserting every keyword the three files use is one the checker supports; an unsupported keyword (inline schema text through `parse`) and a missing resource (through `load`) both fail loudly, naming the file |
 | `app/src/test/java/com/liftoff/app/coach/SchemaCheckerKeywordTest.kt` (new) | one test per keyword, each against a real schema, asserting the exact path and message |
 | `app/src/test/java/com/liftoff/app/coach/SchemaCheckerValidDocumentTest.kt` (new) | a valid document per schema gives an empty list; a multi-error document gives the exact list in the exact order; the same input twice gives the same list |
 | `ARCHITECTURE.md` (edit) | the `com.liftoff.app.coach` row (line 35) names the schema checker next to the normalizer |
@@ -74,11 +79,12 @@ Each step compiles and passes on its own. Commit after each.
 **Step 1 — schema model and loader.** `CoachSchema.kt`, `CoachSchemaLoadTest.kt`.
 Proves it: `bash gradlew.sh :app:testDebugUnitTest --tests "com.liftoff.app.coach.CoachSchemaLoadTest"`
 → `BUILD SUCCESSFUL` and that class's XML reads `failures="0" errors="0"`, with testcases for the
-three real files, the keyword-coverage walk, and the unsupported-keyword rejection.
+three real files, the keyword-coverage walk, the unsupported-keyword rejection and the missing
+resource.
 
 **Step 2 — the checker, one test per keyword.** `SchemaChecker.kt`, `SchemaCheckerKeywordTest.kt`.
 Proves it: the same command for `SchemaCheckerKeywordTest`; its XML reads `failures="0" errors="0"`
-with 13 testcases — `type`, `const`, `enum`, `required`, `additionalProperties`, `minimum`,
+with at least 13 testcases — `type`, `const`, `enum`, `required`, `additionalProperties`, `minimum`,
 `maximum`, `minLength`, `maxLength`, `minItems`, `maxItems`, `properties`, `items`.
 
 **Step 3 — valid documents, error order, stability.** `SchemaCheckerValidDocumentTest.kt`.
@@ -125,6 +131,11 @@ Messages the tests assert:
 | `minimum` / `maximum` | `must be at least 10` / `must be at most 180` — the bound rendered from the schema's own text, so `0.5` prints as `0.5` |
 | `minLength` / `maxLength` | `must be at least 1 character` / `must be at most 1000 characters` |
 | `minItems` / `maxItems` | `must have at least 1 item` / `must have at most 8 items` |
+
+The offending value in `const`/`enum` messages: a string in single quotes (`'jog'`); any other value
+as its compact JSON text without quotes (`5 is not one of lift, run`, `null is not one of …`,
+`{"a":1} is not one of …`). The keyword test for `enum` adds one non-string case
+(outline, `sorties[0].type: 5` → `sorties[0].type: 5 is not one of lift, run`).
 
 The violations the tests construct, each against a real schema:
 
@@ -179,6 +190,11 @@ prompt builder, no worker, no UI, no fixture files, no ARCHITECTURE.md milestone
 
 ## Decisions
 
+- **Added by review: how is a non-string offending value written in `const`/`enum` messages?**
+  Chosen: strings in single quotes, as in the brief's `'jog'`; anything else as its compact JSON
+  text, unquoted — `5 is not one of lift, run`. Alternative: quote everything (`'5' is not one of
+  …`). Quoting a number would tell the model it sent the string `"5"`, which is the wrong fix to ask
+  for in a repair prompt.
 - **What path does an error about the document itself carry?** Chosen: `$` for the document, and no
   prefix on a top-level property (`notes: …`, `kind: …`). Alternative: JSONPath everywhere
   (`$.notes`, `$.sorties[0]`). The brief's three example lines are the text the owner will read in a
