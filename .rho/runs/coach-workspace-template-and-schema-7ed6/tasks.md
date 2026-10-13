@@ -52,7 +52,7 @@ not from a checklist of phrases.
     — each diff prints nothing. `git ls-files --eol` on the three files shows `i/lf`.
     Commit: `coach: add the three output schema files from DESIGN.md §7.5`
 
-- [ ] Write the loading test `com.liftoff.app.coach.CoachSchemaFilesTest`
+- [x] Write the loading test `com.liftoff.app.coach.CoachSchemaFilesTest`
   New file `app/src/test/java/com/liftoff/app/coach/CoachSchemaFilesTest.kt`, plain JUnit 4 with no
   Robolectric (it touches only the classpath and a JSON parser, like `ExerciseNamesTest` in the same folder).
   Three test methods, one per file, named exactly as `verify.sh` looks for them:
