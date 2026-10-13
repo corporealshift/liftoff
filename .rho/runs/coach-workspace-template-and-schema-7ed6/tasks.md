@@ -31,7 +31,7 @@ not from a checklist of phrases.
     touched, so no build run is needed for this commit.
     Commit: `docs: add the coach workspace template`
 
-- [ ] Add the three output schema files, extracted verbatim from DESIGN.md §7.5
+- [x] Add the three output schema files, extracted verbatim from DESIGN.md §7.5
   Create `app/src/main/resources/schemas/` (it does not exist yet) with `outline.json`, `lift-plan.json`
   and `run-plan.json`. Do not hand-copy or reformat: extract each ```json fence body with awk and write the
   output straight to the file, so the odd inline spacing the design uses (`"type":  { "enum": ... }`) is
