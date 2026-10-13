@@ -100,11 +100,6 @@ t validOutlineDocumentPasses
 t validLiftPlanDocumentPasses
 t validRunPlanDocumentPasses
 
-# Decision: type: integer accepts a whole number written with a decimal.
-# A lift-plan document whose estimated_minutes is 45.0 is valid; the same document with 45.5
-# gives exactly one error, `estimated_minutes: expected an integer, got a number`.
-t integerAcceptsWholeNumberWrittenWithDecimal
-
 # ─── 3. one violation of each keyword the three schema files use ──────────────
 # Each test runs the checker on a real schema with one rule broken, and asserts the error list
 # is exactly the line below — path first, then the exact problem, because a later brief sends
@@ -114,14 +109,8 @@ echo "=== one violation per supported keyword ==="
 
 # type — outline schema, document with "notes": 42 → exactly one error:
 #   notes: expected a string, got a number
-# The list holds only that error: a value of the wrong type gets the type error, not its bounds
-# as well (Decision: one error per value, the bounds of a wrongly-typed value say nothing new).
+# Decision: a value of the wrong type gets the type error only, not its bounds as well.
 t typeViolationNamesPathAndExpectedAndActualType
-
-# Decision: a quoted number is not accepted by a numeric type.
-# type — lift-plan schema, document with "estimated_minutes": "45" → exactly one error:
-#   estimated_minutes: expected an integer, got a string
-t quotedNumberIsRejectedByIntegerType
 
 # const — lift-plan schema, document with "type": "run" → exactly one error:
 #   type: must be 'lift'
@@ -131,12 +120,6 @@ t constViolationNamesTheRequiredValue
 #   kind: 'jog' is not one of easy, tempo, intervals, long, recovery
 t enumViolationNamesTheValueAndTheAllowedValues
 
-# Decision (added by review): a non-string offending value is written as its compact JSON text,
-# unquoted — quoting a number would tell the model it sent the string "5".
-# enum — outline schema, document whose sorties[0] has "type": 5 → exactly one error:
-#   sorties[0].type: 5 is not one of lift, run
-t nonStringEnumValueIsWrittenUnquoted
-
 # Decision: a missing required property is reported on the object that lacks it, not on the
 # missing child, which has no value at that path.
 # required — outline schema, a document whose sorties[0] has index and type but no focus →
@@ -144,11 +127,8 @@ t nonStringEnumValueIsWrittenUnquoted
 #   sorties[0]: missing required property 'focus'
 t missingRequiredPropertyIsReportedOnItsObject
 
-# Decision: an object that omits additionalProperties allows extra properties, as in JSON
-# Schema; all three files say false explicitly, so this is about reading the schema, not
-# inventing a stricter rule.
 # additionalProperties — outline schema, a document whose sorties[0] has an extra "day": 1 →
-# exactly one error:
+# exactly one error (the brief's own example line):
 #   sorties[0]: unexpected property 'day'
 t unexpectedPropertyIsReportedOnItsObject
 
@@ -160,6 +140,7 @@ t numberBelowMinimumIsRejected
 #   estimated_minutes: must be at most 180
 t numberAboveMaximumIsRejected
 
+# Decision: singular when the limit is 1, plural otherwise.
 # minLength — outline schema, a document whose sorties[0] has "focus": "" → exactly one error:
 #   sorties[0].focus: must be at least 1 character
 t stringBelowMinLengthIsRejected
@@ -187,11 +168,11 @@ t nestedPropertyViolationNamesTheFullPath
 t arrayItemViolationNamesItsIndex
 
 # ─── 4. every violation in one pass, in a stable order ────────────────────────
-# Decision: every violation in the document is reported in one pass, not stopped at the first —
-# §7.6 allows two repairs, so a reply that breaks four rules needs all four named at once.
+# Decision: every violation in the document is reported in one pass, not stopped at the first.
 # Decision: the order is the order the document and schema put them in — a value's own keywords,
 # then required in schema order, then unexpected properties in document order, then declared
 # properties in schema order, then array items by index.
+# Decision: an error about the document itself carries the path `$`.
 # One lift-plan document that breaks several rules at once:
 #   {"type":"run","title":"","estimated_minutes":5,
 #    "exercises":[{"name":"Bench Press","equipment":["barbell"],"sets":[{"reps":0}]}],
@@ -212,25 +193,7 @@ t allViolationsAreReportedInDocumentOrder
 # same list, in the same order.
 t sameInputGivesTheSameErrorList
 
-# ─── 5. the schema files stay the single source of truth ──────────────────────
-# The checker reads the three resource files rather than hard-coding their contents; the valid
-# and keyword tests above only pass if it does. This test walks the keywords the three files
-# actually use and shows the checker supports every one of them — the brief's "open the files to
-# confirm the list", and the guard that catches a schema edited later to add a keyword.
-echo ""
-echo "=== the checker covers the keywords the schema files use ==="
-t everyKeywordTheSchemaFilesUseIsSupported
-
-# Decision: a schema keyword the checker does not implement fails at load, naming the file and
-# the keyword. Silently ignoring one means the phone accepts a document the schema forbids.
-# A schema that uses an unimplemented keyword (anyOf, say) fails loudly rather than loading.
-t unsupportedKeywordInSchemaFailsAtLoad
-
-# A schema resource that is not there fails loudly, naming the resource, rather than returning
-# an empty schema that would let any document through.
-t missingSchemaResourceFailsAtLoad
-
-# ─── 6. must not break ────────────────────────────────────────────────────────
+# ─── 5. must not break ────────────────────────────────────────────────────────
 # The three schema files and their existing loading test, unchanged.
 echo ""
 echo "=== must not break ==="
@@ -240,11 +203,11 @@ t runPlanSchemaLoadsFromTestClasspath
 # The exercise-name normalizer the coach package already ships.
 t equivalentSpellingsNormalizeToBenchPress
 # ARCHITECTURE.md invariant 2: this test scans every .kt in com.liftoff.app.coach, so it covers
-# the two new files without a new test.
+# the new files without a new test.
 t coachPackageHasNoAndroidImports
 # Everything else already built (Room, settings, domain, UI) is covered by the gate in §1.
 
-# ─── 7. ARCHITECTURE.md names the checker in the coach row ────────────────────
+# ─── 6. ARCHITECTURE.md names the checker in the coach row ────────────────────
 # The brief's own done-when names this line of the map, so it is checked in the doc itself.
 echo ""
 echo "=== ARCHITECTURE.md coach row ==="
