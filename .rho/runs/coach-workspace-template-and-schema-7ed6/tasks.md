@@ -71,7 +71,7 @@ not from a checklist of phrases.
     because the plan deliberately relies on AGP's own classpath entry.
     Commit: `coach: add the test that loads the three schema files from the classpath`
 
-- [ ] Record the schemas and the M0 status in ARCHITECTURE.md, then run the full gate
+- [x] Record the schemas and the M0 status in ARCHITECTURE.md, then run the full gate
   Two rows only, in the existing tables.
   - Line 35, the `com.liftoff.app.coach` row: its description gains the schema files now sitting in
     `app/src/main/resources/schemas/` (outline, lift plan, run plan); the prompt builder and validator stay
