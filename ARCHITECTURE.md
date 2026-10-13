@@ -32,7 +32,7 @@ All source lives under `com.liftoff.app`.
 | `com.liftoff.app.data` | Room entities (including Equipment), DAOs, database builder, export/import helpers. | ✅ (Room entities, DAOs, LiftoffDatabase) |
 | `com.liftoff.app.settings` | App-level configuration backed by DataStore (units, run-toggle). | ✅ (`SettingsStore.kt`) |
 | `com.liftoff.app.domain` | State machines for Mission and Sortie lifecycle. Pure Kotlin, no Android imports. | ✅ (Week, pattern, Mission and sortie rules, rollover, sortie planning) |
-| `com.liftoff.app.coach` | Prompt builder, validator, JSON schemas. Pure Kotlin, no Android imports. | Started (`ExerciseNames.kt`: exercise-name normalizer, §7.7) |
+| `com.liftoff.app.coach` | Prompt builder, validator, JSON schemas — the three output schemas (`outline.json`, `lift-plan.json`, `run-plan.json`) sit in `app/src/main/resources/schemas/`. Pure Kotlin, no Android imports. | Started — `ExerciseNames.kt` (exercise-name normalizer, §7.7) has landed; the prompt builder and validator are still to come |
 | `com.liftoff.app.work` | Android-side workers (`GenerationWorker`). Uses WorkManager and Android APIs. | — |
 | `com.liftoff.app.ui` | Navigation shell, Launchpad and Mission as real screens, In-Flight as a placeholder screen, Landed as a placeholder, Mission Control stub, theme and shared composables. | ✅ (navigation shell, Launchpad, Mission, In-Flight, Landed, Mission Control stub, `ui/theme`) |
 
@@ -76,7 +76,7 @@ Each milestone ends with the project gate (`./gradlew :app:assembleDebug :app:te
 
 | Milestone | Title | Status |
 |---|---|---|
-| M0 | Coach reliability spike — coach workspace, validator, schemas, prompt builder, `LiveCoachTest` | Not started |
+| M0 | Coach reliability spike — coach workspace, validator, schemas, prompt builder, `LiveCoachTest` | Partial — the coach workspace template (`coach/README.md`, `coach/COACH.md`) and the three schemas exist; the validator, the prompt builder and live measurement (`LiveCoachTest`) are still to come |
 | M1 | Skeleton and data — Room schema, settings, `AppContainer`, theme, navigation shell, Mission Control including the equipment list | Done — test connection and export/import come later |
 | M2 | Missions and sorties — domain state machines, draft/confirm UI, Launchpad, Scrub | Done — Regenerate comes with generation (M3); In-Flight is a placeholder until M4 |
 | M3 | Generation — nabu client copy, `GenerationWorker`, outline + lift plan end to end | Not started |

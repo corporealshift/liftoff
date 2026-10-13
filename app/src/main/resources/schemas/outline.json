@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sorties", "notes"],
+  "properties": {
+    "sorties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "type", "focus"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0 },
+          "type":  { "enum": ["lift", "run"] },
+          "focus": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "rationale": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "notes": { "type": "string", "maxLength": 1000 }
+  }
+}
