@@ -9,7 +9,7 @@ summary` (CLAUDE.md), stage named files only, never `git add -A`. LF endings.
 them, the owner reviews them in the pull request. Write them from the DESIGN.md sections the brief names,
 not from a checklist of phrases.
 
-- [ ] Write the coach workspace template: `coach/README.md` and `coach/COACH.md`
+- [x] Write the coach workspace template: `coach/README.md` and `coach/COACH.md`
   Docs only, no build impact. Create `coach/` at the repo root (it does not exist yet) with exactly the two
   files §12's layout names.
   - `coach/README.md` — the one-time PC setup from DESIGN.md §7.1: copy `coach/` out to its own path
