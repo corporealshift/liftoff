@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "title", "kind", "segments", "notes"],
+  "properties": {
+    "type": { "const": "run" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "kind": { "enum": ["easy", "tempo", "intervals", "long", "recovery"] },
+    "target_distance": { "type": "number", "minimum": 0.5, "maximum": 50 },
+    "target_pace": { "type": "string", "maxLength": 20 },
+    "segments": {
+      "type": "array", "minItems": 1, "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "distance": { "type": "number", "minimum": 0 },
+          "minutes":  { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "notes": { "type": "string", "maxLength": 1000 }
+  }
+}
