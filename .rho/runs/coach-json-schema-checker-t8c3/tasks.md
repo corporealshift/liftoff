@@ -34,7 +34,7 @@ Stage named files only, LF endings.
   resource; `CoachSchemaFilesTest` and `ExerciseNamesTest` still pass; commit
   `coach: add the coach schema model and its loader`.
 
-- [ ] Write the checker and one test per keyword
+- [x] Write the checker and one test per keyword
   `app/src/main/java/com/liftoff/app/coach/SchemaChecker.kt` (new):
   `check(value: JsonElement, schema: CoachSchema): List<SchemaError>` as an `object` of plain
   functions with no state, like `ExerciseNames.kt`; `SchemaError(path, problem)` with
