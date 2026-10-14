@@ -23,7 +23,7 @@ FROM-CACHE with no test executed. If a build will not start, `bash gradlew.sh --
 Plain JVM JUnit, no Robolectric (nothing here needs a `Context`). Stage named files only; LF endings
 (`git ls-files --eol` reads `i/lf w/lf`).
 
-- [ ] Write the coach types and the raw-text extraction
+- [x] Write the coach types and the raw-text extraction
   `app/src/main/java/com/liftoff/app/coach/CoachModels.kt` (new): `GenerationContext(kind, pattern,
   sortieType?, equipmentKeys, sortieLengthMinutes)` exactly as the plan's API block — `sortieType`
   nullable, `require(kind != FLIGHT_PLAN || sortieType != null)` in an `init`; the parsed coach types
