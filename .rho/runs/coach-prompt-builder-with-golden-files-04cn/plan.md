@@ -28,10 +28,11 @@ a generation as a plain data class carrying `GenerationKind`, the pattern string
 `SortieType`, the active equipment keys and the sortie length, with an `init` block that rejects a
 `FLIGHT_PLAN` with no sortie type. `CoachPromptInput` is the same idea on the prompt side: a
 `kind`, a profile, equipment lines, this week's pattern/sorties, the history blocks, and an optional
-`sortieIndex` that is required for a `FLIGHT_PLAN`. Reusing `GenerationKind`, `SortieType`,
-`SortieState` and `SetStatus` from `data/Enums.kt` (that file has no Android imports) and
-`WeightUnit` / `DistanceUnit` from `settings/Settings.kt` (also none) keeps §2 vocabulary in one
-place, exactly as `CoachReplyValidator` already reuses `domain/Pattern.kt`'s `sortieTypesOf`.
+`sortieIndex` that is required for a `FLIGHT_PLAN` (and must name a sortie in the week). Reusing
+`GenerationKind`, `SortieType`, `SortieState` and `SetStatus` from `data/Enums.kt` (that file has no
+Android imports) and `WeightUnit` / `DistanceUnit` from `settings/Settings.kt` (also none) keeps §2
+vocabulary in one place, exactly as `CoachReplyValidator` already reuses `domain/Pattern.kt`'s
+`sortieTypesOf`.
 
 **The schema section is read from the resource file, not passed in.** §7.4 item 8 says the schema
 text goes in "verbatim". `CoachSchemas` already owns the classpath read and the three path
@@ -48,8 +49,9 @@ thing that reads Room cannot live there. `MissionManager` is the existing preced
 `com.liftoff.app.data` taking `db`, `settingsStore`, `clock: Clock = Clock.systemUTC()` and
 `zone: () -> ZoneId = { ZoneId.systemDefault() }`, with `MissionManagerTest` injecting a fixed
 clock. `PromptInputLoader` takes the same clock and zone, plus an optional
-`historyWindowDays: Int?` that overrides the configured window. That is how a test injects the
-date, the zone and the window without touching the builder.
+`historyWindowDays: Int?` that overrides the configured window. 'Today' is
+`clock.instant().atZone(zone()).toLocalDate()`, the same derivation `MissionManager.currentWeekOf`
+uses. That is how a test injects the date, the zone and the window without touching the builder.
 
 **History is windowed and ordered by the loader, formatted by the builder.** Deriving a sortie's
 date needs `landedAt` / `launchedAt` (epoch millis, so a `ZoneId`) and the sortie's Mission
@@ -69,17 +71,17 @@ loudly as a wrong word.
 | File | What happens |
 |---|---|
 | `app/src/main/java/com/liftoff/app/coach/PromptInputs.kt` (new) | the plain input types: `CoachPromptInput(kind, profile, equipment, week, history, sortieIndex?)`; `PromptProfile(objectives, constraints, sortieLengthMinutes, weightUnit, distanceUnit)`; `PromptEquipment(key, name, notes)`; `PromptWeek(pattern, sorties: List<PromptSortie>)`, `PromptSortie(index, type, state, focus?)`; `PromptHistorySortie(date: LocalDate, type, title, state, scrubReason?, exercises, notes?, runDistance?, runMinutes?)`, `PromptHistoryExercise(name, sets, note?)`, `PromptHistorySet(reps, seconds, weight, status, plannedReps, plannedSeconds, plannedWeight)` |
-| `app/src/main/java/com/liftoff/app/coach/CoachPromptBuilder.kt` (new) | `object CoachPromptBuilder`: `prompt(input): String` dispatching on `kind` to the outline and Flight Plan builders, and `repairPrompt(errors: List<String>): String`. Private section builders for Task / Instructions / Athlete profile / Equipment / This week / History / Exercises used before / Output schema; private set-grouping and number formatting (`Locale.ROOT`, whole numbers written whole) |
+| `app/src/main/java/com/liftoff/app/coach/CoachPromptBuilder.kt` (new) | `object CoachPromptBuilder`: `prompt(input): String` dispatching on `kind` to the outline and Flight Plan builders, and `repairPrompt(errors: List<String>): String`. Private section builders for Task / Instructions / Athlete profile / Equipment / This week / History / Exercises used before / Output schema; private set-grouping and number formatting (`Locale.ROOT`, whole numbers written whole). For an `OUTLINE` the This week section lists index, type and state only and never a focus (decision "Added by review" below) |
 | `app/src/main/java/com/liftoff/app/coach/CoachSchema.kt` (edit) | add `CoachSchemas.text(resource: String): String` — the same `getResourceAsStream` read `load` already does, returned as UTF-8 text and memoized per path. `parse`, `load`, `CoachSchema` and `SchemaType` are unchanged |
-| `app/src/main/java/com/liftoff/app/data/PromptInputLoader.kt` (new) | `class PromptInputLoader(db, settingsStore, clock = Clock.systemUTC(), zone = { ZoneId.systemDefault() }, historyWindowDays: Int? = null)` with `suspend fun outlineInput(missionId: Long)` and `suspend fun flightPlanInput(missionId: Long, sortieIndex: Int)`. Reads settings for the profile and the default window, `EquipmentDao.observeActive()` (active items only), `SortieDao.getForMission` for this week, the new finished-sorties query for history, and `FlightPlanDao.getPlan` for each history sortie's exercises and sets |
+| `app/src/main/java/com/liftoff/app/data/PromptInputLoader.kt` (new) | `class PromptInputLoader(db, settingsStore, clock = Clock.systemUTC(), zone = { ZoneId.systemDefault() }, historyWindowDays: Int? = null)` with `suspend fun outlineInput(missionId: Long)` and `suspend fun flightPlanInput(missionId: Long, sortieIndex: Int)`. Reads settings for the profile and the default window, `EquipmentDao.observeActive().first()` (active items only), `SortieDao.getForMission` for this week (when the Mission has no sortie rows yet, the week is built from `mission.pattern` via `sortieTypesOf`, every position `PENDING`, no focus), the new finished-sorties query for history, and `FlightPlanDao.getPlan` for each history sortie's exercises and sets |
 | `app/src/main/java/com/liftoff/app/data/SortieDao.kt` (edit) | add `@Query` `suspend fun getFinishedNewestFirst(): List<Sortie>` — the same `WHERE s.state IN ('LANDED','SCRUBBED') ORDER BY m.weekStart DESC, s.\`index\` DESC` join `observeHistory` already uses, as a one-shot suspend read. `observeHistory` stays as it is |
 | `app/src/main/java/com/liftoff/app/data/MissionDao.kt` (edit) | add `@Query("SELECT * FROM mission WHERE id IN (:ids)") suspend fun getByIds(ids: List<Long>): List<Mission>`, so the loader can resolve each history sortie's `weekStart` in one read |
 | `app/src/test/resources/prompts/outline.txt` (new) | the expected outline prompt, LF endings |
 | `app/src/test/resources/prompts/lift-flight-plan-with-outline.txt` (new) | the expected lift Flight Plan prompt, with an outline present |
 | `app/src/test/resources/prompts/run-flight-plan.txt` (new) | the expected run Flight Plan prompt |
 | `app/src/test/java/com/liftoff/app/coach/CoachPromptGoldenFileTest.kt` (new) | the three golden-file comparisons, the build-twice equality test, and the "schema section is the resource file verbatim" test; owns the fixed `CoachPromptInput` values the golden files were generated from |
-| `app/src/test/java/com/liftoff/app/coach/CoachPromptBuilderTest.kt` (new) | the formatting rules asserted line by line: deviation, skipped and not-done sets, seconds, bodyweight, notes, a scrubbed sortie, equipment lines, empty sections, sorted and de-duplicated exercise names, the repair prompt |
-| `app/src/test/java/com/liftoff/app/data/PromptInputLoaderTest.kt` (new) | Robolectric against `Room.inMemoryDatabaseBuilder`, following `SortieDaoTest` (`allowMainThreadQueries`, `runBlocking`): the window edge, a custom window, newest-first order, inactive equipment left out, the scrubbed-sortie date fallback, and the inputs the builder is then handed |
+| `app/src/test/java/com/liftoff/app/coach/CoachPromptBuilderTest.kt` (new) | the formatting rules asserted line by line: deviation, skipped and not-done sets, seconds, bodyweight, notes, a scrubbed sortie, equipment lines, empty sections, the outline prompt's week list carrying no focus, sorted and de-duplicated exercise names, the repair prompt |
+| `app/src/test/java/com/liftoff/app/data/PromptInputLoaderTest.kt` (new) | Robolectric against `Room.inMemoryDatabaseBuilder`, following `SortieDaoTest` (`allowMainThreadQueries`, `runBlocking`): the window edge, a custom window, newest-first order, inactive equipment left out, the scrubbed-sortie date fallback, a Mission with no sortie rows read from its pattern, and the inputs the builder is then handed |
 | `ARCHITECTURE.md` (edit) | the `com.liftoff.app.coach` row names the prompt builder instead of saying it is still to come; the M0 status cell says the same |
 
 Untouched: `SchemaChecker.kt`, `CoachReplyValidator.kt`, `CoachModels.kt`, `ExerciseNames.kt`, the
@@ -133,7 +135,7 @@ planning: index 1 — lift
   Barbell row: 3×8 @135 lb ✓, 1×6 @135 lb (planned 8) — note: "lower back tired"
   Plank: 3×45 s ✓
   Push-up: 3×12 bodyweight ✓
-  Kettlebell swing: 2×15 @32 kg skipped
+  Kettlebell swing: 2×15 @35 lb skipped
   notes: "left shoulder twinge on last set"
 
 2026-10-03 RUN "Easy 5k" — scrubbed ("week ended")
@@ -160,8 +162,9 @@ Push-up
 }
 ```
 
-The outline prompt differs only in Task ("Write the outline for this week"), the absence of the
-`planning:` line, and the outline schema at the end.
+The outline prompt differs in Task ("Write the outline for this week"), the absence of the
+`planning:` line, week lines that carry no `— focus: …` (the outline is what is being written), and
+the outline schema at the end.
 
 ### Set-line grammar
 
@@ -177,7 +180,7 @@ A run of consecutive sets that agree in status, actual values **and** planned va
 | done, seconds differ | `1×40 s (planned 45 s)` |
 | timed set, no weight | `3×45 s ✓` |
 | reps, no weight (bodyweight) | `3×12 bodyweight ✓` |
-| `SetStatus.SKIPPED` | `2×15 @32 kg skipped` |
+| `SetStatus.SKIPPED` | `2×15 @35 lb skipped` |
 | `SetStatus.OPEN` (a sortie scrubbed mid-flight) | `1×8 @135 lb not done` |
 
 Weight is written whole when it is whole (`135`, not `135.0`), and keeps its fraction otherwise
@@ -197,7 +200,8 @@ Each step builds and passes its own tests, and is committed on its own with an
    inputs and then read back byte for byte; `CoachPromptGoldenFileTest` with the three comparisons,
    `buildingTheSamePromptTwiceGivesIdenticalText`, and the verbatim-schema test. Golden files are
    written with LF and checked with `od -c` before committing (`.gitattributes` already forces
-   `* text=auto eol=lf`).
+   `* text=auto eol=lf`). Read each generated file once by eye against the shape above before
+   committing it, so a formatting bug is not frozen in as "expected".
 3. **`coach: repair prompt built from the validator's errors`** — `repairPrompt` and its test,
    asserted against real `CoachReplyValidator` error lines rather than invented ones.
 4. **`data: prompt input loader over Room and settings`** — the two new `@Query` methods,
@@ -228,12 +232,13 @@ Every "Done when" bullet maps to a named test.
 | bodyweight | `CoachPromptBuilderTest.aRepSetWithNoWeightIsMarkedBodyweight` |
 | notes | `CoachPromptBuilderTest.exerciseAndSortieNotesAppearInTheirBlocks` |
 | a scrubbed sortie | `CoachPromptBuilderTest.scrubbedSortieShowsItsReason` |
+| outline prompt carries no placeholder focus | `CoachPromptBuilderTest.outlinePromptWeekListsNoFocus` |
 | 28-day window edge | `PromptInputLoaderTest.day28IsInsideTheWindowAndDay29IsOutside` — fixed `today = 2026-10-29`, window 28, so a sortie dated 2026-10-01 is in and one dated 2026-09-30 is out |
 | a custom window | `PromptInputLoaderTest.customWindowOverridesTheConfiguredHistoryWindow` |
 | newest-first order | `PromptInputLoaderTest.historyIsNewestFirst` |
 | exercise names sorted and de-duplicated | `CoachPromptBuilderTest.exercisesUsedBeforeAreSortedAndDeDuplicated` (two spellings of one name collapse) |
 | inactive equipment left out | `PromptInputLoaderTest.inactiveEquipmentIsLeftOutOfTheEquipmentList` |
-| loader builds the expected inputs from an in-memory DB | `PromptInputLoaderTest.outlineInputReadsProfileEquipmentAndWeekFromTheDatabase`, `flightPlanInputNamesTheSortieBeingPlanned`, `landedSortieDateComesFromLandedAtInTheInjectedZone`, `scrubbedSortieWithoutATimestampFallsBackToItsWeekStart`, `historyCarriesActualSetsAndExerciseNotes`, `runSortieCarriesDistanceAndMinutes` |
+| loader builds the expected inputs from an in-memory DB | `PromptInputLoaderTest.outlineInputReadsProfileEquipmentAndWeekFromTheDatabase`, `flightPlanInputNamesTheSortieBeingPlanned`, `landedSortieDateComesFromLandedAtInTheInjectedZone`, `scrubbedSortieWithoutATimestampFallsBackToItsWeekStart`, `historyCarriesActualSetsAndExerciseNotes`, `runSortieCarriesDistanceAndMinutes`, `missionWithNoSortieRowsReadsTheWeekFromItsPattern` |
 | ARCHITECTURE.md `coach` row | read by the runner's own check; step 5 writes it |
 | the gate | step 6 |
 
@@ -261,8 +266,9 @@ Room schema change slipped in).
   `rollover` scrubs with no time either, so the fallback date is the Mission's `weekStart`. That is
   a decision, not a bug to fix here — fixing it would mean a Room change.
 - **`Sortie.focus` does not prove an outline existed.** "Continue without outline" fills
-  `full body` / `easy` focuses (§4.2). The prompt renders whatever focus the row carries; the plan
-  does not try to tell an outline focus from a default one.
+  `full body` / `easy` focuses (§4.2), and nothing in Room records that an outline was stored. A
+  Flight Plan prompt renders whatever focus the row carries; the outline prompt renders none (see
+  Decisions).
 - **A deliberate skip and an unticked set are the same row after landing.**
   `MissionManager.land` calls `FlightPlanDao.markOpenSetsNotDone`, which rewrites `OPEN` to
   `SKIPPED`. `OPEN` survives only on a sortie scrubbed while in flight. The prompt can report what
@@ -284,6 +290,18 @@ Room schema change slipped in).
 The brief settles the section order and wording (§7.4), the 28-day window's inclusivity ("day 28 is
 in, day 29 is out"), the newest-first direction, the byte-for-byte golden comparison, LF endings,
 and that inactive equipment is left out. What it leaves open is below.
+
+0. **Added by review — focus in the outline prompt's This week section, and a week with no
+   sortie rows.**
+   *Choice:* an `OUTLINE` prompt lists each sortie's index, type and state with no `— focus: …`;
+   a `FLIGHT_PLAN` prompt shows the stored focus. When the Mission has no sortie rows yet, the
+   loader builds the week from `mission.pattern`, each position `pending`. *Alternative:* render
+   the stored focus in both prompts, and fail on a Mission without rows. *Why:* §7.4 shows the
+   outline focus "if it exists", and before the outline is written the only focus a row can carry is
+   the "Continue without outline" placeholder (`full body` / `easy`). Showing that in the very
+   prompt that asks for the outline would anchor the coach on a placeholder. Building the week from
+   the pattern costs one line, and it keeps the outline prompt working if the later worker runs
+   before the sortie rows exist.
 
 1. **Which date a scrubbed Sortie is filed under.**
    *Choice:* `landedAt`, else `launchedAt`, else the Mission's `weekStart`, each read in the
