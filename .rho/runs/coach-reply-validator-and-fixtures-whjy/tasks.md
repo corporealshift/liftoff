@@ -148,7 +148,7 @@ Plain JVM JUnit, no Robolectric (nothing here needs a `Context`). Stage named fi
   tests plus `everyFixtureFileIsCoveredByATest`, which now covers all 14 files; commit
   `coach: add the invalid coach reply fixtures and their messages`.
 
-- [ ] Record it in ARCHITECTURE.md and run the full gate
+- [x] Record it in ARCHITECTURE.md and run the full gate
   Edit only two lines of `ARCHITECTURE.md`: the `com.liftoff.app.coach` row (currently line 35) must
   name both the **validator** and the **fixtures** on its single row line — `verify.sh` greps the row
   for both words case-insensitively, and the row today has neither "fixture" nor a landed validator;
