@@ -61,7 +61,7 @@ Plain JVM JUnit, no Robolectric (nothing here needs a `Context`). Stage named fi
   `ExerciseNamesTest`, `SchemaCheckerKeywordTest` and `SchemaCheckerValidDocumentTest` still pass;
   commit `coach: extract one JSON object from a coach reply`.
 
-- [ ] Finish `validate`: schema pass, semantic checks, mapping to coach types
+- [x] Finish `validate`: schema pass, semantic checks, mapping to coach types
   Complete `CoachReplyValidator.validate` as the plan's pipeline: extract (stop on failure) → plan
   type check for `FLIGHT_PLAN` only, short-circuiting on a well-formed `lift`/`run` of the wrong
   kind → `CoachSchemas.load` for the schema picked from the **context** (`OUTLINE` →
