@@ -1,0 +1,35 @@
+{
+  "type": "lift",
+  "title": "Push + core",
+  "estimated_minutes": 58,
+  "warmup": "3 minutes rowing, then band pull-aparts",
+  "exercises": [
+    {
+      "name": "Bench Press",
+      "equipment": ["barbell", "bench"],
+      "rest_seconds": 120,
+      "sets": [
+        { "reps": 5, "weight": 60 },
+        { "reps": 5, "weight": 62.5 }
+      ]
+    },
+    {
+      "name": "Pendlay Row",
+      "equipment": ["barbell"],
+      "rest_seconds": 90,
+      "sets": [
+        { "reps": 8, "weight": 70 }
+      ]
+    },
+    {
+      "name": "Goblet Squat",
+      "equipment": ["kettlebell"],
+      "rest_seconds": 90,
+      "notes": "Kettlebell is the only loaded thing that fits in the corner of the room.",
+      "sets": [
+        { "reps": 10, "weight": 24 }
+      ]
+    }
+  ],
+  "notes": "Add weight only if all three bench sets were hit."
+}
