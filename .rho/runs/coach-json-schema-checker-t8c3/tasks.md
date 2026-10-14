@@ -106,7 +106,7 @@ Stage named files only, LF endings.
   plus the ordering and repeat-input cases; commit
   `coach: cover valid plans, error order and stability`.
 
-- [ ] Record the checker in ARCHITECTURE.md and run the full gate
+- [x] Record the checker in ARCHITECTURE.md and run the full gate
   Edit only the `com.liftoff.app.coach` row of `ARCHITECTURE.md` (line 35) so it names the schema
   checker next to the normalizer — the row must contain the word "checker", which is what
   `verify.sh` greps for. No other line of the file, no milestone rewrite.
