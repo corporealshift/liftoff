@@ -8,7 +8,7 @@ Run a class with `bash gradlew.sh :app:testDebugUnitTest --tests "com.liftoff.ap
 then read that class's XML for `failures="0" errors="0"` — `BUILD SUCCESSFUL` alone is not proof.
 Stage named files only, LF endings.
 
-- [ ] Write the schema model and its loader
+- [x] Write the schema model and its loader
   `app/src/main/java/com/liftoff/app/coach/CoachSchema.kt` (new): the parsed model of a schema
   document for exactly the 13 keywords the three files use — `type const enum required
   additionalProperties minimum maximum minLength maxLength minItems maxItems properties items`
