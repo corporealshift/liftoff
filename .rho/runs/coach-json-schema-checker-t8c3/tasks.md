@@ -81,7 +81,7 @@ Stage named files only, LF endings.
   Done when: that class's XML reads `failures="0" errors="0"` with at least 13 testcases covering
   all 13 keywords; commit `coach: add the schema checker with a test per keyword`.
 
-- [ ] Cover valid documents, error order and stability
+- [x] Cover valid documents, error order and stability
   `app/src/test/java/com/liftoff/app/coach/SchemaCheckerValidDocumentTest.kt` (new), plain JVM.
   Documents inline in the test, not under `app/src/test/resources/fixtures/` (that directory is
   reserved for recorded coach replies). Each valid document is checked against its real schema
