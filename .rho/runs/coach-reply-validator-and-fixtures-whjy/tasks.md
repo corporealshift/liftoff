@@ -92,7 +92,7 @@ Plain JVM JUnit, no Robolectric (nothing here needs a `Context`). Stage named fi
   plan's semantic table plus those two cases; the extraction class still passes; commit
   `coach: add the semantic checks to the reply validator`.
 
-- [ ] Add the four valid fixtures and the fixture loader
+- [x] Add the four valid fixtures and the fixture loader
   `app/src/test/resources/fixtures/coach/` (new directory): `outline-valid.txt`,
   `lift-plan-valid.txt`, `run-plan-valid.txt`, `lift-plan-fenced.txt` — each the raw reply text as
   the coach would have sent it (`.txt`, LF), matching the plan's fixture table (outline: five
