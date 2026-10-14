@@ -1,0 +1,14 @@
+{
+  "sorties": [
+    { "index": 0, "type": "run", "focus": "Easy 5k" },
+    { "index": 1, "type": "lift", "focus": "Push + core" },
+    {
+      "index": 2,
+      "type": "lift",
+      "focus": "Hinge + pull",
+      "rationale": "Wednesday is the only day the barbell rack is free."
+    },
+    { "index": 3, "type": "lift", "focus": "Legs + pull" }
+  ],
+  "notes": "Four days this week; the rack is only free midweek."
+}

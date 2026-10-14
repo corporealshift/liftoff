@@ -1,0 +1,50 @@
+```json
+{
+  "type": "lift",
+  "title": "Push + core",
+  "estimated_minutes": 65,
+  "warmup": "3 minutes rowing, then band pull-aparts",
+  "exercises": [
+    {
+      "name": "Bench Press",
+      "equipment": ["barbell", "bench"],
+      "rest_seconds": 120,
+      "notes": "Same bar as last week; add weight only if all three sets were hit.",
+      "sets": [
+        { "reps": 5, "weight": 60 },
+        { "reps": 5, "weight": 60 },
+        { "reps": 5, "weight": 62.5 }
+      ]
+    },
+    {
+      "name": "Pendlay Row",
+      "equipment": ["barbell"],
+      "rest_seconds": 90,
+      "sets": [
+        { "reps": 8, "weight": 70 },
+        { "reps": 8, "weight": 70 }
+      ]
+    },
+    {
+      "name": "Front Squat",
+      "equipment": ["barbell", "bench"],
+      "rest_seconds": 150,
+      "sets": [
+        { "reps": 10, "weight": 40 },
+        { "seconds": 40, "weight": 20 }
+      ]
+    },
+    {
+      "name": "Plank",
+      "equipment": ["bench"],
+      "rest_seconds": 60,
+      "notes": "Bench set to the low height so the brace stays horizontal.",
+      "sets": [
+        { "seconds": 45 },
+        { "seconds": 45 }
+      ]
+    }
+  ],
+  "notes": "Legs stay light: the tempo intervals land the day after this one."
+}
+```

@@ -1,0 +1,35 @@
+{
+  "type": "lift",
+  "title": "Push + core",
+  "estimated_minutes": 58,
+  "warmup": "6 minutes on the rower, then band pull-aparts",
+  "exercises": [
+    {
+      "name": "Bench Press",
+      "equipment": ["barbell", "bench"],
+      "rest_seconds": 120,
+      "sets": [
+        { "reps": 5, "weight": 60 },
+        { "reps": 5, "weight": 62.5 }
+      ]
+    },
+    {
+      "name": "Seated Row",
+      "equipment": ["rowing-machine"],
+      "rest_seconds": 90,
+      "notes": "Cable attachment, chest up, no lean.",
+      "sets": [
+        { "reps": 10, "weight": 45 }
+      ]
+    },
+    {
+      "name": "Plank",
+      "equipment": ["bench"],
+      "rest_seconds": 60,
+      "sets": [
+        { "seconds": 45 }
+      ]
+    }
+  ],
+  "notes": "Add weight only if all three bench sets were hit."
+}
