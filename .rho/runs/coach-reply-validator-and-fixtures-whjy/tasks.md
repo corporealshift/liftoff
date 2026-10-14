@@ -116,7 +116,7 @@ Plain JVM JUnit, no Robolectric (nothing here needs a `Context`). Stage named fi
   shown to be read (a missing-file failure would read as a missing file, so a green run proves the
   loader works); commit `coach: add the valid coach reply fixtures`.
 
-- [ ] Add the ten invalid fixtures and their expected messages
+- [x] Add the ten invalid fixtures and their expected messages
   Ten more files in `app/src/test/resources/fixtures/coach/`, per the plan's table:
   `bad-json.txt` (braces balance, trailing comma after the last exercise, so it reaches kotlinx),
   `prose-around-json.txt`, `schema-violation.txt`, `unknown-equipment.txt`,
