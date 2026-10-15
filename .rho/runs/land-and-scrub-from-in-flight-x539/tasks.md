@@ -16,7 +16,7 @@ Before naming a new test, check the name is not already in the suite.
   Done when: that test exists and passes, and the existing `SortiesTest.scrubStoresBlankReasonAsNull`
   (which verify.sh lists under "must not break") still passes.
 
-- [ ] 2. Open-set count, sortie number, and when landing needs confirmation
+- [x] 2. Open-set count, sortie number, and when landing needs confirmation
   Covers: `ui/inflight/InFlightState.kt` only — `Ready` gains `openCount`, derived in `deriveInFlight`
   as `allProgress.count { it == SetStatus.OPEN }` (a skipped exercise's sets are already SKIPPED, so they
   add nothing); `Ready` and `NoChecklist` both gain `sortieNumber` (`sortie.index + 1`, already computed);
