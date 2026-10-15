@@ -122,7 +122,7 @@ tested" already says which class each one goes in.
   (detached, `EXIT=$?` sentinel).
   Commit `inflight: test the note dialog from the In-Flight screen`.
 
-- [ ] Run the whole suite and prove the new tests actually ran
+- [x] Run the whole suite and prove the new tests actually ran
   No source changes unless the full suite turns up a real break this run caused. Run the CI gate over
   the whole suite — `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache` —
   detached with an `EXIT=$?` sentinel, then read
