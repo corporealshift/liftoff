@@ -6,7 +6,7 @@ vocabulary). Test names below are exactly the names `.rho/runs/land-and-scrub-fr
 looks for in the JUnit XML, so write them with those spellings; the class and package are yours to choose.
 Before naming a new test, check the name is not already in the suite.
 
-- [ ] 1. Store a whitespace-only scrub reason as null
+- [x] 1. Store a whitespace-only scrub reason as null
   Covers: `domain/Sorties.kt` — in `scrub`, change `reason.isNullOrEmpty()` to `reason.isNullOrBlank()`
   so a reason of only spaces is stored as null while a reason with text is kept exactly as passed.
   Nothing else changes; the rest of the run builds on this one-line fix.
