@@ -98,11 +98,20 @@ object CoachSchemas {
         "items",
     )
 
-    fun load(resource: String): CoachSchema {
+    fun load(resource: String): CoachSchema = parse(resource, read(resource))
+
+    /**
+     * The resource's own text, for §7.4 item 8: the prompt must carry the same schema bytes the
+     * validator checks the reply against, so the builder reads the file rather than being handed a copy.
+     */
+    fun text(resource: String): String = texts.getOrPut(resource) { read(resource) }
+
+    private val texts = mutableMapOf<String, String>()
+
+    private fun read(resource: String): String {
         val stream = javaClass.classLoader?.getResourceAsStream(resource)
             ?: throw UnsupportedSchemaException("$resource: schema resource not found on the classpath")
-        val text = stream.use { it.readBytes().toString(Charsets.UTF_8) }
-        return parse(resource, text)
+        return stream.use { it.readBytes().toString(Charsets.UTF_8) }
     }
 
     fun parse(name: String, text: String): CoachSchema {
