@@ -473,7 +473,78 @@ class CoachPromptBuilderTest {
         )
     }
 
+    // ─── §7.3 step 5 / §7.6: the repair prompt ──────────────────────────────────
+
+    /**
+     * The repair prompt carries the validator's own lines, unchanged: the errors here are read out of
+     * a real `CoachReplyValidator` run on an invalid reply, not written by hand, so a change to the
+     * validator's wording moves this test rather than hiding behind it.
+     */
+    @Test
+    fun repairPromptCarriesEveryValidatorErrorAndAsksForOnlyTheCorrectedJson() {
+        val context = GenerationContext(
+            kind = GenerationKind.FLIGHT_PLAN,
+            pattern = week.pattern,
+            sortieType = SortieType.LIFT,
+            // The same ids the prompt above lists, so the reply is answering that prompt.
+            equipmentKeys = equipment.map { it.key },
+            sortieLengthMinutes = profile.sortieLengthMinutes,
+        )
+        val result = CoachReplyValidator.validate(invalidLiftReply(), context)
+        assertTrue("the reply should have been rejected, got $result", result is CoachReplyResult.Invalid)
+        val errors = (result as CoachReplyResult.Invalid).errors
+
+        // More than one line, so "every error" below is not vacuous, and each is the validator's `path: problem`.
+        assertTrue("expected several errors, got $errors", errors.size > 1)
+        assertTrue("the checker's own path is missing: $errors", errors.any { it.startsWith("exercises[") })
+        assertTrue("the budget line is missing: $errors", errors.any { it.startsWith("estimated_minutes:") })
+
+        val prompt = CoachPromptBuilder.repairPrompt(errors)
+
+        assertEquals("Your reply was not valid:", prompt.lines().first())
+        assertEquals("Reply again with only the corrected JSON object.", prompt.lines().last())
+        // One line per error, word for word, with nothing added or dropped between the two sentences.
+        assertEquals(errors, prompt.lines().drop(1).dropLast(1))
+        assertEquals(errors.size + 2, prompt.lines().size)
+        for (error in errors) {
+            assertTrue("$error is not in the repair prompt:\n$prompt", prompt.contains(error))
+        }
+    }
+
     // ─── fixtures ───────────────────────────────────────────────────────────────
+
+    /** A coach-shaped reply with a checker violation and several semantic ones, so the repair has to carry more than one line. */
+    private fun invalidLiftReply() = """
+        {
+          "type": "lift",
+          "title": "Push + core",
+          "estimated_minutes": 80,
+          "warmup": "3 minutes rowing, then band pull-aparts",
+          "exercises": [
+            {
+              "name": "Bench Press",
+              "equipment": ["bb"],
+              "rest_seconds": 120,
+              "sets": [
+                { "reps": 5, "weight": 135 },
+                { "reps": 5, "seconds": 30 }
+              ]
+            },
+            {
+              "name": "bench  press",
+              "day": "Tuesday",
+              "equipment": ["bb"],
+              "sets": [ { "reps": 8, "weight": 135 } ]
+            },
+            {
+              "name": "Row",
+              "equipment": ["rowing-machine"],
+              "sets": [ {} ]
+            }
+          ],
+          "notes": "Add weight only if all three bench sets were hit."
+        }
+    """.trimIndent()
 
     private fun flightPlan(history: List<PromptHistorySortie>) = CoachPromptInput(
         kind = GenerationKind.FLIGHT_PLAN,

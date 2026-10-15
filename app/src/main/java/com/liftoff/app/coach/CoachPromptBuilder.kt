@@ -40,6 +40,15 @@ object CoachPromptBuilder {
             outputSchema(input),
         ).joinToString(separator = "\n\n")
 
+    /**
+     * §7.3 step 5 / §7.6: the repair prompt. Plan decision 11: each `CoachReplyValidator` line stays
+     * on its own line and word for word — every one already carries its own colon and commas, so
+     * joining them into §7.3's sentence would read as one run-on.
+     */
+    fun repairPrompt(errors: List<String>): String =
+        (listOf("Your reply was not valid:") + errors + "Reply again with only the corrected JSON object.")
+            .joinToString(separator = "\n")
+
     // ─── 1. Task ────────────────────────────────────────────────────────────────
 
     private fun task(input: CoachPromptInput): String =
