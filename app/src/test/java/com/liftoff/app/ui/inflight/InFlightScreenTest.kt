@@ -815,4 +815,123 @@ class InFlightScreenTest {
             composeRule.onAllNodes(isDialog()).assertCountEquals(0)
         }
     }
+
+    // ── noteCellOnActiveCardOpensDialogAndSaves ─────────────────────
+    // The card's Note cell is enabled, and no editor is on screen until it is tapped.
+    // Opening the dialog is not asserted here: a BasicTextField inside a Dialog never lets Compose
+    // go idle under Robolectric (plan Decision 13). NoteDialogTest covers the dialog's pre-fill
+    // and Save, InFlightViewModelTest the trim rule.
+
+    @Test
+    fun noteCellOnActiveCardOpensDialogAndSaves() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            // One exercise only, so the screen has exactly one "NOTE" cell to tap.
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "Press", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "Press day", estimatedMinutes = 20,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Overhead Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 6, seconds = null, weight = 25.0),
+                        SetDraft(reps = 6, seconds = null, weight = 30.0)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            // Seed untrimmed, straight through the DAO — a dumb write that keeps the spaces.
+            val plan = container.database.flightPlanDao().getPlan(sortieId)!!
+            container.database.flightPlanDao().saveExerciseNote(
+                plan.exercises[0].plannedExercise.id, "  Left shoulder twinge  "
+            )
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("00/02\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            composeRule.onNodeWithText("NOTE", ignoreCase = false).assertIsDisplayed()
+            composeRule.onNodeWithText("NOTE", ignoreCase = false).assertIsEnabled()
+            // No editor on screen yet: the field can only come from the dialog.
+            composeRule.onNode(hasSetTextAction()).assertDoesNotExist()
+        }
+    }
+
+    // ── sortieNoteActionOnNoChecklistOpensDialogAndSaves ────────────
+    // The no-checklist state had no way to reach a note at all before this run: the 'Sortie note'
+    // action is on screen and enabled there, with no editor until it is tapped.
+    // Opening the dialog is not asserted here: a BasicTextField inside a Dialog never lets Compose
+    // go idle under Robolectric (plan Decision 13). NoteDialogTest covers the dialog's pre-fill
+    // and Save, InFlightViewModelTest the trim rule.
+
+    @Test
+    fun sortieNoteActionOnNoChecklistOpensDialogAndSaves() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            // A RUN sortie with no Flight Plan → NoChecklist state, note seeded untrimmed on the row.
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id,
+                index = 0,
+                type = SortieType.RUN,
+                focus = "easy jog",
+                focusRationale = null,
+                state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(),
+                landedAt = null,
+                scrubReason = null,
+                notes = "  Felt strong  ",
+                runDistance = null,
+                runMinutes = null,
+            ))
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("No checklist for this sortie.", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            composeRule.onNodeWithText("SORTIE NOTE", ignoreCase = false).assertIsDisplayed()
+            composeRule.onNodeWithText("SORTIE NOTE", ignoreCase = false).assertIsEnabled()
+            // No editor on screen yet: the field can only come from the dialog.
+            composeRule.onNode(hasSetTextAction()).assertDoesNotExist()
+        }
+    }
 }
