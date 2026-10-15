@@ -32,7 +32,7 @@ Before naming a new test, check the name is not already in the suite.
   Done when: those three tests exist and pass, and the existing derivation/check/note tests in
   `InFlightStatesTest` and `InFlightScreenTest` still pass.
 
-- [ ] 3. Land a sortie through the view model
+- [x] 3. Land a sortie through the view model
   Covers: `ui/inflight/InFlightViewModel.kt` — a trailing constructor param
   `missionManager: MissionManager = MissionManager(db, settings)` (the default keeps every existing call
   site and test compiling; `InFlightScreen.kt` is **not** touched in this task), the synchronous `busy`
