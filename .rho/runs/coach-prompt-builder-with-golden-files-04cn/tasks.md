@@ -16,7 +16,7 @@ Read before starting: `brief.md`, `plan.md` (its "## Decisions" and the prompt s
 grammar are the spec the tests assert), DESIGN.md §7.2, §7.4, §7.6, §7.7, §13, ARCHITECTURE.md
 invariant 2, and CLAUDE.md conventions.
 
-- [ ] 1. `coach: prompt input types and the §7.4 prompt builder`
+- [x] 1. `coach: prompt input types and the §7.4 prompt builder`
   `coach/PromptInputs.kt` and `coach/CoachPromptBuilder.kt` (new), plus one added function
   `CoachSchemas.text(resource: String): String` in `coach/CoachSchema.kt` (the classpath read
   `load` already does, returned as UTF-8 text, memoized per path — `parse`, `load`, `CoachSchema`
