@@ -59,7 +59,7 @@ Before naming a new test, check the name is not already in the suite.
   (`landAdvancesToNextSortie`, `landMarksUncheckedSetsNotDone`, `landingLastSortieClosesMission`) still
   pass unchanged.
 
-- [ ] 4. Double tap and rejection are safe
+- [x] 4. Double tap and rejection are safe
   Covers: the robustness half of task 3's land path — the `busy` guard ignoring a second call while a
   write is running, and a `MissionManager` rejection (sortie no longer in flight) becoming a short message
   instead of an exception escaping the view model. `MissionManager` rejects with mixed types
