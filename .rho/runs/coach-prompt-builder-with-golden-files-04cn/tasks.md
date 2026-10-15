@@ -107,7 +107,7 @@ invariant 2, and CLAUDE.md conventions.
   (`SortieDaoTest`, `MissionDaoTest`, `FlightPlanDaoTest`, `MissionManagerTest`, `EquipmentDaoTest`)
   still pass.
 
-- [ ] 5. `docs: list the coach prompt builder in the architecture map`
+- [x] 5. `docs: list the coach prompt builder in the architecture map`
   `ARCHITECTURE.md`: the `com.liftoff.app.coach` row's "Exists yet?" cell (line 35 today) says the
   prompt builder has landed — name `CoachPromptBuilder.kt` / `PromptInputs.kt` and the
   golden-file prompts — and drops "the prompt builder is still to come". The M0 status cell (line 79
