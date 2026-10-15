@@ -22,6 +22,10 @@ abstract class MissionDao {
     @Query("SELECT * FROM mission WHERE weekStart < :weekStart AND status != 'CLOSED'")
     abstract suspend fun getUnclosedBefore(weekStart: java.time.LocalDate): List<Mission>
 
+    // One read for a whole list of history sorties' missions, so none of them costs a query each.
+    @Query("SELECT * FROM mission WHERE id IN (:ids)")
+    abstract suspend fun getByIds(ids: List<Long>): List<Mission>
+
     @Query("SELECT * FROM mission WHERE weekStart = :weekStart")
     protected abstract fun observeRaw(weekStart: java.time.LocalDate): Flow<MissionWithSorties?>
 

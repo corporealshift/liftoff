@@ -32,6 +32,15 @@ interface SortieDao {
     )
     fun observeHistory(): Flow<List<Sortie>>
 
+    // The same rows as observeHistory, read once: the prompt loader windows and re-orders in Kotlin.
+    @Query(
+        "SELECT s.* FROM sortie s " +
+        "JOIN mission m ON m.id = s.missionId " +
+        "WHERE s.state IN ('LANDED', 'SCRUBBED') " +
+        "ORDER BY m.weekStart DESC, s.`index` DESC"
+    )
+    suspend fun getFinishedNewestFirst(): List<Sortie>
+
     @Query("SELECT * FROM sortie WHERE id = :sortieId")
     fun observeById(sortieId: Long): Flow<Sortie?>
 
