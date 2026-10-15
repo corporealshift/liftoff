@@ -298,6 +298,103 @@ class InFlightLandScrubTest {
         assertEquals(MissionStatus.CLOSED, missionDao.get(mission.id)!!.status)
     }
 
+    // ── Scrubbing keeps what was already logged ──────────────────────
+    // The view model's scrub on the same seeded lift sortie: the sortie is SCRUBBED, the sets already
+    // checked keep their log (nothing is rewritten as not done), the reason the owner gave is stored
+    // with the stray spaces a keyboard leaves trimmed off it, and the Mission has moved on to the
+    // sortie after it.
+
+    @Test
+    fun scrubFromInFlightKeepsCheckedSetsAndStoresReason() = runBlocking {
+        val (vm, ready) = launchSortie1()
+        val sortieId = ready.sortieId
+        val missionId = sortieDao.get(sortieId)!!.missionId
+        val sets = allSetIds(ready)
+        sets.take(2).forEach { vm.check(it) }
+        withTimeout(5_000) {
+            vm.state.first { (it as? InFlightState.Ready)?.let { r -> r.doneCount == 2 && r.openCount == 5 } ?: false }
+        }
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        vm.scrub("  felt sick  ") { onDoneRuns++; done.complete(Unit) }
+        awaitDone(done)
+
+        assertEquals(1, onDoneRuns)
+        val scrubbed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+        assertEquals("felt sick", scrubbed.scrubReason)
+        assertNull(vm.message.value)
+
+        val after = flightPlanDao.getPlan(sortieId)!!.exercises.flatMap { it.sets }
+        assertEquals(2, after.count { it.status == SetStatus.DONE })
+        assertEquals(5, after.count { it.status == SetStatus.OPEN })
+        assertEquals(0, after.count { it.status == SetStatus.SKIPPED })
+
+        // The Mission advanced to the run after the scrubbed lift, which was prepared as usual.
+        val sorties = sortieDao.getForMission(missionId)
+        assertEquals(SortieState.SCRUBBED, sorties[1].state)
+        assertEquals(SortieType.RUN, sorties[2].type)
+        assertEquals(SortieState.PLANNED, sorties[2].state)
+        assertEquals(SortieState.PENDING, sorties[3].state)
+        assertEquals(MissionStatus.ACTIVE, missionDao.get(missionId)!!.status)
+    }
+
+    // ── A reason of only spaces stores nothing ───────────────────────
+    // Typed at In-Flight: the view model normalises the reason the way it normalises a note, so the
+    // sortie is scrubbed with no reason on it rather than a run of spaces.
+
+    @Test
+    fun scrubStoresWhitespaceReasonAsNull() = runBlocking {
+        val (vm, ready) = launchSortie1()
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        vm.scrub("   ") { onDoneRuns++; done.complete(Unit) }
+        awaitDone(done)
+
+        assertEquals(1, onDoneRuns)
+        val scrubbed = sortieDao.get(ready.sortieId)!!
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+        assertNull(scrubbed.scrubReason)
+        assertNull(vm.message.value)
+    }
+
+    // ── A scrub the manager rejects is a message, not a crash ────────
+    // The same message flow land uses: the sortie has already been scrubbed, so it is no longer the
+    // current one and MissionManager.scrub refuses it. The refusal is a short line, the completion
+    // callback does not run, and nothing escapes into the screen's scope.
+
+    @Test
+    fun scrubbingASortieThatIsNoLongerCurrentIsRejectedWithoutCrash() = runBlocking {
+        val (vm, ready) = launchSortie1()
+        val sortieId = ready.sortieId
+
+        val firstDone = CompletableDeferred<Unit>()
+        vm.scrub("felt sick") { firstDone.complete(Unit) }
+        awaitDone(firstDone)
+        val scrubbed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+        assertEquals("felt sick", scrubbed.scrubReason)
+        assertNull(vm.message.value)
+
+        val rejecting = InFlightViewModel(db, settingsStore, sortieId, scope, manager)
+        withTimeout(5_000) { rejecting.state.first { it is InFlightState.Ready } }
+
+        val secondDone = CompletableDeferred<Unit>()
+        rejecting.scrub("second try") { secondDone.complete(Unit) }
+
+        val shown = withTimeout(5_000) { rejecting.message.first { it != null } }!!
+        assertTrue("message should be a short line, was: $shown", shown.isNotBlank() && shown.length <= 60)
+        assertNull(withTimeoutOrNull(1_000) { secondDone.await() })
+        assertTrue("a rejected scrub threw out of the view model: $escaped", escaped.isEmpty())
+
+        // The refusal changed nothing: still scrubbed once, with the reason the first scrub stored.
+        val after = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.SCRUBBED, after.state)
+        assertEquals("felt sick", after.scrubReason)
+    }
+
     // ── A double tap lands once ──────────────────────────────────────
     // Two land calls back to back. The view model's guard is what takes the second one, so the
     // worker that runs the write is held until both taps have arrived: the first land is still in

@@ -73,6 +73,25 @@ class InFlightViewModel(
         }
     }
 
+    /** Scrub keeps the sets already logged; the reason is optional and normalised like a note. */
+    fun scrub(reason: String?, onDone: () -> Unit) {
+        if (busy) return
+        busy = true
+        message.value = null
+        scope.launch {
+            try {
+                missionManager.scrub(sortieId, normalizeNote(reason))
+                onDone()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = "Couldn't scrub this sortie."
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     // Blank text becomes null here so the exercise and sortie rules match and the DAOs stay dumb writes.
     private fun normalizeNote(text: String?): String? = text?.trim()?.takeIf { it.isNotEmpty() }
 }
