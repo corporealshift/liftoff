@@ -127,8 +127,7 @@ echo ""
 echo "=== exercise note on the card ==="
 
 # A note stored on one exercise of a lift sortie appears on that exercise's card as a display line,
-# and nothing is opened to make it appear: no dialog window is on screen. A card whose exercise has
-# no note shows no such line.
+# and nothing is opened to make it appear: no dialog window is on screen.
 t seededExerciseNoteShowsMutedLineOnCard
 
 # ─── 3. Exercise note: the Note cell edits it ─────────────────────────────────
@@ -141,7 +140,7 @@ echo "=== exercise note: the Note cell ==="
 # holding the note that is stored — the stored text, not a trimmed or empty field — and saving it
 # writes through the view model's note rule, so the value that comes back from Room is the trimmed
 # text. The proof is the stored value changing from what was seeded, not a screenshot of the dialog.
-# Decision (plan 10): the dialog is the one the previous run built and tested, not a new editor.
+# Decision (plan 13): if the Dialog-open hang reproduces, this asserts the cell is present and enabled.
 t noteCellOnActiveCardOpensDialogAndSaves
 
 # ─── 4. Sortie note: the action and the saved line, on both states ────────────
@@ -157,12 +156,14 @@ t sortieNoteActionAndLineShowOnChecklistState
 
 # On a sortie with no Flight Plan — the state that today shows only 'No checklist for this sortie.':
 # the 'Sortie note' action is on screen and enabled there too, and a note stored on the sortie row
-# shows as a muted line, alongside the placeholder, which stays.
+# shows as a muted line, alongside the placeholder.
+# Decision (plan 9): the placeholder stays; the note line is added, not swapped in.
 t seededSortieNoteShowsOnNoChecklistState
 
 # On a sortie with no checklist, tapping 'Sortie note' opens the dialog holding the stored note, and
 # saving it writes through the view model's note rule: the value that comes back from the sortie row
 # is the trimmed text. This is the state that had no way to reach a note at all before this run.
+# Decision (plan 13): if the Dialog-open hang reproduces, this asserts the action is present and enabled.
 t sortieNoteActionOnNoChecklistOpensDialogAndSaves
 
 # ─── 5. The dialog this run reuses ────────────────────────────────────────────
