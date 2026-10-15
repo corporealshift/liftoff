@@ -18,8 +18,8 @@
 # checked by calling it, not through a screen.
 #
 # The plan's "## Decisions" are not pinned here: which date a scrub is filed under, how sorties are
-# numbered, set-grouping, whose notes appear, empty sections. The owner reviews those in the pull
-# request. Where a named test below also shows a decision, the comment says which one.
+# numbered, set-grouping, whose notes appear, the run line, empty sections. The owner reviews those in
+# the pull request. Where a named test below also shows a decision, the comment says which one.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -123,7 +123,7 @@ t outlinePromptMatchesGoldenFile
 # list says which sortie is being planned, history carries lift sets, and the lift-plan schema ends
 # the prompt.
 t liftFlightPlanPromptWithOutlineMatchesGoldenFile
-# The FLIGHT_PLAN prompt for a run sortie: the run history line and the run-plan schema.
+# The FLIGHT_PLAN prompt for a run sortie, ending with the run-plan schema.
 t runFlightPlanPromptMatchesGoldenFile
 
 # §7.4: "the same inputs MUST produce the same text". Build one prompt twice and compare the bytes.
@@ -148,7 +148,7 @@ t historyLineMarksASetThatDifferedFromItsPlan
 # SetStatus.SKIPPED is recognisable as skipped.
 t skippedSetsAreMarkedSkipped
 # A set left open on a sortie scrubbed mid-flight is recognisable as not done, in a different word
-# from skipped. Decision (plan): the two states get different words, because they are different rows.
+# from skipped. Decision (plan 5): the two states get different words, because they are different rows.
 t openSetsOnAScrubbedSortieReadNotDone
 # A timed set is written in seconds, e.g. `3×45 s`, with the same planned-value rule as reps.
 t timedSetsAreWrittenAsSeconds
@@ -179,8 +179,8 @@ t inactiveEquipmentIsLeftOutOfTheEquipmentList
 echo ""
 echo "=== exercises used before ==="
 
-# Every exercise name in the history, sorted alphabetically, listed once: two spellings of one
-# exercise (§7.7 identity is the normalized name) give one line.
+# Every exercise name in the history, sorted alphabetically, listed once. Decision (plan 12): two
+# spellings of one exercise (§7.7 identity is the normalized name) give one line.
 t exercisesUsedBeforeAreSortedAndDeDuplicated
 
 # ─── 6. §7.3 step 5 / §7.6: the repair prompt ─────────────────────────────────
@@ -205,7 +205,7 @@ t outlineInputReadsProfileEquipmentAndWeekFromTheDatabase
 # The FLIGHT_PLAN input names which sortie of the week is being planned.
 t flightPlanInputNamesTheSortieBeingPlanned
 # The history block for a landed sortie carries what was actually done rather than what was planned,
-# the owner's exercise notes, and for a run sortie the distance and duration the owner entered.
+# and the owner's exercise notes.
 t historyCarriesActualSetsAndExerciseNotes
 
 # A landed sortie is dated from landedAt, read in the injected zone — the date the window counts back
