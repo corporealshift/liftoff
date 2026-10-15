@@ -63,7 +63,7 @@ tested" already says which class each one goes in.
   (run detached with an `EXIT=$?` sentinel; if the results dir is locked, `bash gradlew.sh --stop` first).
   Commit `inflight: show and edit the exercise note on the card`.
 
-- [ ] Add the sortie note action and note line
+- [x] Add the sortie note action and note line
   The sortie half of the UI, on both states, with no dialog opening yet. Add one private composable,
   e.g. `SortieNoteStrip(note: String?, onOpen: () -> Unit)`, used by **both** content composables so
   the two states cannot drift: an `UnderlinedTextButton("Sortie note", …)` (renders as `SORTIE NOTE`)
