@@ -86,7 +86,7 @@ Before naming a new test, check the name is not already in the suite.
   Done when: both tests exist and pass, and `MissionManagerTest.scrubInFlightKeepsCheckedSets`,
   `scrubbingLastSortieClosesMission` and `SortiesTest.scrubStoresBlankReasonAsNull` still pass.
 
-- [ ] 6. The two themed dialogs, in their own files
+- [x] 6. The two themed dialogs, in their own files
   Covers: two new files, styled from `StepperDialog` / `NoteDialogContent` (Paper card in a `Dialog`, 2 dp
   Ink `CardShape` border, 16 dp padding, `LiftoffType.cardTitle()` title, `PrimaryButton` +
   `UnderlinedTextButton` row), each taking plain values and callbacks and holding no view model, so the
