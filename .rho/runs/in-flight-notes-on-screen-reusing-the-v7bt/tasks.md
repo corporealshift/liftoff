@@ -9,7 +9,7 @@ Test names below are spelled exactly as `.rho/runs/in-flight-notes-on-screen-reu
 spells them; class and package are the implementer's call, and plan.md's "## How the result will be
 tested" already says which class each one goes in.
 
-- [ ] Bring in the finished note dialog from `2cb0ed6`
+- [x] Bring in the finished note dialog from `2cb0ed6`
   Recover the two files the previous run wrote and tested, unchanged, and make them compile and pass
   on their own. `git show 2cb0ed6:app/src/main/java/com/liftoff/app/ui/inflight/NoteDialog.kt >
   app/src/main/java/com/liftoff/app/ui/inflight/NoteDialog.kt` and the same for
