@@ -28,7 +28,7 @@ tested" already says which class each one goes in.
   `app/build/test-results/testDebugUnitTest/TEST-*.xml`.
   Commit `inflight: add themed note dialog`.
 
-- [ ] Show and edit the exercise note on a card
+- [x] Show and edit the exercise note on a card
   The exercise half of the UI, plus the dialog state that both halves will share. In
   `app/src/main/java/com/liftoff/app/ui/inflight/InFlightScreen.kt`, and only there: add the
   `private sealed interface NoteTarget` beside the existing `private data class RowCard` (~line 101)
