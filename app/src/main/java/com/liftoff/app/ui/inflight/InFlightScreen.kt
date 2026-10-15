@@ -27,6 +27,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -50,6 +51,7 @@ fun InFlightScreen(
 
     var expandedSet by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var editingSetId by remember { mutableStateOf<Long?>(null) }
+    var noteTarget by remember { mutableStateOf<NoteTarget?>(null) }
 
     Column(
         modifier = Modifier
@@ -66,6 +68,7 @@ fun InFlightScreen(
                 onExpand = { id -> expandedSet = expandedSet + id },
                 onCollapse = { id -> expandedSet = expandedSet - id },
                 onEdit = { editingSetId = it },
+                onOpenNote = { target -> noteTarget = target },
                 onBack = onBack,
             )
         }
@@ -96,9 +99,37 @@ fun InFlightScreen(
             }
         }
     }
+
+    // Note dialog. The target carries its own text, so the pre-fill needs no branch here.
+    noteTarget?.let { target ->
+        NoteDialog(
+            title = when (target) {
+                is NoteTarget.Exercise -> "${target.name.uppercase()} · NOTE"
+                is NoteTarget.Sortie -> "SORTIE NOTE"
+            },
+            initial = target.text.orEmpty(),
+            onDismiss = { noteTarget = null },
+            onSave = { text ->
+                when (target) {
+                    is NoteTarget.Exercise -> vm.saveExerciseNote(target.id, text)
+                    is NoteTarget.Sortie -> vm.saveSortieNote(text)
+                }
+                noteTarget = null
+            },
+        )
+    }
 }
 
 private data class RowCard(val row: SetRow, val card: ExerciseCard)
+
+/** Which note the dialog is editing. `text` is on the interface so the pre-fill needs no smart cast. */
+private sealed interface NoteTarget {
+    val text: String?
+
+    data class Exercise(val id: Long, val name: String, override val text: String?) : NoteTarget
+    data class Sortie(override val text: String?) : NoteTarget
+}
+
 private fun findRowAndCard(state: InFlightState.Ready, setId: Long): RowCard? {
     for (card in state.cards) {
         for (row in card.sets) {
@@ -169,6 +200,7 @@ private fun ReadyContent(
     onExpand: (Long) -> Unit,
     onCollapse: (Long) -> Unit,
     onEdit: (Long) -> Unit,
+    onOpenNote: (NoteTarget) -> Unit,
     onBack: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
@@ -191,6 +223,7 @@ private fun ReadyContent(
                                 vm = vm,
                                 currentSetId = state.currentSetId,
                                 onEdit = onEdit,
+                                onOpenNote = onOpenNote,
                                 onCollapse = { onCollapse(card.plannedExerciseId) },
                             )
                         } else {
@@ -204,6 +237,7 @@ private fun ReadyContent(
                             vm = vm,
                             currentSetId = state.currentSetId,
                             onEdit = onEdit,
+                            onOpenNote = onOpenNote,
                             hasShadow = hasShadow,
                         )
                     }
@@ -371,6 +405,7 @@ private fun FullCard(
     vm: InFlightViewModel,
     currentSetId: Long?,
     onEdit: (Long) -> Unit,
+    onOpenNote: (NoteTarget) -> Unit,
     onCollapse: (() -> Unit)? = null,
     hasShadow: Boolean = false,
 ) {
@@ -421,8 +456,19 @@ private fun FullCard(
             }
         }
 
+        // The owner's own note, clamped to two lines; the footer's Note cell is what edits it.
+        if (card.note != null) {
+            Text(
+                text = card.note,
+                style = LiftoffType.note().copy(color = Muted, fontSize = 13.sp),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp, start = 14.dp, end = 14.dp),
+            )
+        }
+
         // Footer
-        CardFooter(card, vm)
+        CardFooter(card, vm, onOpenNote)
     }
 }
 
@@ -579,7 +625,7 @@ private fun CheckBox(status: SetStatus, vm: InFlightViewModel, setId: Long, card
 // ── Card footer ────────────────────────────────────────────────────
 
 @Composable
-private fun CardFooter(card: ExerciseCard, vm: InFlightViewModel) {
+private fun CardFooter(card: ExerciseCard, vm: InFlightViewModel, onOpenNote: (NoteTarget) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = Ink, thickness = 2.dp)
         Row(
@@ -600,15 +646,15 @@ private fun CardFooter(card: ExerciseCard, vm: InFlightViewModel) {
 
             Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(Ink))
 
-            // Note (disabled)
+            // Note
             FooterCell(
                 modifier = Modifier
                     .weight(1f)
                     .height(44.dp)
                     .border(BorderStroke(1.dp, Rule), ButtonShape),
                 text = "Note",
-                enabled = false,
-                onClick = {},
+                enabled = true,
+                onClick = { onOpenNote(NoteTarget.Exercise(card.plannedExerciseId, card.name, card.note)) },
             )
 
             Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(Ink))

@@ -634,4 +634,67 @@ class InFlightScreenTest {
             composeRule.onNodeWithText("CANCEL").performClick()
         }
     }
+
+    // ── seededExerciseNoteShowsMutedLineOnCard ────────────────────────
+    // A note stored on one exercise shows on that card as a muted display line, with nothing
+    // opened: the line comes from the state derived from Room, so no dialog window is on screen.
+
+    @Test
+    fun seededExerciseNoteShowsMutedLineOnCard() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "Press", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "Press day", estimatedMinutes = 20,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Overhead Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 6, seconds = null, weight = 25.0),
+                        SetDraft(reps = 6, seconds = null, weight = 30.0)
+                    )),
+                    ExerciseDraft(name = "Push-up", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 12, seconds = null, weight = null)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            // Seed straight through the DAO — a dumb write, no view model involved.
+            val plan = container.database.flightPlanDao().getPlan(sortieId)!!
+            container.database.flightPlanDao().saveExerciseNote(
+                plan.exercises[0].plannedExercise.id, "Left shoulder twinge"
+            )
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("Left shoulder twinge", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            composeRule.onNodeWithText("Left shoulder twinge", ignoreCase = false).assertIsDisplayed()
+            // Nothing was opened, so the line is the card's own, not a dialog's field.
+            composeRule.onAllNodes(isDialog()).assertCountEquals(0)
+        }
+    }
 }
