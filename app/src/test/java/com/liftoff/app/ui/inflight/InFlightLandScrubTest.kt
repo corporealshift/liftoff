@@ -8,12 +8,15 @@ import com.liftoff.app.data.*
 import com.liftoff.app.domain.markPlanned
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -26,6 +29,9 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Landing and scrubbing driven through the In-Flight view model against in-memory Room, on a
@@ -44,7 +50,12 @@ class InFlightLandScrubTest {
     private lateinit var settingsStore: SettingsStore
     private lateinit var manager: MissionManager
     private val job = Job()
-    private val scope = CoroutineScope(Dispatchers.Unconfined + job)
+    // The handler records anything a launched coroutine fails with, so a test can assert that nothing
+    // escaped the view model instead of relying on the default handler cancelling the job.
+    private val escaped = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
+    private val scope = CoroutineScope(
+        Dispatchers.Unconfined + job + CoroutineExceptionHandler { _, e -> escaped += e }
+    )
 
     private val fixedInstant = Instant.parse("2026-01-12T00:00:00Z")
 
@@ -285,5 +296,97 @@ class InFlightLandScrubTest {
 
         assertEquals(SortieState.LANDED, sortieDao.get(sortie.id)!!.state)
         assertEquals(MissionStatus.CLOSED, missionDao.get(mission.id)!!.status)
+    }
+
+    // ── A double tap lands once ──────────────────────────────────────
+    // Two land calls back to back. The view model's guard is what takes the second one, so the
+    // worker that runs the write is held until both taps have arrived: the first land is still in
+    // progress when the second call comes, and the manager is never asked to land it twice.
+
+    @Test
+    fun doubleTapLandsOnce() = runBlocking {
+        val mission = seedMission()
+        landSortie0(mission.id)
+        val sortie = seedSortie1LiftPlan(mission.id)
+        manager.launch(sortie.id)
+
+        val worker = Executors.newSingleThreadExecutor()
+        val held = CountDownLatch(1)
+        val workerJob = Job()
+        val heldScope = CoroutineScope(
+            worker.asCoroutineDispatcher() + workerJob +
+                CoroutineExceptionHandler { _, e -> escaped += e }
+        )
+        worker.submit { held.await(5, TimeUnit.SECONDS) }
+        try {
+            val vm = InFlightViewModel(db, settingsStore, sortie.id, heldScope, manager)
+
+            val done = CompletableDeferred<Unit>()
+            var onDoneRuns = 0
+            vm.land { onDoneRuns++; done.complete(Unit) }
+            vm.land { onDoneRuns++; done.complete(Unit) }
+            assertEquals("no land should have run while its thread was held", 0, onDoneRuns)
+
+            held.countDown()
+            awaitDone(done)
+            assertEquals(1, onDoneRuns)
+            assertEquals(SortieState.LANDED, sortieDao.get(sortie.id)!!.state)
+            // A second land that got past the guard would be rejected by the manager and show a
+            // message inside this window. The guard means there is nothing to show.
+            assertNull(withTimeoutOrNull(1_000) { vm.message.first { it != null } })
+            assertTrue("a land threw out of the view model: $escaped", escaped.isEmpty())
+
+            // The Mission advanced exactly one place: the landed lift, then the run that follows it,
+            // which is PLANNED rather than landed or scrubbed. Nothing after it moved.
+            val sorties = sortieDao.getForMission(mission.id)
+            assertEquals(SortieState.LANDED, sorties[1].state)
+            assertEquals(1, sorties.count { it.state == SortieState.LANDED && it.index >= 1 })
+            assertEquals(SortieType.RUN, sorties[2].type)
+            assertEquals(SortieState.PLANNED, sorties[2].state)
+            assertEquals(SortieState.PENDING, sorties[3].state)
+            assertEquals(SortieState.PENDING, sorties[4].state)
+        } finally {
+            held.countDown()
+            workerJob.cancel()
+            worker.shutdownNow()
+        }
+    }
+
+    // ── A land the manager rejects is a message, not a crash ─────────
+    // The sortie is already LANDED, so MissionManager.land refuses it. The refusal is mixed types —
+    // a check() IllegalStateException here — so the view model catches Exception and shows a short
+    // line instead of letting anything escape into the screen's scope.
+
+    @Test
+    fun secondLandIsRejectedWithoutCrash() = runBlocking {
+        val (vm, ready) = launchSortie1()
+        val sortieId = ready.sortieId
+
+        val firstDone = CompletableDeferred<Unit>()
+        vm.land { firstDone.complete(Unit) }
+        awaitDone(firstDone)
+        val landed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.LANDED, landed.state)
+        val landedAt = landed.landedAt
+        assertNotNull(landedAt)
+        assertNull(vm.message.value)
+
+        // The same scope as the first landing, whose handler records anything a launched coroutine
+        // fails with, so "throws nothing out of the view model" is something the test can see.
+        val rejecting = InFlightViewModel(db, settingsStore, sortieId, scope, manager)
+        withTimeout(5_000) { rejecting.state.first { it is InFlightState.Ready } }
+
+        val secondDone = CompletableDeferred<Unit>()
+        rejecting.land { secondDone.complete(Unit) }
+
+        val shown = withTimeout(5_000) { rejecting.message.first { it != null } }!!
+        assertTrue("message should be a short line, was: $shown", shown.isNotBlank() && shown.length <= 60)
+        assertNull(withTimeoutOrNull(1_000) { secondDone.await() })
+        assertTrue("a rejected land threw out of the view model: $escaped", escaped.isEmpty())
+
+        // The refusal changed nothing: still landed once, at the time the first landing gave it.
+        val after = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.LANDED, after.state)
+        assertEquals(landedAt, after.landedAt)
     }
 }
