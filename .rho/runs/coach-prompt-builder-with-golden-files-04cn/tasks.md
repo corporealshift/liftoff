@@ -119,7 +119,7 @@ invariant 2, and CLAUDE.md conventions.
   / remains outstanding; the M0 cell no longer says the prompt builder is still to come; the file is
   LF-only.
 
-- [ ] 6. Gate: the whole suite runs clean, and the run's checks pass
+- [x] 6. Gate: the whole suite runs clean, and the run's checks pass
   No new source files. Run `bash gradlew.sh --stop` if `rm -rf` cannot clear the results directory,
   then `rm -rf app/build/test-results/testDebugUnitTest` and
   `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, and read the output
