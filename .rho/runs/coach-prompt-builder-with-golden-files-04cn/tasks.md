@@ -61,7 +61,7 @@ invariant 2, and CLAUDE.md conventions.
   file has been read by eye against the plan's prompt shape, so a formatting bug is not frozen in as
   "expected".
 
-- [ ] 3. `coach: repair prompt built from the validator's errors`
+- [x] 3. `coach: repair prompt built from the validator's errors`
   `CoachPromptBuilder.repairPrompt(errors: List<String>): String` in the existing
   `coach/CoachPromptBuilder.kt`, laid out per plan decision 11: `Your reply was not valid:` on its
   own line, each validator error line unchanged on its own line, then
