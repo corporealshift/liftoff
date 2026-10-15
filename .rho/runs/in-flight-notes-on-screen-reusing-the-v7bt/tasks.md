@@ -89,7 +89,7 @@ tested" already says which class each one goes in.
   (detached, `EXIT=$?` sentinel).
   Commit `inflight: add the sortie note action and note line`.
 
-- [ ] Test the note dialog opened from the In-Flight screen
+- [x] Test the note dialog opened from the In-Flight screen
   The two opening-and-saving tests, attempted **once each** — this is the known blocker, and the
   fallback is authorised in advance, so the decision is made here rather than chased.
   `noteCellOnActiveCardOpensDialogAndSaves` — use a **one-exercise** plan so `NOTE` is unique (three
