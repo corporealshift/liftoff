@@ -74,7 +74,7 @@ Before naming a new test, check the name is not already in the suite.
   the view model).
   Done when: both tests exist and pass, and the suite is still green.
 
-- [ ] 5. Scrub a sortie through the view model
+- [x] 5. Scrub a sortie through the view model
   Covers: `InFlightViewModel.scrub(reason, onDone)` in the same shape as `land`, with the reason trimmed
   and blank-becomes-null before it reaches the manager (the same normalisation `normalizeNote` applies to
   notes), and the message flow reused for a rejected scrub. No screen change; the Launchpad's own
