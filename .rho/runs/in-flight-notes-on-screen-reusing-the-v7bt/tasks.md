@@ -137,7 +137,7 @@ tested" already says which class each one goes in.
   Commit `inflight: full suite green with note tests` — or no commit at all if this task changed
   nothing; say so instead of committing an empty change.
 
-- [ ] Run the run's verify.sh and record the result
+- [x] Run the run's verify.sh and record the result
   The definition of done, last. `bash .rho/runs/in-flight-notes-on-screen-reusing-the-v7bt/verify.sh`
   detached with an `EXIT=$?` sentinel — it clears `app/build/test-results/testDebugUnitTest` itself,
   runs the gate with `--no-build-cache` and matches all 17 names across the reports. Expect exit 0.
