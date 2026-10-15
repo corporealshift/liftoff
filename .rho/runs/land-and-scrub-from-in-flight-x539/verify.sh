@@ -14,11 +14,13 @@
 # below is a test this run has to write, except the ones under "must not break", which are names the
 # repo already has and which the change must keep passing.
 #
-# No test below opens a Dialog. The brief says Compose tests that open a Dialog are optional, and the
-# confirmation logic is explicitly asked for as something testable "without Compose" — so the
-# open-set count and the decision to confirm are named as plain Kotlin over the derived state, and
-# nothing here clicks a control that opens a dialog (this repo also hangs under Robolectric when a
-# text field sits inside a Dialog).
+# Every named new test is plain Kotlin logic (the derived state, the domain, or the In-Flight view
+# model against in-memory Room). The brief asks for Robolectric tests of the logic and makes Compose
+# tests that open a Dialog optional, so no Compose screen test is named here. The footer itself
+# (Land replacing Back, the Scrub action) is reviewed by the owner in the pull request; the whole
+# suite still has to pass in the gate, including whatever the implementer does with
+# InFlightScreenTest.noChecklistBackButtonTriggersCallback, which taps the Back button this brief
+# removes.
 #
 # The plan's "## Decisions" are not pinned here: where the Scrub action sits in the footer, what the
 # Loading footer shows, the confirmation wording and its singular/plural, whether scrub ever skips
@@ -140,12 +142,14 @@ t noChecklistNeedsNoConfirmation
 # ─── 3. Landing a sortie from In-Flight ───────────────────────────────────────
 # Brief: "Landing goes through MissionManager.land and then returns to the Launchpad." Driven
 # through the In-Flight view model against in-memory Room, on a seeded lift plan that was launched
-# the way the app launches one.
+# the way the app launches one, with sets logged through the view model before landing
+# (the brief's "Launch → log → Land works for a seeded lift plan").
 echo ""
 echo "=== landing ==="
 
 # Every set checked: the sortie becomes LANDED, the sets stay DONE (nothing is rewritten as not
-# done), the completion callback runs exactly once, and no failure message is raised.
+# done), the completion callback (what returns to the Launchpad) runs exactly once, and no failure
+# message is raised.
 t landWithEverySetChecked
 
 # Some sets left unchecked: the unchecked ones are recorded as not done, and the checked ones stay
@@ -178,7 +182,8 @@ echo "=== scrubbing ==="
 t scrubTreatsWhitespaceReasonAsNull
 
 # Scrubbing from In-Flight: the sortie is SCRUBBED, the sets already checked are still checked, the
-# reason the owner gave is stored, and the Mission has advanced to the next sortie.
+# reason the owner gave is stored, the Mission has advanced to the next sortie, and the completion
+# callback runs.
 t scrubFromInFlightKeepsCheckedSetsAndStoresReason
 
 # A reason of only spaces typed at In-Flight leaves nothing stored on the sortie.
@@ -192,34 +197,18 @@ echo "=== robustness ==="
 
 # Two land calls back to back: the sortie is landed once, the completion callback runs once, the
 # next sortie has not been advanced past, and nothing is thrown.
+# Decision (plan 7): the second tap is ignored by a guard in the view model rather than by
+# disabling the button.
 t doubleTapLandsOnce
 
 # A land call that MissionManager rejects (the sortie is no longer in flight) leaves the sortie as
-# it was, does not run the completion callback, raises a short message the screen can show, and
-# throws nothing out of the view model.
-# Decision (plan 7): the second call is ignored by a guard rather than by disabling the button.
+# it was (still LANDED once, with its original landed time), does not run the completion callback,
+# raises a short message the screen can show, and throws nothing out of the view model.
+# Decision (plan 6): a rejection is shown as a short message line; its wording is the owner's to
+# review, so only its presence is checked.
 t secondLandIsRejectedWithoutCrash
 
-# ─── 6. The footer on the In-Flight screen ────────────────────────────────────
-# Brief: "A 64 dp ink Land button … full width in the bottom area as in the mockup. It replaces the
-# Back text button." and "An underlined Scrub text action in the bottom area." Nodes are asserted,
-# not clicked, except where the brief's own end-to-end path is being walked.
-echo ""
-echo "=== the footer ==="
-
-# On both loaded states — the checklist and the no-checklist one — the bottom area offers LAND and
-# SCRUB, and no longer offers BACK.
-# Decision (plan 2): the Loading footer keeps Back; this is about the loaded states only.
-t landFooterOffersLandAndScrubAndNoBack
-
-# The brief's "Launch → log → Land works for a seeded lift plan" path, walked on the screen that has
-# no checklist so no confirmation is asked for: tapping LAND lands the in-flight sortie in Room and
-# hands the screen back (the Launchpad is where the owner lands).
-# This retargets InFlightScreenTest.noChecklistBackButtonTriggersCallback, which taps the Back
-# button this brief removes; that name is not required here because the button it taps is gone.
-t noChecklistLandLandsAndCallsOnBack
-
-# ─── 7. must not break ────────────────────────────────────────────────────────
+# ─── 6. must not break ────────────────────────────────────────────────────────
 # The whole existing suite runs in the gate above. These name the brief's own "must not" clauses
 # that this screen is the one touching.
 echo ""
