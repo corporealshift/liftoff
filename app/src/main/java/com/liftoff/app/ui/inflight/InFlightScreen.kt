@@ -60,17 +60,29 @@ fun InFlightScreen(
     ) {
         when (state) {
             is InFlightState.Loading -> LoadingContent(onBack)
-            is InFlightState.NoChecklist -> NoChecklistContent(state as InFlightState.NoChecklist, expandedSet, onBack)
-            is InFlightState.Ready -> ReadyContent(
-                state = state as InFlightState.Ready,
-                vm = vm,
-                expandedSet = expandedSet,
-                onExpand = { id -> expandedSet = expandedSet + id },
-                onCollapse = { id -> expandedSet = expandedSet - id },
-                onEdit = { editingSetId = it },
-                onOpenNote = { target -> noteTarget = target },
-                onBack = onBack,
-            )
+            is InFlightState.NoChecklist -> {
+                val noCheck = state as InFlightState.NoChecklist
+                NoChecklistContent(
+                    noCheck = noCheck,
+                    expandedSet = expandedSet,
+                    onOpenSortieNote = { noteTarget = NoteTarget.Sortie(noCheck.sortieNote) },
+                    onBack = onBack,
+                )
+            }
+            is InFlightState.Ready -> {
+                val ready = state as InFlightState.Ready
+                ReadyContent(
+                    state = ready,
+                    vm = vm,
+                    expandedSet = expandedSet,
+                    onExpand = { id -> expandedSet = expandedSet + id },
+                    onCollapse = { id -> expandedSet = expandedSet - id },
+                    onEdit = { editingSetId = it },
+                    onOpenNote = { target -> noteTarget = target },
+                    onOpenSortieNote = { noteTarget = NoteTarget.Sortie(ready.sortieNote) },
+                    onBack = onBack,
+                )
+            }
         }
     }
 
@@ -159,7 +171,12 @@ private fun LoadingContent(onBack: () -> Unit) {
 // ── No checklist ───────────────────────────────────────────────────
 
 @Composable
-private fun NoChecklistContent(noCheck: InFlightState.NoChecklist, expandedSet: Set<Long>, onBack: () -> Unit) {
+private fun NoChecklistContent(
+    noCheck: InFlightState.NoChecklist,
+    expandedSet: Set<Long>,
+    onOpenSortieNote: () -> Unit,
+    onBack: () -> Unit,
+) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
         Box(
             modifier = Modifier
@@ -174,6 +191,7 @@ private fun NoChecklistContent(noCheck: InFlightState.NoChecklist, expandedSet: 
             }
         }
         DuoStripe()
+        SortieNoteStrip(note = noCheck.sortieNote, onOpen = onOpenSortieNote)
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -201,11 +219,13 @@ private fun ReadyContent(
     onCollapse: (Long) -> Unit,
     onEdit: (Long) -> Unit,
     onOpenNote: (NoteTarget) -> Unit,
+    onOpenSortieNote: () -> Unit,
     onBack: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
         ReadyHeader(state)
         DuoStripe()
+        SortieNoteStrip(note = state.sortieNote, onOpen = onOpenSortieNote)
 
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -246,6 +266,29 @@ private fun ReadyContent(
         }
 
         Footer(onBack = onBack)
+    }
+}
+
+// ── Sortie note strip ──────────────────────────────────────────────
+
+/** Shared by both loaded states so the action and its note line cannot drift between them. */
+@Composable
+private fun SortieNoteStrip(note: String?, onOpen: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        UnderlinedTextButton(
+            text = "Sortie note",
+            onClick = onOpen,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp),
+        )
+        if (note != null) {
+            Text(
+                text = note,
+                style = LiftoffType.note().copy(color = Muted, fontSize = 13.sp),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp, start = 16.dp, end = 16.dp),
+            )
+        }
     }
 }
 

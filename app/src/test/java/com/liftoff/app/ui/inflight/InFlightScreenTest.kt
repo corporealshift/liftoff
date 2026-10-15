@@ -697,4 +697,122 @@ class InFlightScreenTest {
             composeRule.onAllNodes(isDialog()).assertCountEquals(0)
         }
     }
+
+    // ── sortieNoteActionAndLineShowOnChecklistState ───────────────────
+    // On a lift sortie that has a Flight Plan, the 'Sortie note' action sits under the header
+    // bands above the cards, and a note stored on the sortie row shows as a muted line under it.
+    // UnderlinedTextButton upper-cases, so the action reads "SORTIE NOTE".
+
+    @Test
+    fun sortieNoteActionAndLineShowOnChecklistState() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "Press", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "Press day", estimatedMinutes = 20,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Overhead Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 6, seconds = null, weight = 25.0),
+                        SetDraft(reps = 6, seconds = null, weight = 30.0)
+                    )),
+                    ExerciseDraft(name = "Push-up", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 12, seconds = null, weight = null)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            // Seed the sortie row's own note straight through the DAO — a dumb write.
+            container.database.sortieDao().updateNotes(sortieId, "Bar felt balanced")
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("Bar felt balanced", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            composeRule.onNodeWithText("SORTIE NOTE", ignoreCase = false).assertIsDisplayed()
+            composeRule.onNodeWithText("SORTIE NOTE", ignoreCase = false).assertIsEnabled()
+            composeRule.onNodeWithText("Bar felt balanced", ignoreCase = false).assertIsDisplayed()
+            // The line is the screen's own; nothing was opened to make it appear.
+            composeRule.onAllNodes(isDialog()).assertCountEquals(0)
+        }
+    }
+
+    // ── seededSortieNoteShowsOnNoChecklistState ───────────────────────
+    // The no-checklist state used to show only the placeholder. The action and the note line are
+    // added there too, so both the stored note and "No checklist for this sortie." are on screen.
+
+    @Test
+    fun seededSortieNoteShowsOnNoChecklistState() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            // A RUN sortie with no Flight Plan → NoChecklist state, carrying its own note.
+            val sortieId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id,
+                index = 0,
+                type = SortieType.RUN,
+                focus = "easy jog",
+                focusRationale = null,
+                state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(),
+                landedAt = null,
+                scrubReason = null,
+                notes = "Felt strong",
+                runDistance = null,
+                runMinutes = null,
+            ))
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.waitUntil(5_000) {
+                val note = composeRule.onAllNodesWithText("Felt strong", ignoreCase = false).fetchSemanticsNodes()
+                val placeholder = composeRule.onAllNodesWithText("No checklist for this sortie.", ignoreCase = false).fetchSemanticsNodes()
+                note.isNotEmpty() && placeholder.isNotEmpty()
+            }
+
+            composeRule.onNodeWithText("Felt strong", ignoreCase = false).assertIsDisplayed()
+            composeRule.onNodeWithText("No checklist for this sortie.", ignoreCase = false).assertIsDisplayed()
+            composeRule.onNodeWithText("SORTIE NOTE", ignoreCase = false).assertIsDisplayed()
+            composeRule.onNodeWithText("SORTIE NOTE", ignoreCase = false).assertIsEnabled()
+            composeRule.onAllNodes(isDialog()).assertCountEquals(0)
+        }
+    }
 }
