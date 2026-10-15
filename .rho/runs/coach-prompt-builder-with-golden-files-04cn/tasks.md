@@ -74,7 +74,7 @@ invariant 2, and CLAUDE.md conventions.
   Done when: that method name passes in this run's XML, and the errors it asserts against are the
   validator's own output read from the test's own call.
 
-- [ ] 4. `data: prompt input loader over Room and settings`
+- [x] 4. `data: prompt input loader over Room and settings`
   `data/PromptInputLoader.kt` (new): `class PromptInputLoader(db, settingsStore, clock =
   Clock.systemUTC(), zone = { ZoneId.systemDefault() }, historyWindowDays: Int? = null)` with
   `suspend fun outlineInput(missionId: Long)` and `suspend fun flightPlanInput(missionId: Long,
