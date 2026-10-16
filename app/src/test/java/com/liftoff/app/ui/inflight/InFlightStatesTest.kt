@@ -271,4 +271,133 @@ class InFlightStatesTest {
         // Plan title "Run Plan" is not blank, so it wins over focus
         assertEquals("Run Plan", runNoCheck.title)
     }
+
+    // ── Open-set count ───────────────────────────────────────────────
+    // The derived state reports how many sets are still OPEN: the full count before anything is
+    // checked, it drops as sets are checked, and a skipped exercise's sets are not counted.
+
+    @Test
+    fun openCountCountsOpenSets() = runBlocking {
+        val sortieId = buildFixture()
+
+        // Nothing checked yet: every one of the 7 sets is open.
+        var state = deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+            as InFlightState.Ready
+        assertEquals(2, state.sortieNumber)
+        assertEquals(7, state.setCount)
+        assertEquals(0, state.doneCount)
+        assertEquals(7, state.openCount)
+
+        // Checking sets moves them out of the open count, not out of the total.
+        flightPlanDao.checkSet(state.cards[0].sets[0].setId)
+        flightPlanDao.checkSet(state.cards[0].sets[1].setId)
+        state = deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+            as InFlightState.Ready
+        assertEquals(2, state.doneCount)
+        assertEquals(7, state.setCount)
+        assertEquals(5, state.openCount)
+
+        // Skipping an exercise marks its open sets SKIPPED, so they stop counting as open.
+        flightPlanDao.skipExercise(state.cards[1].plannedExerciseId)
+        state = deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+            as InFlightState.Ready
+        assertEquals(CardStatus.SKIPPED, state.cards[1].status)
+        assertEquals(2, state.doneCount)
+        assertEquals(7, state.setCount)
+        assertEquals(3, state.openCount)
+        assertEquals(2, state.progress.count { it == SetStatus.SKIPPED })
+
+        // Checking the rest leaves nothing open.
+        for (card in state.cards) {
+            for (set in card.sets) {
+                if (set.status == SetStatus.OPEN) flightPlanDao.checkSet(set.setId)
+            }
+        }
+        state = deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+            as InFlightState.Ready
+        assertEquals(0, state.openCount)
+    }
+
+    // ── When landing needs confirmation ──────────────────────────────
+    // The confirmation decision reads that count: no confirmation when nothing is open,
+    // confirmation as soon as one set is open.
+
+    @Test
+    fun confirmationNeededOnlyWhenSetsAreOpen() = runBlocking {
+        val sortieId = buildFixture()
+
+        // Open sets from the start.
+        var state = deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+            as InFlightState.Ready
+        assertTrue(needsLandConfirmation(state))
+
+        // One open set is enough to confirm.
+        for (set in state.cards[0].sets) flightPlanDao.checkSet(set.setId)
+        for (set in state.cards[2].sets) flightPlanDao.checkSet(set.setId)
+        flightPlanDao.checkSet(state.cards[1].sets[0].setId)
+        state = deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+            as InFlightState.Ready
+        assertEquals(1, state.openCount)
+        assertTrue(needsLandConfirmation(state))
+
+        // Nothing open: land straight away.
+        flightPlanDao.checkSet(state.cards[1].sets[1].setId)
+        state = deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+            as InFlightState.Ready
+        assertEquals(0, state.openCount)
+        assertFalse(needsLandConfirmation(state))
+
+        // Unchecking one set puts confirmation back.
+        flightPlanDao.uncheckSet(state.cards[1].sets[0].setId)
+        state = deriveInFlight(flightPlanDao.getPlan(sortieId)!!, sortieDao.get(sortieId)!!, WeightUnit.LB)
+            as InFlightState.Ready
+        assertEquals(1, state.openCount)
+        assertTrue(needsLandConfirmation(state))
+    }
+
+    // ── A sortie with no checklist is never confirmed ────────────────
+    // A run, a plan with no exercises, and the Loading state never confirm.
+
+    @Test
+    fun noChecklistNeedsNoConfirmation() = runBlocking {
+        val missionId = missionDao.insert(Mission(
+            weekStart = java.time.LocalDate.of(2026, 1, 5),
+            pattern = "push", status = MissionStatus.DRAFT, outlineNotes = null
+        ))
+
+        // Case 1: a RUN sortie with no plan at all.
+        val runId = sortieDao.insert(Sortie(
+            missionId = missionId, index = 0, type = SortieType.RUN,
+            focus = "easy jog", focusRationale = null, state = SortieState.IN_FLIGHT,
+            launchedAt = System.currentTimeMillis(), landedAt = null,
+            scrubReason = null, notes = null, runDistance = null, runMinutes = null
+        ))
+        val runSortie = sortieDao.get(runId)!!
+        val runState = deriveInFlight(null, runSortie, WeightUnit.LB)
+        assertTrue(runState is InFlightState.NoChecklist)
+        assertEquals(1, (runState as InFlightState.NoChecklist).sortieNumber)
+        assertFalse(needsLandConfirmation(runState))
+
+        // Case 2: a plan with no exercises.
+        val emptyPlanId = sortieDao.insert(Sortie(
+            missionId = missionId, index = 2, type = SortieType.LIFT,
+            focus = "Push", focusRationale = null, state = SortieState.IN_FLIGHT,
+            launchedAt = System.currentTimeMillis(), landedAt = null,
+            scrubReason = null, notes = null, runDistance = null, runMinutes = null
+        ))
+        flightPlanDao.writePlan(emptyPlanId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Upper Push", estimatedMinutes = 40,
+            warmup = null, notes = null, runKind = null, targetDistance = null,
+            targetPace = null, rawJson = "{}",
+            exercises = emptyList(),
+            segments = emptyList()
+        ))
+        val emptyState = deriveInFlight(flightPlanDao.getPlan(emptyPlanId)!!, sortieDao.get(emptyPlanId)!!, WeightUnit.LB)
+        assertTrue(emptyState is InFlightState.NoChecklist)
+        assertEquals(3, (emptyState as InFlightState.NoChecklist).sortieNumber)
+        assertFalse(needsLandConfirmation(emptyState))
+
+        // Case 3: the state before the sortie has been read.
+        assertFalse(needsLandConfirmation(InFlightState.Loading))
+    }
 }

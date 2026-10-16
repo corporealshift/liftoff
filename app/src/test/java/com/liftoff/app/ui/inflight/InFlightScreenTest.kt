@@ -1,6 +1,10 @@
 package com.liftoff.app.ui.inflight
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import kotlinx.coroutines.*
@@ -323,13 +327,13 @@ class InFlightScreenTest {
         }
     }
 
-    // ── noChecklistBackButtonTriggersCallback ─────────────────────────
-    // On a sortie with no checklist (e.g. a RUN sortie), tapping 'Back'
-    // in the footer must call the onBack callback. The screen shows
-    // "No checklist for this sortie." and a clickable Back button.
+    // ── noChecklistLandLandsAndCallsOnBack ────────────────────────────
+    // On a sortie with no checklist (a RUN sortie), the footer's 'Land' lands it through the
+    // MissionManager and calls the onBack callback. There is no checklist, so there are no open
+    // sets to warn about and no confirmation dialog: the land happens on the first tap.
 
     @Test
-    fun noChecklistBackButtonTriggersCallback() {
+    fun noChecklistLandLandsAndCallsOnBack() {
         runBlocking {
             val settingsStore = com.liftoff.app.settings.SettingsStore(
                 androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
@@ -340,7 +344,7 @@ class InFlightScreenTest {
             val mission = manager.onAppOpen()
 
             // Insert a RUN sortie with no flight plan → NoChecklist state.
-            container.database.sortieDao().insert(Sortie(
+            val sortieId = container.database.sortieDao().insert(Sortie(
                 missionId = mission.id,
                 index = 0,
                 type = SortieType.RUN,
@@ -355,18 +359,23 @@ class InFlightScreenTest {
                 runMinutes = null,
             ))
 
-            val sorties = container.database.sortieDao().getForMission(mission.id)
-            val sortieId = sorties[0].id
+            // Landing advances the Mission, and advance() only works on an ACTIVE one.
+            container.database.missionDao().update(mission.copy(status = MissionStatus.ACTIVE))
 
-            var backCalled = false
+            // The callback is what the shell uses to leave In-Flight, so answering it here is how the
+            // test takes the screen down: its Room flow is cancelled with it, before the database is
+            // read again and before tearDown closes it.
+            var backCalled by mutableStateOf(false)
 
             composeRule.setContent {
                 com.liftoff.app.ui.theme.LiftoffTheme {
-                    InFlightScreen(
-                        sortieId = sortieId,
-                        container = container,
-                        onBack = { backCalled = true },
-                    )
+                    if (!backCalled) {
+                        InFlightScreen(
+                            sortieId = sortieId,
+                            container = container,
+                            onBack = { backCalled = true },
+                        )
+                    }
                 }
             }
 
@@ -375,11 +384,109 @@ class InFlightScreenTest {
                 composeRule.onAllNodesWithText("No checklist for this sortie.", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
             }
 
-            // Tap 'Back' in the footer (FooterCell upper-cases, but Footer uses UnderlinedTextButton directly with "Back").
-            composeRule.onNodeWithText("Back", ignoreCase = true).performClick()
+            composeRule.onNodeWithText("LAND", ignoreCase = false).performClick()
 
+            composeRule.waitUntil(5_000) { backCalled }
+
+            // No confirmation dialog opened, so the land is already done by the time the screen is gone.
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("No checklist for this sortie.", ignoreCase = false).fetchSemanticsNodes().isEmpty()
+            }
+
+            val sortie = container.database.sortieDao().get(sortieId)!!
+            assertEquals(SortieState.LANDED, sortie.state)
             assertTrue("onBack callback should have been called", backCalled)
         }
+    }
+
+    // ── landFooterOffersLandAndScrubAndNoBack ─────────────────────────
+    // The footer of a loaded sortie offers Land and Scrub and no longer offers Back, on both the
+    // checklist state and the no-checklist state. Nothing is clicked: this only reads the nodes the
+    // owner is shown.
+
+    @Test
+    fun landFooterOffersLandAndScrubAndNoBack() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            // A LIFT sortie with a plan (2 exercises, 5 sets) → Ready.
+            val liftId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 1, type = SortieType.LIFT,
+                focus = "Push", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+            container.database.flightPlanDao().writePlan(liftId, FlightPlanDraft(
+                source = FlightPlanSource.GENERATED, title = "Upper Push", estimatedMinutes = 40,
+                warmup = null, notes = null, runKind = null, targetDistance = null,
+                targetPace = null, rawJson = "{}",
+                exercises = listOf(
+                    ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 10, seconds = null, weight = 35.0),
+                        SetDraft(reps = 10, seconds = null, weight = 35.0)
+                    )),
+                    ExerciseDraft(name = "Push-up", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 12, seconds = null, weight = null),
+                        SetDraft(reps = 12, seconds = null, weight = null)
+                    )),
+                    ExerciseDraft(name = "Kettlebell Hold", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                        SetDraft(reps = 8, seconds = null, weight = 20.0)
+                    ))
+                ),
+                segments = emptyList()
+            ))
+
+            // A RUN sortie with no plan → NoChecklist.
+            val runId = container.database.sortieDao().insert(Sortie(
+                missionId = mission.id, index = 0, type = SortieType.RUN,
+                focus = "easy jog", focusRationale = null, state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(), landedAt = null,
+                scrubReason = null, notes = null, runDistance = null, runMinutes = null
+            ))
+
+            // One composition, two sorties: setContent can only be called once per test.
+            var sortieId by mutableStateOf(liftId)
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    key(sortieId) {
+                        InFlightScreen(
+                            sortieId = sortieId,
+                            container = container,
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("00/05\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertFooterOffersLandAndScrub()
+
+            sortieId = runId
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("No checklist for this sortie.", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertFooterOffersLandAndScrub()
+        }
+    }
+
+    /** The footer's Land button and Scrub action, and the absence of the Back action it replaced. */
+    private fun assertFooterOffersLandAndScrub() {
+        composeRule.onNodeWithText("LAND", ignoreCase = false).assertExists()
+        composeRule.onNodeWithText("SCRUB", ignoreCase = false).assertExists()
+        assertTrue(
+            "the footer must not offer Back",
+            composeRule.onAllNodesWithText("BACK", ignoreCase = true).fetchSemanticsNodes().isEmpty(),
+        )
     }
 
     // ── footerAddSetAndSkipUnskip ────────────────────────────────────

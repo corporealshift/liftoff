@@ -126,6 +126,19 @@ class SortiesTest {
         assertNull(result.scrubReason)
     }
 
+    @Test
+    fun scrubTreatsWhitespaceReasonAsNull() {
+        val inFlight = sortie(SortieState.IN_FLIGHT)
+
+        val blank = scrub(inFlight, "   ")
+        assertEquals(SortieState.SCRUBBED, blank.state)
+        assertNull(blank.scrubReason)
+
+        val withText = scrub(inFlight, "  felt sick  ")
+        assertEquals(SortieState.SCRUBBED, withText.state)
+        assertEquals("  felt sick  ", withText.scrubReason)
+    }
+
     private fun sortie(state: SortieState, index: Int = 0): Sortie =
         Sortie(
             id = 0, missionId = 0, index = index, type = SortieType.RUN, focus = null,

@@ -47,7 +47,8 @@ fun land(sortie: Sortie, at: Long): Sortie {
 }
 
 fun scrub(sortie: Sortie, reason: String?): Sortie {
-    val cleanReason = if (reason.isNullOrEmpty()) null else reason
+    // A reason of only spaces carries nothing; text is stored exactly as passed.
+    val cleanReason = if (reason.isNullOrBlank()) null else reason
     SortieTransitions.requireTransition(sortie.state, SortieState.SCRUBBED)
     return sortie.copy(state = SortieState.SCRUBBED, scrubReason = cleanReason)
 }

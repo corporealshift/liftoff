@@ -11,6 +11,7 @@ sealed interface InFlightState {
     /** A sortie with no plan or no exercises (e.g. a RUN sortie). */
     data class NoChecklist(
         val sortieId: Long,
+        val sortieNumber: Int,        // sortie.index + 1, for a dialog title
         val eyebrow: String,
         val title: String,
         val sortieNote: String?,
@@ -19,17 +20,23 @@ sealed interface InFlightState {
     /** Full checklist state for a LIFT sortie with exercises. */
     data class Ready(
         val sortieId: Long,
+        val sortieNumber: Int,        // sortie.index + 1, for a dialog title
         val eyebrow: String,          // "IN FLIGHT · SORTIE n", n = sortie.index + 1
         val title: String,            // plan.title (if not blank), else focus, else "Sortie n"
         val weightUnit: WeightUnit,   // user's configured unit for the stepper
         val doneCount: Int,           // DONE sets over all exercises, added sets included
         val setCount: Int,            // total sets, added sets included
+        val openCount: Int,           // OPEN sets: what landing would record as not done
         val progress: List<SetStatus>,// one per set in display order
         val cards: List<ExerciseCard>,
         val currentSetId: Long?,      // first OPEN set of the ACTIVE card; null if no active card
         val sortieNote: String?,      // the sortie row's own note
     ) : InFlightState
 }
+
+/** A skipped exercise's sets are already SKIPPED, so they are not counted here. */
+fun needsLandConfirmation(state: InFlightState): Boolean =
+    state is InFlightState.Ready && state.openCount > 0
 
 enum class CardStatus { SKIPPED, DONE, ACTIVE, UPCOMING }
 
@@ -77,7 +84,7 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
 
     // No checklist: run sorties or a plan with zero exercises
     if (plan == null || plan.exercises.isEmpty()) {
-        return InFlightState.NoChecklist(sortie.id, eyebrow, title, sortie.notes)
+        return InFlightState.NoChecklist(sortie.id, sortieNumber, eyebrow, title, sortie.notes)
     }
 
     val allProgress = mutableListOf<SetStatus>()
@@ -199,11 +206,13 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
 
     return InFlightState.Ready(
         sortieId = sortie.id,
+        sortieNumber = sortieNumber,
         eyebrow = eyebrow,
         title = title,
         weightUnit = unit,
         doneCount = allProgress.count { it == SetStatus.DONE },
         setCount = allProgress.size,
+        openCount = allProgress.count { it == SetStatus.OPEN },
         progress = allProgress,
         cards = cards,
         currentSetId = currentSetId,
