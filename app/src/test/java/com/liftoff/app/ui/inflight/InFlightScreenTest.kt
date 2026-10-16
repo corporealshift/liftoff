@@ -1041,4 +1041,68 @@ class InFlightScreenTest {
             composeRule.onNode(hasSetTextAction()).assertDoesNotExist()
         }
     }
+
+    // ── runScreenShowsPlanAndOffersNoteLandAndScrub ──────────────────
+    // A RUN sortie with the simple 'Run' plan shows the run screen: its title and focus, and none of
+    // the no-checklist line. The note, Land and Scrub entry points are there and enabled exactly as
+    // on the lift screen. Nothing is tapped: a BasicTextField inside a Dialog never lets Compose go
+    // idle under Robolectric (plan Decision 13).
+
+    @Test
+    fun runScreenShowsPlanAndOffersNoteLandAndScrub() {
+        runBlocking {
+            val sortieDao = container.database.sortieDao()
+            val sortieId = sortieDao.insert(Sortie(
+                missionId = missionIdForScreenTest(),
+                index = 0,
+                type = SortieType.RUN,
+                focus = "easy",
+                focusRationale = null,
+                state = SortieState.IN_FLIGHT,
+                launchedAt = System.currentTimeMillis(),
+                landedAt = null,
+                scrubReason = null,
+                notes = null,
+                runDistance = null,
+                runMinutes = null,
+            ))
+            val sortie = sortieDao.get(sortieId)!!
+            container.database.flightPlanDao().writePlan(
+                sortieId, com.liftoff.app.domain.simpleRunPlan(sortie)
+            )
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    InFlightScreen(
+                        sortieId = sortieId,
+                        container = container,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("RUN", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            composeRule.onNodeWithText("easy", ignoreCase = false).assertIsDisplayed()
+            composeRule.onAllNodesWithText("No checklist for this sortie.", ignoreCase = false)
+                .assertCountEquals(0)
+            for (label in listOf("SORTIE NOTE", "LAND", "SCRUB")) {
+                composeRule.onNodeWithText(label, ignoreCase = false).assertIsDisplayed()
+                composeRule.onNodeWithText(label, ignoreCase = false).assertIsEnabled()
+            }
+        }
+    }
+
+    /** The screen's own container reads the week the app would have opened. */
+    private suspend fun missionIdForScreenTest(): Long {
+        val settingsStore = com.liftoff.app.settings.SettingsStore(
+            androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                File(context.cacheDir, "settings.preferences_pb")
+            }
+        )
+        val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+        return manager.onAppOpen().id
+    }
 }
