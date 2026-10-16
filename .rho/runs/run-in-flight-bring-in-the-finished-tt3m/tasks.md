@@ -119,7 +119,7 @@ flaky and outside this brief.
   `scrubFromInFlightKeepsCheckedSetsAndStoresReason`, `doubleTapLandsOnce`, `exportedV1SchemaMatchesDatabase`)
   still pass. Write none of the seven names tasks 4–5 own.
 
-- [ ] 4. Test the run state derived from a Flight Plan
+- [x] 4. Test the run state derived from a Flight Plan
   Needs task 3. New `app/src/test/java/com/liftoff/app/ui/inflight/InFlightRunTest.kt`, Robolectric
   `@RunWith(RobolectricTestRunner::class)` `@Config(sdk = [34])`, reusing the fixture shape already in
   `InFlightLandScrubTest.kt`: in-memory Room with `allowMainThreadQueries()`, a
