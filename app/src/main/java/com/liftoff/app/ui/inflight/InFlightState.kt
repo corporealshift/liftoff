@@ -1,20 +1,38 @@
 package com.liftoff.app.ui.inflight
 
 import com.liftoff.app.data.*
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.settings.WeightUnit
+import com.liftoff.app.ui.sortie.formatDistance
+import com.liftoff.app.ui.sortie.formatMinutes
+import com.liftoff.app.ui.sortie.formatRunKind
 import com.liftoff.app.ui.sortie.formatWeight
 
 /** Derived state for the In-Flight checklist screen. */
 sealed interface InFlightState {
     object Loading : InFlightState
 
-    /** A sortie with no plan or no exercises (e.g. a RUN sortie). */
+    /** A sortie with no plan or no exercises (a run sortie whose plan never got written). */
     data class NoChecklist(
         val sortieId: Long,
         val sortieNumber: Int,        // sortie.index + 1, for a dialog title
         val eyebrow: String,
         val title: String,
         val sortieNote: String?,
+    ) : InFlightState
+
+    /** A RUN sortie with a Flight Plan: its kind, target distance/pace and segments. */
+    data class Run(
+        val sortieId: Long,
+        val sortieNumber: Int,        // sortie.index + 1, for a dialog title
+        val eyebrow: String,          // "IN FLIGHT · SORTIE n", n = sortie.index + 1
+        val title: String,            // plan.title (if not blank), else focus, else "Sortie n"
+        val notesLine: String?,       // plan notes, else focus; null when it would repeat the title
+        val kind: String?,            // formatRunKind(runKind), null when the plan has none
+        val targetDistance: String?,  // formatDistance(targetDistance, distanceUnit)
+        val targetPace: String?,      // as written in the plan
+        val segments: List<RunSegmentRow>,
+        val sortieNote: String?,      // the sortie row's own note
     ) : InFlightState
 
     /** Full checklist state for a LIFT sortie with exercises. */
@@ -70,8 +88,19 @@ data class SetRow(
     val countDeviates: Boolean,       // DONE only: actualReps != reps || actualSeconds != seconds
 )
 
+/** A run plan's segment as the screen shows it. Not the Room entity `data/RunSegment.kt`. */
+data class RunSegmentRow(
+    val description: String,
+    val detail: String?,              // "800 mi · 4 min"; null when the segment has neither
+)
+
 /** Pure derivation function — no I/O. Tests can call it on a fresh `getPlan` read. */
-fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): InFlightState {
+fun deriveInFlight(
+    plan: FlightPlanDetail?,
+    sortie: Sortie,
+    unit: WeightUnit,
+    distanceUnit: DistanceUnit = DistanceUnit.MI,
+): InFlightState {
     val sortieNumber = sortie.index + 1
     val eyebrow = "IN FLIGHT \u00b7 SORTIE $sortieNumber"
 
@@ -82,7 +111,35 @@ fun deriveInFlight(plan: FlightPlanDetail?, sortie: Sortie, unit: WeightUnit): I
         else -> "Sortie $sortieNumber"
     }
 
-    // No checklist: run sorties or a plan with zero exercises
+    // A run plan carries segments, not exercises, so it is read before the no-checklist fall-through.
+    if (sortie.type == SortieType.RUN && plan != null) {
+        val notesLine = when {
+            !plan.plan.notes.isNullOrBlank() -> plan.plan.notes
+            !sortie.focus.isNullOrBlank() -> sortie.focus
+            else -> null
+        }?.takeIf { it != title }
+
+        return InFlightState.Run(
+            sortieId = sortie.id,
+            sortieNumber = sortieNumber,
+            eyebrow = eyebrow,
+            title = title,
+            notesLine = notesLine,
+            kind = plan.plan.runKind?.takeIf { it.isNotBlank() }?.let(::formatRunKind),
+            targetDistance = plan.plan.targetDistance?.let { formatDistance(it, distanceUnit) },
+            targetPace = plan.plan.targetPace?.takeIf { it.isNotBlank() },
+            segments = plan.segments.map { segment ->
+                val detail = listOfNotNull(
+                    segment.distance?.let { formatDistance(it, distanceUnit) },
+                    segment.minutes?.let { formatMinutes(it) },
+                ).joinToString(" \u00b7 ").takeIf { it.isNotEmpty() }
+                RunSegmentRow(description = segment.description, detail = detail)
+            },
+            sortieNote = sortie.notes,
+        )
+    }
+
+    // No checklist: a sortie with no plan, or a plan with zero exercises
     if (plan == null || plan.exercises.isEmpty()) {
         return InFlightState.NoChecklist(sortie.id, sortieNumber, eyebrow, title, sortie.notes)
     }

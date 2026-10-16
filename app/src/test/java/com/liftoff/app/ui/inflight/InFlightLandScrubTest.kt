@@ -149,9 +149,9 @@ class InFlightLandScrubTest {
         vm.state.first { it is InFlightState.Ready }
     } as InFlightState.Ready
 
-    private suspend fun awaitNoChecklist(vm: InFlightViewModel) = withTimeout(5_000) {
-        vm.state.first { it is InFlightState.NoChecklist }
-    } as InFlightState.NoChecklist
+    private suspend fun awaitRun(vm: InFlightViewModel) = withTimeout(5_000) {
+        vm.state.first { it is InFlightState.Run }
+    } as InFlightState.Run
 
     /** onDone is awaited rather than polled, so a callback that never runs fails on a timeout. */
     private suspend fun awaitDone(done: CompletableDeferred<Unit>) {
@@ -251,8 +251,9 @@ class InFlightLandScrubTest {
         assertEquals("Run", plan.plan.title)
     }
 
-    // ── A run has no checklist and lands with no confirmation ────────
-    // The same land call on a RUN sortie: it lands and the completion callback runs.
+    // ── A run shows its plan and lands with no confirmation ──────────
+    // The same land call on a RUN sortie: it carries the simple 'Run' plan the manager wrote, and it
+    // lands with no confirmation because a run has no sets to leave unchecked.
 
     @Test
     fun landingARunNeedsNoChecklist() = runBlocking {
@@ -261,8 +262,8 @@ class InFlightLandScrubTest {
         manager.launch(runSortie.id)
 
         val vm = InFlightViewModel(db, settingsStore, runSortie.id, scope, manager)
-        val noChecklist = awaitNoChecklist(vm)
-        assertEquals(1, noChecklist.sortieNumber)
+        val run = awaitRun(vm)
+        assertEquals(1, run.sortieNumber)
 
         val done = CompletableDeferred<Unit>()
         var onDoneRuns = 0

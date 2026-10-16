@@ -225,7 +225,8 @@ class InFlightStatesTest {
     }
 
     // ── No checklist for a sortie with no plan or no exercises ───────
-    // Decision: 'A no checklist state still carries the eyebrow and title'.
+    // Decision: 'A no checklist state still carries the eyebrow and title'. A RUN sortie with a plan
+    // is the exception: it gets the run state, which carries the plan's own rows.
 
     @Test
     fun noChecklist() = runBlocking {
@@ -248,7 +249,7 @@ class InFlightStatesTest {
         assertEquals("IN FLIGHT \u00b7 SORTIE 2", noCheck.eyebrow)
         assertEquals("Push", noCheck.title)
 
-        // Case 2: RUN sortie with a plan that has zero exercises (segments only)
+        // Case 2: RUN sortie with a plan that has zero exercises (segments only) — now the run state
         val runSortieId = sortieDao.insert(Sortie(
             missionId = missionId, index = 1, type = SortieType.RUN,
             focus = "easy jog", focusRationale = null, state = SortieState.IN_FLIGHT,
@@ -264,12 +265,20 @@ class InFlightStatesTest {
         ))
         val runSortie = sortieDao.get(runSortieId)!!
         val runPlan = flightPlanDao.getPlan(runSortieId)!!
-        val runNoCheckState = deriveInFlight(runPlan, runSortie, WeightUnit.LB)
-        assertTrue(runNoCheckState is InFlightState.NoChecklist)
-        val runNoCheck = runNoCheckState as InFlightState.NoChecklist
-        assertEquals("IN FLIGHT \u00b7 SORTIE 2", runNoCheck.eyebrow)
+        val runState = deriveInFlight(runPlan, runSortie, WeightUnit.LB)
+        assertTrue(runState is InFlightState.Run)
+        val run = runState as InFlightState.Run
+        assertEquals("IN FLIGHT \u00b7 SORTIE 2", run.eyebrow)
         // Plan title "Run Plan" is not blank, so it wins over focus
-        assertEquals("Run Plan", runNoCheck.title)
+        assertEquals("Run Plan", run.title)
+        assertEquals("easy jog", run.notesLine)
+        assertEquals("Steady", run.kind)
+        // The defaulted distanceUnit is MI, and the stored number is shown as-is.
+        assertEquals("5000 mi", run.targetDistance)
+        assertEquals("5:00", run.targetPace)
+        assertEquals(1, run.segments.size)
+        assertEquals("Warmup", run.segments[0].description)
+        assertEquals("800 mi \u00b7 4 min", run.segments[0].detail)
     }
 
     // ── Open-set count ───────────────────────────────────────────────
