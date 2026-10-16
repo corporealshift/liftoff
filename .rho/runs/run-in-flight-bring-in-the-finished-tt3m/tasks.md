@@ -177,7 +177,7 @@ flaky and outside this brief.
   Done when: the gate is green and those four names appear as passing in this run's XML, and task 4's three
   names still pass.
 
-- [ ] 6. Full gate, and the totals as a repo record
+- [x] 6. Full gate, and the totals as a repo record
   Needs task 5. Run the whole gate above once, cold, and read every report under
   `app/build/test-results/testDebugUnitTest/`: `:app:testDebugUnitTest` executed rather than `FROM-CACHE` or
   `UP-TO-DATE`, every report `failures="0" errors="0"`, and all fifteen of this run's names present —
