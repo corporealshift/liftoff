@@ -47,7 +47,7 @@ flaky and outside this brief.
   session wants a repo record of the gate, add one `run: cherry-picks gate green` commit whose body carries the
   EXIT code and the per-class XML totals, and nothing else.
 
-- [ ] 2. Format a run's minutes
+- [x] 2. Format a run's minutes
   `app/src/main/java/com/liftoff/app/ui/sortie/PlanFormat.kt`: add
   `internal fun formatMinutes(value: Double): String = "${trimTrailingZero(value)} min"` beside
   `formatDistance` — `10.0` → `10 min`, `2.5` → `2.5 min`, reusing the private `trimTrailingZero` that
