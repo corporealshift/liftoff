@@ -157,7 +157,7 @@ flaky and outside this brief.
   the method names out of `app/build/test-results/testDebugUnitTest/TEST-*.xml`). Write none of task 5's four
   names here.
 
-- [ ] 5. Test landing, scrubbing, noting and the live unit on a run
+- [x] 5. Test landing, scrubbing, noting and the live unit on a run
   Needs tasks 3 and 4; extend `InFlightRunTest.kt` with its existing fixture. Write these four tests, named
   exactly as verify.sh spells them:
   - `runDistanceUnitChangeUpdatesStateLive` — while the `Run` state of the seeded tempo plan is showing,
