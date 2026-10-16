@@ -61,7 +61,7 @@ flaky and outside this brief.
   task 1's `formatDistanceWholeMile` / `formatRunKindTempo` still passing. verify.sh names no new test for
   this task.
 
-- [ ] 3. Derive and render the run's In-Flight state
+- [x] 3. Derive and render the run's In-Flight state
   Needs task 1 (`formatDistance` / `formatRunKind`) and task 2 (`formatMinutes`). One commit, because adding a
   variant to the sealed `InFlightState` breaks the screen's exhaustive `when`, and because two existing tests
   change what they observe in this same step.
