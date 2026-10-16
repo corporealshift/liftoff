@@ -5,9 +5,11 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.liftoff.app.data.*
+import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.settings.SettingsStore
 import com.liftoff.app.settings.WeightUnit
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +54,8 @@ class InFlightRunTest {
         Dispatchers.Unconfined + job + CoroutineExceptionHandler { _, e -> escaped += e }
     )
 
+    private val fixedInstant = Instant.parse("2026-01-12T00:00:00Z")
+
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext<Context>()
@@ -68,7 +72,7 @@ class InFlightRunTest {
 
         manager = MissionManager(
             db, settingsStore,
-            clock = Clock.fixed(Instant.parse("2026-01-12T00:00:00Z"), ZoneOffset.UTC),
+            clock = Clock.fixed(fixedInstant, ZoneOffset.UTC),
             zone = { ZoneOffset.UTC }
         )
     }
@@ -204,5 +208,138 @@ class InFlightRunTest {
         assertTrue("was $state", state is InFlightState.NoChecklist)
         assertEquals(1, (state as InFlightState.NoChecklist).sortieNumber)
         assertFalse(needsLandConfirmation(state))
+    }
+
+    // ── The distance unit setting moves the run state live ───────────
+    // The setting changes while the run state is already showing, and the state the view model
+    // publishes moves with it: the same stored number read under the other unit's label, never a
+    // conversion. Nothing is re-derived by hand here — only vm.state is read.
+
+    @Test
+    fun runDistanceUnitChangeUpdatesStateLive() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+        flightPlanDao.writePlan(sortie.id, tempoPlanDraft())
+
+        val vm = viewModel(sortie.id)
+        val miles = awaitRun(vm) { it.targetDistance == "5 mi" }
+        assertEquals(listOf("1 mi \u00b7 10 min", "3.1 mi \u00b7 25 min"), miles.segments.map { it.detail })
+
+        settingsStore.setDistanceUnit(DistanceUnit.KM)
+
+        val km = withTimeout(5_000) {
+            vm.state.first { it is InFlightState.Run && it.targetDistance == "5 km" }
+        } as InFlightState.Run
+        assertEquals("5 km", km.targetDistance)
+        assertEquals(listOf("1 km \u00b7 10 min", "3.1 km \u00b7 25 min"), km.segments.map { it.detail })
+        // The same run, the same plan: only the unit it is read under changed.
+        assertEquals(miles.title, km.title)
+        assertEquals(miles.notesLine, km.notesLine)
+        assertEquals(miles.kind, km.kind)
+        assertEquals(miles.targetPace, km.targetPace)
+        assertEquals(5.0, flightPlanDao.getPlan(sortie.id)!!.plan.targetDistance)
+
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // ── Landing a run from the run state ─────────────────────────────
+    // Today's Land, unchanged: it lands straight away with no confirmation, and stores no run
+    // actuals, because nothing on this screen calls landRun yet.
+
+    @Test
+    fun launchAndLandSimpleRunFromRunState() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+
+        val vm = viewModel(sortie.id)
+        val run = awaitRun(vm)
+        assertEquals("Run", run.title)
+        assertFalse("a run lands with no confirmation", needsLandConfirmation(run))
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        vm.land { onDoneRuns++; done.complete(Unit) }
+        withTimeout(5_000) { done.await() }
+
+        assertEquals(1, onDoneRuns)
+        val landed = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.LANDED, landed.state)
+        assertEquals(fixedInstant.toEpochMilli(), landed.landedAt)
+        assertNull(vm.message.value)
+        assertNull(landed.runDistance)
+        assertNull(landed.runMinutes)
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // ── Scrubbing a run from the run state ───────────────────────────
+    // The reason is stored trimmed, the sortie is SCRUBBED, and the Mission has moved on to the
+    // sortie after it.
+
+    @Test
+    fun scrubFromRunStateStoresReason() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+
+        val vm = viewModel(sortie.id)
+        awaitRun(vm)
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        vm.scrub("  felt sick  ") { onDoneRuns++; done.complete(Unit) }
+        withTimeout(5_000) { done.await() }
+
+        assertEquals(1, onDoneRuns)
+        val scrubbed = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+        assertEquals("felt sick", scrubbed.scrubReason)
+        assertNull(vm.message.value)
+
+        val sorties = sortieDao.getForMission(mission.id)
+        assertEquals(1, sorties.count { it.state == SortieState.SCRUBBED })
+        assertEquals(SortieType.LIFT, sorties[1].type)
+        assertEquals(SortieState.PENDING, sorties[1].state)
+        assertEquals(sorties[1].id, currentSortie(sorties)!!.id)
+        assertEquals(MissionStatus.ACTIVE, missionDao.get(mission.id)!!.status)
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // ── The sortie note on a run that has a plan ─────────────────────
+    // The same rule the lifts use: the text is stored trimmed on the sortie row, it survives a fresh
+    // DAO read, and it is not the plan's own notes line.
+
+    @Test
+    fun sortieNoteSavesOnRunWithAPlan() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+        flightPlanDao.writePlan(sortie.id, tempoPlanDraft())
+
+        val vm = viewModel(sortie.id)
+        val run = awaitRun(vm) { it.title == "Tempo Tuesday" }
+        assertNull(run.sortieNote)
+        assertEquals("Hold it honest", run.notesLine)
+
+        val typed = "  Felt strong today\nheld the tempo \t"
+        val kept = "Felt strong today\nheld the tempo"
+        vm.saveSortieNote(typed)
+        val withNote = withTimeout(5_000) {
+            vm.state.first { it is InFlightState.Run && it.sortieNote != null }
+        } as InFlightState.Run
+
+        assertEquals(kept, withNote.sortieNote)
+        assertEquals("Hold it honest", withNote.notesLine)
+        assertEquals(kept, sortieDao.get(sortie.id)!!.notes)
+
+        // A fresh read of both rows, with no view model in the way.
+        val derived = deriveInFlight(
+            flightPlanDao.getPlan(sortie.id)!!, sortieDao.get(sortie.id)!!, WeightUnit.LB, DistanceUnit.MI
+        ) as InFlightState.Run
+        assertEquals(kept, derived.sortieNote)
+        assertEquals(withNote, derived)
+
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
     }
 }
