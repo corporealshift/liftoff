@@ -46,12 +46,17 @@ fun InFlightScreen(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val vm = remember(sortieId) { InFlightViewModel(container.database, container.settingsStore, sortieId, scope) }
+    val vm = remember(sortieId) {
+        InFlightViewModel(container.database, container.settingsStore, sortieId, scope, container.missionManager)
+    }
     val state by vm.state.collectAsState()
+    val message by vm.message.collectAsState()
 
     var expandedSet by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var editingSetId by remember { mutableStateOf<Long?>(null) }
     var noteTarget by remember { mutableStateOf<NoteTarget?>(null) }
+    var confirmingLand by remember { mutableStateOf(false) }
+    var scrubbing by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -66,7 +71,16 @@ fun InFlightScreen(
                     noCheck = noCheck,
                     expandedSet = expandedSet,
                     onOpenSortieNote = { noteTarget = NoteTarget.Sortie(noCheck.sortieNote) },
-                    onBack = onBack,
+                    message = message,
+                    onLand = {
+                        vm.clearMessage()
+                        // A sortie with no checklist has no open sets, so it lands without asking.
+                        if (needsLandConfirmation(noCheck)) confirmingLand = true else vm.land(onBack)
+                    },
+                    onScrub = {
+                        vm.clearMessage()
+                        scrubbing = true
+                    },
                 )
             }
             is InFlightState.Ready -> {
@@ -80,7 +94,15 @@ fun InFlightScreen(
                     onEdit = { editingSetId = it },
                     onOpenNote = { target -> noteTarget = target },
                     onOpenSortieNote = { noteTarget = NoteTarget.Sortie(ready.sortieNote) },
-                    onBack = onBack,
+                    message = message,
+                    onLand = {
+                        vm.clearMessage()
+                        if (needsLandConfirmation(state)) confirmingLand = true else vm.land(onBack)
+                    },
+                    onScrub = {
+                        vm.clearMessage()
+                        scrubbing = true
+                    },
                 )
             }
         }
@@ -130,6 +152,45 @@ fun InFlightScreen(
             },
         )
     }
+
+    // Land confirmation. Only a checklist sortie can have open sets, so the dialog needs Ready.
+    if (confirmingLand && state is InFlightState.Ready) {
+        val ready = state as InFlightState.Ready
+        LandConfirmDialog(
+            openCount = ready.openCount,
+            sortieNumber = ready.sortieNumber,
+            onConfirm = {
+                confirmingLand = false
+                vm.land(onBack)
+            },
+            onDismiss = {
+                confirmingLand = false
+                vm.clearMessage()
+            },
+        )
+    }
+
+    // Scrub is always confirmed, and a sortie with no checklist has no open sets to warn about.
+    if (scrubbing) {
+        val sortieNumber = when (state) {
+            is InFlightState.Ready -> (state as InFlightState.Ready).sortieNumber
+            is InFlightState.NoChecklist -> (state as InFlightState.NoChecklist).sortieNumber
+            else -> null
+        }
+        if (sortieNumber != null) {
+            ScrubDialog(
+                sortieNumber = sortieNumber,
+                onConfirm = { reason ->
+                    scrubbing = false
+                    vm.scrub(reason, onBack)
+                },
+                onDismiss = {
+                    scrubbing = false
+                    vm.clearMessage()
+                },
+            )
+        }
+    }
 }
 
 private data class RowCard(val row: SetRow, val card: ExerciseCard)
@@ -164,7 +225,7 @@ private fun LoadingContent(onBack: () -> Unit) {
         )
         DuoStripe()
         Spacer(Modifier.weight(1f))
-        Footer(onBack)
+        BackFooter(onBack)
     }
 }
 
@@ -175,7 +236,9 @@ private fun NoChecklistContent(
     noCheck: InFlightState.NoChecklist,
     expandedSet: Set<Long>,
     onOpenSortieNote: () -> Unit,
-    onBack: () -> Unit,
+    message: String?,
+    onLand: () -> Unit,
+    onScrub: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
         Box(
@@ -204,7 +267,7 @@ private fun NoChecklistContent(
                 style = LiftoffType.note().copy(color = Muted),
             )
         }
-        Footer(onBack)
+        Footer(message = message, onLand = onLand, onScrub = onScrub)
     }
 }
 
@@ -220,7 +283,9 @@ private fun ReadyContent(
     onEdit: (Long) -> Unit,
     onOpenNote: (NoteTarget) -> Unit,
     onOpenSortieNote: () -> Unit,
-    onBack: () -> Unit,
+    message: String?,
+    onLand: () -> Unit,
+    onScrub: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
         ReadyHeader(state)
@@ -265,7 +330,7 @@ private fun ReadyContent(
             }
         }
 
-        Footer(onBack = onBack)
+        Footer(message = message, onLand = onLand, onScrub = onScrub)
     }
 }
 
@@ -868,8 +933,39 @@ private fun StepperButton(label: String, onClick: () -> Unit) {
 
 // ── Footer ─────────────────────────────────────────────────────────
 
+/** The footer while a sortie is being finished: the rejection line, then Land, then Scrub. */
 @Composable
-private fun Footer(onBack: () -> Unit) {
+private fun Footer(message: String?, onLand: () -> Unit, onScrub: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Divider(color = Ink, thickness = 3.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Cream)
+                .padding(start = 20.dp, top = 14.dp, end = 20.dp, bottom = 20.dp),
+        ) {
+            if (message != null) {
+                Text(
+                    text = message,
+                    style = LiftoffType.note().copy(color = Red),
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+            }
+            InkButton(
+                text = "Land",
+                icon = LiftoffIcons.flag(),
+                height = 64.dp,
+                onClick = onLand,
+            )
+            Spacer(Modifier.height(8.dp))
+            UnderlinedTextButton(text = "Scrub", onClick = onScrub)
+        }
+    }
+}
+
+/** The Loading state has no sortie to land or scrub yet, so its footer is still just a way out. */
+@Composable
+private fun BackFooter(onBack: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = Ink, thickness = 3.dp)
         Box(
