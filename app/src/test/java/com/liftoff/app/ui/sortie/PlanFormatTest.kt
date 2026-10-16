@@ -1,6 +1,7 @@
 package com.liftoff.app.ui.sortie
 
 import com.liftoff.app.data.*
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.ui.theme.ChipState
 import com.liftoff.app.ui.theme.PatternChip
 import org.junit.Assert.assertEquals
@@ -48,6 +49,67 @@ class PlanFormatTest {
             type = SortieType.RUN
         )
         assertEquals("WEEK OF JAN 12 · SORTIE 1 OF 5 · RUN", actual)
+    }
+
+    // ── formatDistance ────────────────────────────────────────────────
+
+    // The stored number is shown as-is in the configured unit, never converted (Decision 6).
+    @Test
+    fun formatDistanceWholeMile() {
+        assertEquals("5 mi", formatDistance(5.0, DistanceUnit.MI))
+    }
+
+    @Test
+    fun formatDistanceFractionalMile() {
+        assertEquals("3.1 mi", formatDistance(3.1, DistanceUnit.MI))
+    }
+
+    @Test
+    fun formatDistanceWholeKilometre() {
+        assertEquals("5 km", formatDistance(5.0, DistanceUnit.KM))
+    }
+
+    @Test
+    fun formatDistanceFractionalKilometre() {
+        assertEquals("5.5 km", formatDistance(5.5, DistanceUnit.KM))
+    }
+
+    // A large whole number keeps no decimal, the way formatWeight does.
+    @Test
+    fun formatDistanceWholeNumberNoTrailingZero() {
+        assertEquals("5000 mi", formatDistance(5000.0, DistanceUnit.MI))
+    }
+
+    // ── formatMinutes ─────────────────────────────────────────────────
+
+    // Minutes are shown as stored, not rounded, so a whole number carries no trailing '.0'.
+    @Test
+    fun formatMinutesWholeNumber() {
+        assertEquals("10 min", formatMinutes(10.0))
+    }
+
+    // A fractional interval keeps its decimal: 2.5 min is not 3 min.
+    @Test
+    fun formatMinutesFractional() {
+        assertEquals("2.5 min", formatMinutes(2.5))
+    }
+
+    // ── formatRunKind ─────────────────────────────────────────────────
+
+    // The schema's lowercase kind reads as a label (Decision 7).
+    @Test
+    fun formatRunKindTempo() {
+        assertEquals("Tempo", formatRunKind("tempo"))
+    }
+
+    @Test
+    fun formatRunKindRecovery() {
+        assertEquals("Recovery", formatRunKind("recovery"))
+    }
+
+    @Test
+    fun formatRunKindAlreadyTitleCased() {
+        assertEquals("Intervals", formatRunKind("Intervals"))
     }
 
     // ── formatExerciseLoad ────────────────────────────────────────────

@@ -601,6 +601,59 @@ class InFlightViewModelTest {
         )
     }
 
+    // ── A run Land with a bad distance is refused before anything is written ──
+    // landRun returns false for a negative, for zero and for text; the error is on the distance
+    // field only, the completion callback never runs, the sortie row is still IN_FLIGHT with both
+    // run fields null, and no failure message is raised — the manager was never reached.
+
+    @Test
+    fun landRunRejectsInvalidDistanceWithoutTouchingTheManager() = runBlocking {
+        val sortieId = (vm.state.first { it is InFlightState.Ready } as InFlightState.Ready).sortieId
+        var doneCalls = 0
+
+        for (typed in listOf("-3", "0", "abc")) {
+            assertFalse("landRun('$typed') was accepted", vm.landRun(typed, "") { doneCalls++ })
+            val errors = vm.runErrors.value
+            assertNotNull("landRun('$typed') raised no error", errors)
+            assertEquals("Distance must be a number above 0", errors?.distanceError)
+            assertNull(errors?.minutesError)
+            assertNull(vm.message.value)
+        }
+
+        assertEquals(0, doneCalls)
+        val row = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.IN_FLIGHT, row.state)
+        assertNull(row.runDistance)
+        assertNull(row.runMinutes)
+        assertNull(vm.message.value)
+    }
+
+    // ── A run Land with a bad duration is refused the same way ─────────
+    // A good distance does not rescue a bad duration: the error is on the duration field only and
+    // the sortie stays IN_FLIGHT with nothing stored.
+
+    @Test
+    fun landRunRejectsInvalidDurationWithoutTouchingTheManager() = runBlocking {
+        val sortieId = (vm.state.first { it is InFlightState.Ready } as InFlightState.Ready).sortieId
+        var doneCalls = 0
+
+        for (typed in listOf("-10", "0", "abc")) {
+            assertFalse("landRun('$typed') was accepted", vm.landRun("5.2", typed) { doneCalls++ })
+            val errors = vm.runErrors.value
+            assertNotNull("landRun('$typed') raised no error", errors)
+            assertNull(errors?.distanceError)
+            assertEquals("Duration must be a number above 0", errors?.minutesError)
+            assertNull(vm.message.value)
+        }
+
+        assertEquals(0, doneCalls)
+        val row = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.IN_FLIGHT, row.state)
+        assertNull(row.runDistance)
+        assertNull(row.runMinutes)
+        assertNull(vm.message.value)
+    }
+
     // ── No plan gives the no checklist state ─────────────────────────
     // The holder emits NoChecklist for a sortie with no plan.
 

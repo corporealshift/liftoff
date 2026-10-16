@@ -7,6 +7,7 @@ import com.liftoff.app.data.Sortie
 import com.liftoff.app.data.SortieState
 import com.liftoff.app.data.SortieType
 import com.liftoff.app.domain.currentSortie
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.ui.theme.ChipState
 import com.liftoff.app.ui.theme.PatternChip
 import java.time.LocalDate
@@ -31,12 +32,35 @@ private fun formatSetUnit(set: PlannedSet): String {
     return if (set.seconds != null) "${set.seconds} s" else set.reps.toString()
 }
 
+/** Drop the trailing `.0` a whole number prints with: `135.0` → `135`, `22.5` unchanged. */
+private fun trimTrailingZero(value: Double): String =
+    if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
+
 /** Format weight for display: `135` (no trailing `.0`), `22.5`, or empty string for BW. */
-internal fun formatWeight(weight: Double?): String {
-    return if (weight == null) "" else {
-        if (weight == weight.toLong().toDouble()) weight.toLong().toString() else weight.toString()
+internal fun formatWeight(weight: Double?): String =
+    if (weight == null) "" else trimTrailingZero(weight)
+
+/**
+ * Format a distance for display: `5 mi`, `5.5 km`. The stored number is shown as-is in the
+ * configured unit, never converted (plan Decision 6).
+ */
+internal fun formatDistance(value: Double, unit: DistanceUnit): String {
+    val label = when (unit) {
+        DistanceUnit.MI -> "mi"
+        DistanceUnit.KM -> "km"
     }
+    return "${trimTrailingZero(value)} $label"
 }
+
+/**
+ * Format a duration in minutes for display: `10 min`, `2.5 min`. Minutes are shown as stored, not
+ * rounded — a `2.5 min` interval rounded to `3 min` is a different workout (plan Decision).
+ */
+internal fun formatMinutes(value: Double): String = "${trimTrailingZero(value)} min"
+
+/** Format a run kind as a label rather than the schema's lowercase word: `tempo` → `Tempo` (plan Decision 7). */
+internal fun formatRunKind(kind: String): String =
+    kind.trim().lowercase(java.util.Locale.ROOT).replaceFirstChar { it.uppercase(java.util.Locale.ROOT) }
 
 /** Format the load line for one exercise: `N×reps · weight` or `3×45 s`. */
 fun formatExerciseLoad(exercise: PlannedExerciseDetail): String {

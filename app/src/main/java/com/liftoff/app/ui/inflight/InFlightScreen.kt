@@ -83,6 +83,23 @@ fun InFlightScreen(
                     },
                 )
             }
+            is InFlightState.Run -> {
+                val run = state as InFlightState.Run
+                RunContent(
+                    run = run,
+                    onOpenSortieNote = { noteTarget = NoteTarget.Sortie(run.sortieNote) },
+                    message = message,
+                    onLand = {
+                        vm.clearMessage()
+                        // A run has no sets to leave unchecked, so it lands without asking.
+                        vm.land(onBack)
+                    },
+                    onScrub = {
+                        vm.clearMessage()
+                        scrubbing = true
+                    },
+                )
+            }
             is InFlightState.Ready -> {
                 val ready = state as InFlightState.Ready
                 ReadyContent(
@@ -175,7 +192,8 @@ fun InFlightScreen(
         val sortieNumber = when (state) {
             is InFlightState.Ready -> (state as InFlightState.Ready).sortieNumber
             is InFlightState.NoChecklist -> (state as InFlightState.NoChecklist).sortieNumber
-            else -> null
+            is InFlightState.Run -> (state as InFlightState.Run).sortieNumber
+            InFlightState.Loading -> null
         }
         if (sortieNumber != null) {
             ScrubDialog(
@@ -336,9 +354,9 @@ private fun ReadyContent(
 
 // ── Sortie note strip ──────────────────────────────────────────────
 
-/** Shared by both loaded states so the action and its note line cannot drift between them. */
+/** Shared by every loaded state so the action and its note line cannot drift between them. */
 @Composable
-private fun SortieNoteStrip(note: String?, onOpen: () -> Unit) {
+internal fun SortieNoteStrip(note: String?, onOpen: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         UnderlinedTextButton(
             text = "Sortie note",
@@ -935,7 +953,7 @@ private fun StepperButton(label: String, onClick: () -> Unit) {
 
 /** The footer while a sortie is being finished: the rejection line, then Land, then Scrub. */
 @Composable
-private fun Footer(message: String?, onLand: () -> Unit, onScrub: () -> Unit) {
+internal fun Footer(message: String?, onLand: () -> Unit, onScrub: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = Ink, thickness = 3.dp)
         Column(

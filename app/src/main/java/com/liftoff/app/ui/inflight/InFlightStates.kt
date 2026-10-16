@@ -20,10 +20,11 @@ class InFlightStates(
             db.flightPlanDao().observeChanges(),
             db.sortieDao().observeById(sortieId),
             settings.settings.map { it.weightUnit }.distinctUntilChanged(),
-        ) { _, sortie, unit -> sortie to unit }
-            .mapNotNull { (sortie, unit) ->
+            settings.settings.map { it.distanceUnit }.distinctUntilChanged(),
+        ) { _, sortie, unit, distanceUnit -> Triple(sortie, unit, distanceUnit) }
+            .mapNotNull { (sortie, unit, distanceUnit) ->
                 sortie ?: return@mapNotNull null
-                deriveInFlight(db.flightPlanDao().getPlan(sortieId), sortie, unit)
+                deriveInFlight(db.flightPlanDao().getPlan(sortieId), sortie, unit, distanceUnit)
             }
             .flowOn(Dispatchers.IO)
 }

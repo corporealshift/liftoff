@@ -73,6 +73,44 @@ class InFlightViewModel(
         }
     }
 
+    /** What the Land dialog must show on a field; null when nothing was rejected. */
+    val runErrors = MutableStateFlow<RunEntry.Invalid?>(null)
+
+    fun clearRunErrors() { runErrors.value = null }
+
+    /**
+     * A run's Land carries its own entry, so it is parsed before anything is written: a rejected
+     * field lands nothing. The return tells the dialog whether to close (Decision 16).
+     */
+    fun landRun(distanceText: String?, minutesText: String?, onDone: () -> Unit): Boolean {
+        if (busy) return false
+        return when (val entry = parseRunEntry(distanceText, minutesText)) {
+            is RunEntry.Invalid -> {
+                runErrors.value = entry
+                false
+            }
+
+            is RunEntry.Valid -> {
+                runErrors.value = null
+                busy = true
+                message.value = null
+                scope.launch {
+                    try {
+                        missionManager.land(sortieId, entry.distance, entry.minutes)
+                        onDone()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        message.value = "Couldn't land this sortie."
+                    } finally {
+                        busy = false
+                    }
+                }
+                true
+            }
+        }
+    }
+
     /** Scrub keeps the sets already logged; the reason is optional and normalised like a note. */
     fun scrub(reason: String?, onDone: () -> Unit) {
         if (busy) return

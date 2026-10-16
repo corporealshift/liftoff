@@ -111,12 +111,18 @@ class MissionManager(
         }
     }
 
-    suspend fun land(sortieId: Long) {
+    suspend fun land(
+        sortieId: Long,
+        runDistance: Double? = null,
+        runMinutes: Double? = null
+    ) {
         val settings = settingsStore.settings.first()
         db.withTransaction {
             val sortie = db.sortieDao().get(sortieId)!!
             check(sortie.state == SortieState.IN_FLIGHT) { "Sortie must be IN_FLIGHT" }
+            // The run's actuals travel with the state change, so a landed run is never half-written.
             val landed = land(sortie, clock.millis())
+                .copy(runDistance = runDistance, runMinutes = runMinutes)
             db.sortieDao().update(landed)
             db.flightPlanDao().markOpenSetsNotDone(sortieId)
             advance(sortie.missionId, settings)
