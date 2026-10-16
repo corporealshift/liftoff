@@ -106,7 +106,7 @@ Before naming a new test, check the name is not already in the suite.
   Done when: both files exist, `:app:assembleDebug` succeeds, the suite is green, and neither is wired
   into `InFlightScreen.kt` yet.
 
-- [ ] 7. Wire Land and Scrub into the In-Flight footer, and retarget the Back test
+- [x] 7. Wire Land and Scrub into the In-Flight footer, and retarget the Back test
   Covers: `ui/inflight/InFlightScreen.kt` only, in three places — the `InFlightViewModel(...)` call also
   passes `container.missionManager`; `Footer` becomes a full-width 64 dp `InkButton` Land (flag glyph from
   `LiftoffIcons`, red offset shadow) with the underlined `SCRUB` action under it and the rejection message
