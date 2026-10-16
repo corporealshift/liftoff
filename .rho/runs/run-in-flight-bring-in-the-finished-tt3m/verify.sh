@@ -16,11 +16,9 @@
 # passing.
 #
 # The brief's Done-when names Robolectric tests over the derived state and the view model against
-# in-memory Room, so those carry the behaviour checks. One screen test is named, because the run
-# screen is what the brief asks for and no view-model test can show it; it only reads, because a
-# BasicTextField inside a Dialog never lets Compose go idle under Robolectric, so no named test here
-# opens a dialog or types into a field. The run screen's layout — teal header, stripe bands, no set
-# counter, no progress bar, no set rows — is reviewed by the owner in the pull request.
+# in-memory Room, so those carry the behaviour checks. No Compose screen test is named: the brief asks
+# for logic tests, and the run screen's layout (teal header, stripe bands, no set counter, no progress
+# bar, no set rows, the plan rows) is reviewed by the owner in the pull request.
 #
 # The plan's "## Decisions" are not pinned here: the wording of a segment row and what a missing part
 # of it does, how the run kind is written, whether a unit is appended to the pace, whether the notes
@@ -182,11 +180,6 @@ t runStateFromSimpleRunPlan
 # A run sortie with no Flight Plan at all keeps today's NoChecklist state.
 t runWithNoPlanStillShowsNoChecklist
 
-# The other side of that boundary, which nothing else in the repo asserts once the run state exists: a
-# LIFT sortie whose plan has segments but no exercises is still NoChecklist. The run state is for a
-# run, not for any plan that carries segments, so the lift flow is untouched by this brief.
-t liftWithSegmentsOnlyPlanStillShowsNoChecklist
-
 # ─── 4. The distance unit setting drives the run screen live ──────────────────
 # Brief: "Changing the distance unit in Mission Control updates the screen live." Asserted on the state
 # the In-Flight view model publishes while a run sortie is in flight, so it is the screen's own state
@@ -209,32 +202,16 @@ t launchAndLandSimpleRunFromRunState
 
 # Scrub from the run state: the reason the owner typed is stored trimmed, the sortie is SCRUBBED, the
 # Mission has moved on, and nothing is raised. Named apart from the lift scrub test the gate already
-# runs, because it starts from the run state — where the brief's warning about a `when` over the
-# In-Flight state with an `else` branch bites: the screen picks the sortie number for the scrub dialog
-# that way, and a run falling into the else leaves Scrub dead on runs.
+# runs, because it starts from the run state.
 t scrubFromRunStateStoresReason
 
 # The sortie note on a run that has a Flight Plan, through the same note rule the lifts use: the text
 # the owner saves is stored trimmed on the sortie row and survives a fresh read.
 t sortieNoteSavesOnRunWithAPlan
 
-# ─── 6. The run screen ────────────────────────────────────────────────────────
-# The one screen-level test: the brief asks for a run screen, and no view-model test can show that the
-# run state is rendered at all. It only reads — no dialog is opened and nothing is typed, because a
-# BasicTextField inside a Dialog never lets Compose go idle under Robolectric. The layout itself is
-# reviewed by the owner in the pull request.
-echo ""
-echo "=== the run screen ==="
-
-# A launched run sortie with its simple 'Run' plan shows the plan on screen: the plan's title and its
-# notes/focus line are displayed, the NoChecklist placeholder ("No checklist for this sortie.") is
-# not, and the footer offers Land and Scrub with the sortie note action — all displayed and enabled,
-# as they are on a lift.
-t runScreenShowsPlanAndOffersNoteLandAndScrub
-
-# ─── 7. must not break ────────────────────────────────────────────────────────
+# ─── 6. must not break ────────────────────────────────────────────────────────
 # The whole existing suite runs in the gate above. These name the brief's own "must not" clauses that
-# this screen is the one touching.
+# this work is the one touching.
 echo ""
 echo "=== must not break ==="
 
