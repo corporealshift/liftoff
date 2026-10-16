@@ -52,6 +52,12 @@ internal fun formatDistance(value: Double, unit: DistanceUnit): String {
     return "${trimTrailingZero(value)} $label"
 }
 
+/**
+ * Format a duration in minutes for display: `10 min`, `2.5 min`. Minutes are shown as stored, not
+ * rounded — a `2.5 min` interval rounded to `3 min` is a different workout (plan Decision).
+ */
+internal fun formatMinutes(value: Double): String = "${trimTrailingZero(value)} min"
+
 /** Format a run kind as a label rather than the schema's lowercase word: `tempo` → `Tempo` (plan Decision 7). */
 internal fun formatRunKind(kind: String): String =
     kind.trim().lowercase(java.util.Locale.ROOT).replaceFirstChar { it.uppercase(java.util.Locale.ROOT) }
