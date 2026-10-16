@@ -23,7 +23,7 @@ Never stage `gate.log`. Never edit or rename `verify.sh`. If the gate trips on
 `doneBodyweightSetStepperShowsBW` alone, re-run once before treating it as broken — verify.sh records it as
 flaky and outside this brief.
 
-- [ ] 1. Bring in the four finished commits
+- [x] 1. Bring in the four finished commits
   `git cherry-pick f7522dc 28e401a e3f0af2 cb9316a`, in that order, from `rho/run-sorties-in-flight-9qtx`
   (merge-base with this branch is `eb2bd31`, and this branch has changed only `.rho/` files since, so all four
   should apply cleanly and none touches `.rho/`). Do not pick that branch's `run: …` commits and do not bring in
