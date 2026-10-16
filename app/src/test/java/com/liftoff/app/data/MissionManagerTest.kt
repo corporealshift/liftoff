@@ -273,6 +273,37 @@ class MissionManagerTest {
         assertEquals(Instant.parse("2026-01-13T00:00:00Z").toEpochMilli(), updated.landedAt)
     }
 
+    // A run landed with a distance and a duration: both are stored on the sortie row as the numbers
+    // passed in — no conversion, no rounding — in the same row that turns LANDED.
+    @Test
+    fun landStoresRunDistanceAndRunMinutes() = runBlocking {
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.ACTIVE)
+        val sId = insertSortie(mId, 0, SortieType.RUN, "easy", SortieState.IN_FLIGHT)
+
+        advanceClock(1)
+        manager.land(sId, 5.2, 31.0)
+
+        val updated = sortieDao.get(sId)!!
+        assertEquals(SortieState.LANDED, updated.state)
+        assertEquals(Instant.parse("2026-01-13T00:00:00Z").toEpochMilli(), updated.landedAt)
+        assertEquals(5.2, updated.runDistance!!, 0.0)
+        assertEquals(31.0, updated.runMinutes!!, 0.0)
+    }
+
+    // The call that passes neither — every existing caller — leaves both fields null, not 0.
+    @Test
+    fun landWithoutRunActualsLeavesThemNull() = runBlocking {
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.ACTIVE)
+        val sId = insertSortie(mId, 0, SortieType.RUN, "easy", SortieState.IN_FLIGHT)
+
+        manager.land(sId)
+
+        val updated = sortieDao.get(sId)!!
+        assertEquals(SortieState.LANDED, updated.state)
+        assertNull("a run that was not measured keeps no distance", updated.runDistance)
+        assertNull(updated.runMinutes)
+    }
+
     @Test
     fun landMarksUncheckedSetsNotDone() = runBlocking {
         val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.ACTIVE)
