@@ -81,7 +81,7 @@ test class; the full cold gate takes ~4 minutes and must be run detached (Task 5
   `sortieNoteActionOnNoChecklistOpensDialogAndSaves`, `noteCellOnActiveCardOpensDialogAndSaves`.
   No test in this task clicks Land on a run. Commit `in-flight: land a run through the dialog`.
 
-- [ ] Test landing a run through `landRun` against Room
+- [x] Test landing a run through `landRun` against Room
   `app/src/test/java/com/liftoff/app/ui/inflight/InFlightRunTest.kt`, on the fixture that file
   already has (`seedMission` → `confirm` gives an ACTIVE Mission, `sortie0`, `viewModel`,
   `awaitRun`, `withTimeout(5_000)`, the `escaped` queue asserted empty at the end of each test).
