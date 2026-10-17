@@ -86,7 +86,7 @@ Facts that bite, shared by the tasks:
   `unreadableSavedStateRestoresToLaunchpad` (verify.sh lists them under "must not break") still pass. Commit
   `ui: add the cold-start start decision to shell nav`.
 
-- [ ] Reopen into the in-flight sortie on a cold start, from the shell
+- [x] Reopen into the in-flight sortie on a cold start, from the shell
   Covers: brief part 1's wiring, `app/src/main/java/com/liftoff/app/ui/LiftoffShell.kt` only. Read the plan's
   "Opening" paragraphs and its Risks first; they settle every choice here.
   - A plain `remember { mutableStateOf(false) }` `coldStart` flag declared **above** the nav
