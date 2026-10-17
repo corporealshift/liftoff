@@ -203,6 +203,19 @@ package-scoped grep): `ShellNavTest`, `LiftoffShellTest`, `MainActivityTest`, `I
   spuriously there; its landing test (368-398) asserts `onBack` was called exactly once, which the
   once-guard keeps true.
 
+## ARCHITECTURE.md rows, as they will be written
+
+Both stay single-line table rows in the same columns, and the M4 status cell uses `;`-separated clauses
+with no em dash inside it, because the runner's checks split that cell on `;` and on an em dash:
+
+```
+| `com.liftoff.app.ui` | Navigation shell, Launchpad, Mission and In-Flight as real screens, Landed as a placeholder, Mission Control stub, theme and shared composables. | ✅ (navigation shell with cold-start reopen into the in-flight sortie, Launchpad, Mission, In-Flight with Land, Scrub and leaving when the sortie is gone, Landed, Mission Control stub, `ui/theme`) |
+```
+
+```
+| M4 | In flight — In-Flight screen, Launch, Land, resume after process kill | Done; the In-Flight screen is a real screen; the shell reopens into the in-flight sortie on a cold start; the screen leaves when its sortie is no longer in flight |
+```
+
 ## Decisions
 
 - **The user navigates while the cold-start read is running.** Chosen: any navigation counts, so they
@@ -233,16 +246,3 @@ package-scoped grep): `ShellNavTest`, `LiftoffShellTest`, `MainActivityTest`, `I
 The brief settles everything else it touches: which sortie to open when several are in flight (highest
 id), that the Launchpad shows first while the read runs, that saved state wins, and that back from
 In-Flight goes to the Launchpad.
-
-### ARCHITECTURE.md rows, as they will be written
-
-Both stay single-line table rows in the same columns, and the M4 status cell uses `;`-separated clauses
-with no em dash inside it, because the runner's checks split that cell on `;` and on an em dash:
-
-```
-| `com.liftoff.app.ui` | Navigation shell, Launchpad, Mission and In-Flight as real screens, Landed as a placeholder, Mission Control stub, theme and shared composables. | ✅ (navigation shell with cold-start reopen into the in-flight sortie, Launchpad, Mission, In-Flight with Land, Scrub and leaving when the sortie is gone, Landed, Mission Control stub, `ui/theme`) |
-```
-
-```
-| M4 | In flight — In-Flight screen, Launch, Land, resume after process kill | Done; the In-Flight screen is a real screen; the shell reopens into the in-flight sortie on a cold start; the screen leaves when its sortie is no longer in flight |
-```
