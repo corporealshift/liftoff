@@ -27,7 +27,7 @@ Shared facts every task needs (the plan has the detail; these are the ones that 
   `app/build/test-results/testDebugUnitTest/TEST-*.xml` from a cold (`--no-build-cache`) gate that also left
   the existing suite green.
 
-- [ ] Pin the view model's draft limit guards with tests
+- [x] Pin the view model's draft limit guards with tests
   Covers: a new `LaunchpadDraftGuardsTest.kt` under `app/src/test/java/com/liftoff/app/ui/launchpad/`,
   Robolectric + in-memory Room, no Compose. It proves the `>= 7` / `<= 1` guards in `LaunchpadViewModel.addChip`
   / `removeChip` (:49-73) that the brief says to keep: build the view model on a Draft left at 7 sorties
