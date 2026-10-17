@@ -58,7 +58,7 @@ Facts that bite, shared by the tasks:
 - `doneBodyweightSetStepperShowsBW` fails every few runs with Room's closed connection pool and passes on a
   re-run of the same tree: re-run the gate once before treating it as broken, and do not "fix" it.
 
-- [ ] Put the start decision in `ShellNav.startNav`, and test it
+- [x] Put the start decision in `ShellNav.startNav`, and test it
   Covers: brief part 1's plain-Kotlin core. `app/src/main/java/com/liftoff/app/ui/ShellNav.kt`: add
   `fun startNav(saved: ShellNav?, inFlightIds: List<Long>): ShellNav` to the **existing** companion object
   (next to `decode`), exactly as the plan spells it — `saved` wins; else `inFlightIds.maxOrNull()` opened
