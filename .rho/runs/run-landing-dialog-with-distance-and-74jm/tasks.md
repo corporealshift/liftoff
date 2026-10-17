@@ -58,7 +58,7 @@ test class; the full cold gate takes ~4 minutes and must be run detached (Task 5
   Done when the file exists and `bash gradlew.sh :app:compileDebugKotlin :app:compileDebugUnitTestKotlin`
   succeeds; nothing calls it yet, so no test changes. Commit `in-flight: the run landing dialog card`.
 
-- [ ] Open the dialog from the run footer's Land
+- [x] Open the dialog from the run footer's Land
   `app/src/main/java/com/liftoff/app/ui/inflight/InFlightScreen.kt` only: collect
   `val runErrors by vm.runErrors.collectAsState()` beside `message`; add
   `var landingRun by remember { mutableStateOf(false) }` beside `confirmingLand`/`scrubbing`; in the
