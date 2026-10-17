@@ -14,12 +14,12 @@
 # and "must not break" are tests the repo already has, which this run has to keep passing.
 #
 # The brief's Done-when names Robolectric tests, so the behaviour is carried by tests over the view model
-# and in-memory Room plus the dialog's rendered content. No Compose test types into or focuses a field,
-# and none opens the Dialog shell: the brief forbids it (under Robolectric a text field inside a Dialog
-# never lets Compose go idle). The dialog tests read what is on screen and click its buttons only. The
-# cost, which the plan states and the PR should say: the two lines that wire the dialog to landRun and to
-# clearing the errors on dismiss are not covered at screen level. The view-model tests and the card tests
-# cover both sides of them.
+# and in-memory Room, plus render-only checks of the dialog's content. The brief says a Compose test may
+# only check what is rendered: no Compose test here types into, focuses or clicks anything, and none opens
+# the Dialog shell (under Robolectric a text field inside a Dialog never lets Compose go idle). The cost,
+# which the plan states and the PR should say: the lines that wire the dialog to landRun and to clearing
+# the errors on dismiss are not covered at screen level. The view-model tests and the card tests cover
+# both sides of them.
 #
 # The plan's "## Decisions" are not pinned here: which Land taps open the dialog, the exact field labels,
 # what a failed write does to the dialog, how long a field error stays, the dialog's title, whether Land
@@ -122,7 +122,7 @@ fi
 # Brief: "Land on a run that has a plan opens a themed dialog … two optional fields … distance, labelled
 # with the configured unit, and duration in minutes. Both start blank each time the dialog opens … A field
 # that isn't a positive number shows its error inline under that field". Rendered content only: the Dialog
-# shell is not opened and no field is typed into or focused, as the brief requires.
+# shell is not opened and nothing is typed into, focused or clicked, as the brief requires.
 echo ""
 echo "=== the run landing dialog ==="
 
@@ -131,17 +131,14 @@ echo "=== the run landing dialog ==="
 # setting gives the kilometre label — and the duration field carries minutes. Both fields are blank when
 # the card is shown. A card built for the other unit carries that unit's label, so the label comes from
 # the setting rather than from one fixed word.
+# Decision (plan): field labels.
 t runLandDialogLabelsDistanceWithTheConfiguredUnit
 
 # A distance that isn't a positive number puts its error under the distance field and nothing under the
 # duration field; a bad duration does the mirror; both bad shows both. Nothing is typed here: the errors
-# are the ones the view model raised, handed to the card, which is how the screen hands them over.
-# Decision (plan): both errors at once, and an error stays under its field until the next Land or dismiss.
+# are the ones the view model raises, handed to the card, which is how the screen hands them over.
+# Decision (plan): both errors at once.
 t runLandDialogShowsEachFieldErrorUnderItsOwnField
-
-# The card's Land passes both field values to its callback, and Cancel dismisses without calling Land:
-# neither button touches the sortie by itself, so the dialog cannot land anything on its own.
-t runLandDialogSendsBothFieldsOnLandAndDismissesOnCancel
 
 # ─── 3. Landing a run with a distance and a duration ──────────────────────────
 # Brief's first Done-when line: "Launch → Land of a simple run with a distance and a duration works",
@@ -153,13 +150,12 @@ echo "=== landing a run through landRun ==="
 # Launch a run, then land it with a distance and a duration typed in: landRun accepts them, the completion
 # callback (what returns to the Launchpad) runs exactly once, and the sortie row is LANDED carrying that
 # distance and that duration, with a landed time recorded and no failure message raised. This is the
-# brief's headline line: the first time landing a run records the run's actuals.
+# brief's headline line: landing a run records the run's actuals.
 t runLandWithDistanceAndDurationStoresBoth
 
 # The same Land on a launched run with both fields left blank: landRun accepts it, the completion callback
 # runs, the sortie is LANDED, and both run fields are null rather than a distance or a duration invented
 # for it.
-# Decision (plan): Land is never disabled for wanting a value — a run with nothing typed still lands.
 t runLandWithBlankFieldsStoresNulls
 
 # On a launched run, a distance that is text, negative or zero is refused on the distance field alone:
@@ -174,9 +170,9 @@ t runLandRejectsBadDistanceOnItsField
 t runLandRejectsBadDurationOnItsField
 
 # A second Land while the first landing is still being written is ignored, as on lifts: the second landRun
-# is refused while the write is in progress (the write's thread has to be held, or the second call would
-# merely queue behind the first and prove nothing), the completion callback runs once, the sortie is
-# landed once, and nothing escapes the view model.
+# is refused while the write is in progress (the write has to be held, or the second call would merely
+# queue behind the first and prove nothing), the completion callback runs once, the sortie is landed
+# once, and nothing escapes the view model.
 t runLandDoubleTapLandsOnce
 
 # ─── 4. A run with no plan still lands without the dialog ─────────────────────
@@ -189,6 +185,7 @@ echo "=== a run with no plan ==="
 # Tapping Land on a RUN sortie that has no Flight Plan lands it and calls the screen's onBack callback on
 # the first tap, with no dialog in between: the sortie row is LANDED and both run fields are null. If a
 # dialog were opened for a plan-less run, Land would no longer land on the first tap and this would fail.
+# Decision (plan): which Land taps open the dialog.
 t noChecklistLandLandsAndCallsOnBack
 
 # That sortie keeps today's no-checklist state, which is why it takes the path that has no dialog: the run
@@ -212,12 +209,12 @@ t runStateFromSimpleRunPlan
 t runDistanceUnitChangeUpdatesStateLive
 t sortieNoteSavesOnRunWithAPlan
 t scrubFromRunStateStoresReason
-# Today's Land on a run, unchanged for the paths that keep it: it lands straight away, needs no
-# confirmation, and stores no run actuals.
+# The view model's plain Land on a run, unchanged: it lands, needs no unchecked-sets confirmation, and
+# stores no run actuals.
 t launchAndLandSimpleRunFromRunState
 t landingARunNeedsNoChecklist
-# The finished pieces this dialog now calls, unchanged: landRun's refusals on a sortie that is not a run,
-# and the manager storing — or not storing — the run actuals inside the landing transaction.
+# The finished pieces this dialog now calls, unchanged: landRun's refusals, and the manager storing — or
+# not storing — the run actuals inside the landing transaction.
 t landRunRejectsInvalidDistanceWithoutTouchingTheManager
 t landRunRejectsInvalidDurationWithoutTouchingTheManager
 t landStoresRunDistanceAndRunMinutes
