@@ -69,7 +69,7 @@ Shared facts every task needs (the plan has the detail; these are the ones that 
   `LandScrubDialogTest` and `InFlightLandScrubTest` green. Commit
   `launchpad: show the themed scrub dialog and trim the reason`.
 
-- [ ] Draw the draft stepper once, and split out a testable `LaunchpadContent`
+- [x] Draw the draft stepper once, and split out a testable `LaunchpadContent`
   Covers: brief part 2, first half. `LaunchpadScreen.kt`: delete the whole second `Row` of `DraftPatternChips`
   (:337-361, the two stock M3 `OutlinedButton`s with the ASCII `-`) and its `onAdd` / `onRemove` parameters,
   keeping the chip circles and `onToggle`, and update the call in `DraftContent` (:113-118). Split the screen
