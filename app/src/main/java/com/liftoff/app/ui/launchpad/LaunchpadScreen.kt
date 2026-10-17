@@ -4,6 +4,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,8 +18,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
@@ -208,25 +212,63 @@ private fun DraftActions(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        InkButton(
+        DraftStepButton(
             text = "−",
+            enabled = count > 1,
             onClick = onRemoveChip,
             modifier = Modifier.width(48.dp),
-            height = 40.dp,
         )
         Text(
             text = "$count sorties",
             style = LiftoffType.note().copy(color = Muted),
         )
-        InkButton(
+        DraftStepButton(
             text = "+",
+            enabled = count < 7,
             onClick = onAddChip,
             modifier = Modifier.width(48.dp),
-            height = 40.dp,
         )
     }
     Spacer(Modifier.height(12.dp))
     PrimaryButton(text = "Confirm", onClick = onConfirm)
+}
+
+// InkButton has no enabled parameter and ui.theme is out of scope for this brief, so the draft's
+// stepper is drawn here. The width arrives through modifier: a fillMaxWidth() inside would swallow
+// the SpaceBetween row.
+@Composable
+private fun DraftStepButton(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 40.dp,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed = interactionSource.collectIsPressedAsState()
+    val shadow = if (!enabled) Rule else if (pressed.value) RedPressed else Red
+    OffsetShadowBox(
+        color = shadow,
+        offset = 4.dp,
+        modifier = modifier.height(height),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(if (enabled) Ink else Muted, ButtonShape)
+                .border(BorderStroke(2.dp, Ink), ButtonShape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClick = onClick,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text, style = LiftoffType.landLabel().copy(color = if (enabled) Cream else Sand))
+        }
+    }
 }
 
 @Composable

@@ -106,4 +106,46 @@ class LaunchpadDraftControlsTest {
         composeRule.onAllNodesWithText("R").assertCountEquals(3)
         composeRule.onAllNodesWithText("L").assertCountEquals(2)
     }
+
+    // draftMinusDisabledAtOneSortie — on a one-sortie draft the '−' is still drawn but says it is not
+    // available, and '+' is. Dimmed and untappable, rather than present and quietly doing nothing.
+    @Test
+    fun draftMinusDisabledAtOneSortie() {
+        val viewModel = runBlocking { draft("R") }
+
+        composeRule.setContent {
+            LiftoffTheme {
+                LaunchpadContent(viewModel = viewModel, onOpenInFlight = {})
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("1 sorties").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithText("\u2212").assertIsNotEnabled()
+        composeRule.onNodeWithText("+").assertIsEnabled()
+    }
+
+    // draftPlusDisabledAtSevenSorties — the mirror at the upper limit: '+' is drawn but not enabled,
+    // '−' still is.
+    @Test
+    fun draftPlusDisabledAtSevenSorties() {
+        val viewModel = runBlocking { draft("RLRLRLR") }
+
+        composeRule.setContent {
+            LiftoffTheme {
+                LaunchpadContent(viewModel = viewModel, onOpenInFlight = {})
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("7 sorties").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithText("+").assertIsNotEnabled()
+        composeRule.onNodeWithText("\u2212").assertIsEnabled()
+        // The rest of the bar is untouched: Confirm still sits below the stepper.
+        composeRule.onNodeWithText("CONFIRM").assertIsDisplayed()
+    }
 }
