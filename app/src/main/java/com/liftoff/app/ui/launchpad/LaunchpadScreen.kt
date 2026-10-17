@@ -19,10 +19,10 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
 import com.liftoff.app.ui.PlaceholderScreen
+import com.liftoff.app.ui.inflight.ScrubDialog
 import com.liftoff.app.ui.sortie.FlightPlanSection
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatWeekDate
@@ -63,16 +63,12 @@ fun LaunchpadScreen(
         bottomBar = {
             ActionButtons(
                 state = s,
-                scrubbing = viewModel.scrubbing,
-                scrubReason = viewModel.scrubReason,
                 onToggleChip = { viewModel.toggleChip(it) },
                 onAddChip = { viewModel.addChip() },
                 onRemoveChip = { viewModel.removeChip() },
                 onConfirm = { viewModel.confirm() },
                 onLaunch = { viewModel.launch(onOpenInFlight) },
                 onRequestScrub = { viewModel.requestScrub() },
-                onCancelScrub = { viewModel.cancelScrub() },
-                onConfirmScrub = { viewModel.confirmScrub() },
             )
         },
     )
@@ -93,11 +89,9 @@ fun LaunchpadScreen(
             else -> 0
         }
         ScrubDialog(
-            sortieIndex = sortieIndex,
-            reason = viewModel.scrubReason,
-            onReasonChange = { viewModel.setScrubReason(it) },
-            onConfirm = { viewModel.confirmScrub() },
-            onCancel = { viewModel.cancelScrub() },
+            sortieNumber = sortieIndex + 1,
+            onConfirm = { viewModel.confirmScrub(it) },
+            onDismiss = { viewModel.cancelScrub() },
         )
     }
 }
@@ -170,16 +164,12 @@ private fun ClosedContent(state: LaunchpadState.Closed) {
 @Composable
 private fun ActionButtons(
     state: LaunchpadState,
-    scrubbing: Boolean,
-    scrubReason: String,
     onToggleChip: (Int) -> Unit,
     onAddChip: () -> Unit,
     onRemoveChip: () -> Unit,
     onConfirm: () -> Unit,
     onLaunch: () -> Unit,
     onRequestScrub: () -> Unit,
-    onCancelScrub: () -> Unit,
-    onConfirmScrub: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -258,44 +248,6 @@ private fun InFlightActions(onLaunch: () -> Unit) {
         icon = LiftoffIcons.rocket(),
         iconAtEnd = true,
     )
-}
-
-/** Scrub confirmation dialog built from a Paper card inside a Dialog. */
-@Composable
-private fun ScrubDialog(
-    sortieIndex: Int,
-    reason: String,
-    onReasonChange: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    Dialog(onDismissRequest = { /* no dismiss outside buttons */ }) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Paper, CardShape)
-                .border(BorderStroke(2.dp, Ink), CardShape)
-                .padding(16.dp),
-        ) {
-            Text(
-                text = "Scrub sortie ${sortieIndex + 1}?",
-                style = LiftoffType.sectionHead(),
-                color = Ink,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            OutlinedTextField(
-                value = reason,
-                onValueChange = onReasonChange,
-                label = { Text("Reason (optional)") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                PrimaryButton(text = "Scrub", onClick = onConfirm, height = 48.dp)
-                UnderlinedTextButton(text = "Cancel", onClick = onCancel)
-            }
-        }
-    }
 }
 
 /** Editable pattern chips for Draft state — copied from MissionControlScreen's PatternChips. */

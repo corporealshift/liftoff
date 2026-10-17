@@ -17,11 +17,9 @@ class LaunchpadViewModel(
     private val manager: MissionManager,
     private val scope: CoroutineScope,
 ) {
-    /** Scrub confirmation dialog state. */
+    /** Scrub confirmation dialog state. The reason lives in the dialog, not here. */
     var scrubbing by mutableStateOf(false)
         private set
-    private var _scrubReason by mutableStateOf("")
-    val scrubReason: String get() = _scrubReason
 
     val state: StateFlow<LaunchpadState> = LaunchpadStates(
         db,
@@ -111,14 +109,10 @@ class LaunchpadViewModel(
 
     fun requestScrub() {
         scrubbing = true
-        _scrubReason = ""
     }
 
-    fun setScrubReason(reason: String) {
-        _scrubReason = reason
-    }
-
-    fun confirmScrub() {
+    /** The reason arrives from the dialog's Confirm; blank or whitespace-only stores null. */
+    fun confirmScrub(reason: String) {
         val s = state.value
         val sortieId = when (s) {
             is LaunchpadState.Planned -> s.sortieId
@@ -128,7 +122,7 @@ class LaunchpadViewModel(
         }
         scope.launch {
             try {
-                manager.scrub(sortieId, _scrubReason.takeIf { it.isNotBlank() })
+                manager.scrub(sortieId, reason.trim().takeIf { it.isNotEmpty() })
             } catch (_: IllegalStateException) {
                 runCatching { manager.onAppOpen() }
             } finally {
@@ -139,6 +133,5 @@ class LaunchpadViewModel(
 
     fun cancelScrub() {
         scrubbing = false
-        _scrubReason = ""
     }
 }
