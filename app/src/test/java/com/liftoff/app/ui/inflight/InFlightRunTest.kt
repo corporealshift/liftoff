@@ -14,9 +14,11 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -29,6 +31,9 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * The run state read through the In-Flight view model against in-memory Room, on a Mission the app
@@ -187,7 +192,8 @@ class InFlightRunTest {
     }
 
     // ── A run with no Flight Plan at all ─────────────────────────────
-    // It keeps today's NoChecklist state: the run branch needs a plan to read.
+    // It keeps today's NoChecklist state: the run branch needs a plan to read. That state's Land is
+    // the plain one, so it lands on the first tap with no distance or duration recorded.
 
     @Test
     fun runWithNoPlanStillShowsNoChecklist() = runBlocking {
@@ -204,16 +210,33 @@ class InFlightRunTest {
         assertNull(flightPlanDao.getPlan(sortieId))
 
         // Waiting for any loaded state means a wrong Run fails on the assert, not on a timeout.
-        val state = withTimeout(5_000) { viewModel(sortieId).state.first { it !is InFlightState.Loading } }
+        val vm = viewModel(sortieId)
+        val state = withTimeout(5_000) { vm.state.first { it !is InFlightState.Loading } }
         assertTrue("was $state", state is InFlightState.NoChecklist)
         assertEquals(1, (state as InFlightState.NoChecklist).sortieNumber)
         assertFalse(needsLandConfirmation(state))
+
+        // The manager only advances an ACTIVE Mission, and this fixture inserted the row by hand.
+        missionDao.update(missionDao.get(missionId)!!.copy(status = MissionStatus.ACTIVE))
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        vm.land { onDoneRuns++; done.complete(Unit) }
+        withTimeout(5_000) { done.await() }
+
+        assertEquals(1, onDoneRuns)
+        val landed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.LANDED, landed.state)
+        assertNull(landed.runDistance)
+        assertNull(landed.runMinutes)
+        assertNull(vm.message.value)
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
     }
 
     // ── The distance unit setting moves the run state live ───────────
     // The setting changes while the run state is already showing, and the state the view model
     // publishes moves with it: the same stored number read under the other unit's label, never a
-    // conversion. Nothing is re-derived by hand here — only vm.state is read.
+    // conversion, and the unit itself carried on the state for anything that has to label a distance.
+    // Nothing is re-derived by hand here — only vm.state is read.
 
     @Test
     fun runDistanceUnitChangeUpdatesStateLive() = runBlocking {
@@ -225,6 +248,7 @@ class InFlightRunTest {
         val vm = viewModel(sortie.id)
         val miles = awaitRun(vm) { it.targetDistance == "5 mi" }
         assertEquals(listOf("1 mi \u00b7 10 min", "3.1 mi \u00b7 25 min"), miles.segments.map { it.detail })
+        assertEquals(DistanceUnit.MI, miles.distanceUnit)
 
         settingsStore.setDistanceUnit(DistanceUnit.KM)
 
@@ -233,6 +257,7 @@ class InFlightRunTest {
         } as InFlightState.Run
         assertEquals("5 km", km.targetDistance)
         assertEquals(listOf("1 km \u00b7 10 min", "3.1 km \u00b7 25 min"), km.segments.map { it.detail })
+        assertEquals(DistanceUnit.KM, km.distanceUnit)
         // The same run, the same plan: only the unit it is read under changed.
         assertEquals(miles.title, km.title)
         assertEquals(miles.notesLine, km.notesLine)
@@ -244,8 +269,9 @@ class InFlightRunTest {
     }
 
     // ── Landing a run from the run state ─────────────────────────────
-    // Today's Land, unchanged: it lands straight away with no confirmation, and stores no run
-    // actuals, because nothing on this screen calls landRun yet.
+    // The plain Land, unchanged: it lands straight away with no confirmation and stores no run
+    // actuals. The screen's Land on a run state now goes through landRun with the dialog's two
+    // fields (next section); this write is the one a run with no plan still takes.
 
     @Test
     fun launchAndLandSimpleRunFromRunState() = runBlocking {
@@ -271,6 +297,169 @@ class InFlightRunTest {
         assertNull(landed.runDistance)
         assertNull(landed.runMinutes)
         assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // ── Landing a run through landRun, the dialog's two fields ───────
+    // The launched run, landed through the write the dialog's Land calls, read back out of the DAO.
+
+    @Test
+    fun runLandWithDistanceAndDurationStoresBoth() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+
+        val vm = viewModel(sortie.id)
+        awaitRun(vm)
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        assertTrue(
+            "landRun refused a distance and a duration",
+            vm.landRun("5.2", "31") { onDoneRuns++; done.complete(Unit) }
+        )
+        withTimeout(5_000) { done.await() }
+
+        assertEquals(1, onDoneRuns)
+        val landed = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.LANDED, landed.state)
+        assertEquals(5.2, landed.runDistance!!, 0.0)
+        assertEquals(31.0, landed.runMinutes!!, 0.0)
+        assertEquals(fixedInstant.toEpochMilli(), landed.landedAt)
+        assertNull(vm.runErrors.value)
+        assertNull(vm.message.value)
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // Both fields optional: a run landed with nothing typed is LANDED with no distance and no
+    // duration invented for it.
+    @Test
+    fun runLandWithBlankFieldsStoresNulls() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+
+        val vm = viewModel(sortie.id)
+        awaitRun(vm)
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        assertTrue("landRun refused two blank fields", vm.landRun("", "") { onDoneRuns++; done.complete(Unit) })
+        withTimeout(5_000) { done.await() }
+
+        assertEquals(1, onDoneRuns)
+        val landed = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.LANDED, landed.state)
+        assertNull(landed.runDistance)
+        assertNull(landed.runMinutes)
+        assertNull(vm.message.value)
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // Text, a negative and a zero are each refused on the distance field alone, with the duration
+    // field left blank: nothing is landed and no failure message is raised.
+    @Test
+    fun runLandRejectsBadDistanceOnItsField() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+
+        val vm = viewModel(sortie.id)
+        awaitRun(vm)
+
+        var onDoneRuns = 0
+        for (typed in listOf("abc", "-3", "0")) {
+            assertFalse("landRun accepted the distance '$typed'", vm.landRun(typed, "") { onDoneRuns++ })
+            val errors = vm.runErrors.value
+            assertNotNull("landRun('$typed') raised no error", errors)
+            assertEquals("Distance must be a number above 0", errors!!.distanceError)
+            assertNull(errors.minutesError)
+            assertNull(vm.message.value)
+        }
+
+        assertEquals(0, onDoneRuns)
+        val row = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.IN_FLIGHT, row.state)
+        assertNull(row.runDistance)
+        assertNull(row.runMinutes)
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // The mirror: a good distance does not rescue a bad duration, and the error names only the
+    // duration field.
+    @Test
+    fun runLandRejectsBadDurationOnItsField() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+
+        val vm = viewModel(sortie.id)
+        awaitRun(vm)
+
+        var onDoneRuns = 0
+        for (typed in listOf("abc", "-3", "0")) {
+            assertFalse("landRun accepted the duration '$typed'", vm.landRun("5.2", typed) { onDoneRuns++ })
+            val errors = vm.runErrors.value
+            assertNotNull("landRun('$typed') raised no error", errors)
+            assertNull(errors!!.distanceError)
+            assertEquals("Duration must be a number above 0", errors.minutesError)
+            assertNull(vm.message.value)
+        }
+
+        assertEquals(0, onDoneRuns)
+        val row = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.IN_FLIGHT, row.state)
+        assertNull(row.runDistance)
+        assertNull(row.runMinutes)
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // A second Land while the first landing is still being written. The worker that runs the write is
+    // held until both taps have arrived, so the second call must hit the busy guard rather than queue
+    // behind the first; the sortie is landed once and nothing is reported.
+    @Test
+    fun runLandDoubleTapLandsOnce() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+
+        val worker = Executors.newSingleThreadExecutor()
+        val held = CountDownLatch(1)
+        val workerJob = Job()
+        val heldScope = CoroutineScope(
+            worker.asCoroutineDispatcher() + workerJob +
+                CoroutineExceptionHandler { _, e -> escaped += e }
+        )
+        worker.submit { held.await(5, TimeUnit.SECONDS) }
+        try {
+            val vm = InFlightViewModel(db, settingsStore, sortie.id, heldScope, manager)
+
+            val done = CompletableDeferred<Unit>()
+            var onDoneRuns = 0
+            assertTrue(
+                "the first landRun was refused",
+                vm.landRun("5.2", "31") { onDoneRuns++; done.complete(Unit) }
+            )
+            assertFalse("the second landRun got past the busy guard", vm.landRun("9.9", "60") { onDoneRuns++ })
+            assertEquals("no land should have run while its thread was held", 0, onDoneRuns)
+
+            held.countDown()
+            withTimeout(5_000) { done.await() }
+
+            assertEquals(1, onDoneRuns)
+            val landed = sortieDao.get(sortie.id)!!
+            assertEquals(SortieState.LANDED, landed.state)
+            assertEquals(5.2, landed.runDistance!!, 0.0)
+            assertEquals(31.0, landed.runMinutes!!, 0.0)
+            assertEquals(1, sortieDao.getForMission(mission.id).count { it.state == SortieState.LANDED })
+            // A second landing that got past the guard would be rejected by the manager and show a
+            // message inside this window. The guard means there is nothing to show.
+            assertNull(withTimeoutOrNull(1_000) { vm.message.first { it != null } })
+            assertTrue("a land threw out of the view model: $escaped", escaped.isEmpty())
+        } finally {
+            held.countDown()
+            workerJob.cancel()
+            worker.shutdownNow()
+        }
     }
 
     // ── Scrubbing a run from the run state ───────────────────────────
