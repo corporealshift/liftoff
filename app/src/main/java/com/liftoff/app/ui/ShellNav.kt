@@ -41,5 +41,12 @@ data class ShellNav(
             require(rest.size <= 1)
             ShellNav(tab, mc, inFlight)
         }.getOrElse { ShellNav() }
+
+        /** Where the shell starts: saved state wins, else the in-flight sortie, else the Launchpad. */
+        fun startNav(saved: ShellNav?, inFlightIds: List<Long>): ShellNav {
+            if (saved != null) return saved
+            val id = inFlightIds.maxOrNull() ?: return ShellNav()
+            return ShellNav().openInFlight(id)
+        }
     }
 }
