@@ -120,7 +120,7 @@ test class; the full cold gate takes ~4 minutes and must be run detached (Task 5
   `app/build/test-results/testDebugUnitTest/TEST-*.xml` and `InFlightRunTest` reports 0 failures /
   0 errors / 0 skipped. Commit `in-flight: tests for landing a run with distance and duration`.
 
-- [ ] Test what the dialog card renders, then run the gate
+- [x] Test what the dialog card renders, then run the gate
   `app/src/test/java/com/liftoff/app/ui/inflight/LandScrubDialogTest.kt`, in that file's existing
   style (`createComposeRule`, `LiftoffTheme`, `@Config(qualifiers = "w411dp-h2000dp")`, cards
   rendered directly in the main window — never the `Dialog` shell). Two tests, named exactly as
