@@ -4,6 +4,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,13 +18,15 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
 import com.liftoff.app.ui.PlaceholderScreen
+import com.liftoff.app.ui.inflight.ScrubDialog
 import com.liftoff.app.ui.sortie.FlightPlanSection
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatWeekDate
@@ -37,7 +41,15 @@ fun LaunchpadScreen(
     val viewModel = remember(container) {
         LaunchpadViewModel(container.database, container.missionManager, scope)
     }
+    LaunchpadContent(viewModel = viewModel, onOpenInFlight = onOpenInFlight)
+}
 
+/** The screen body, apart from AppContainer so a test can render it on its own view model. */
+@Composable
+internal fun LaunchpadContent(
+    viewModel: LaunchpadViewModel,
+    onOpenInFlight: (Long) -> Unit,
+) {
     val s by viewModel.state.collectAsState()
 
     Scaffold(
@@ -63,16 +75,12 @@ fun LaunchpadScreen(
         bottomBar = {
             ActionButtons(
                 state = s,
-                scrubbing = viewModel.scrubbing,
-                scrubReason = viewModel.scrubReason,
                 onToggleChip = { viewModel.toggleChip(it) },
                 onAddChip = { viewModel.addChip() },
                 onRemoveChip = { viewModel.removeChip() },
                 onConfirm = { viewModel.confirm() },
                 onLaunch = { viewModel.launch(onOpenInFlight) },
                 onRequestScrub = { viewModel.requestScrub() },
-                onCancelScrub = { viewModel.cancelScrub() },
-                onConfirmScrub = { viewModel.confirmScrub() },
             )
         },
     )
@@ -93,11 +101,9 @@ fun LaunchpadScreen(
             else -> 0
         }
         ScrubDialog(
-            sortieIndex = sortieIndex,
-            reason = viewModel.scrubReason,
-            onReasonChange = { viewModel.setScrubReason(it) },
-            onConfirm = { viewModel.confirmScrub() },
-            onCancel = { viewModel.cancelScrub() },
+            sortieNumber = sortieIndex + 1,
+            onConfirm = { viewModel.confirmScrub(it) },
+            onDismiss = { viewModel.cancelScrub() },
         )
     }
 }
@@ -113,8 +119,6 @@ private fun DraftContent(draft: LaunchpadState.Draft, viewModel: LaunchpadViewMo
     DraftPatternChips(
         pattern = draft.pattern,
         onToggle = { viewModel.toggleChip(it) },
-        onAdd = { viewModel.addChip() },
-        onRemove = { viewModel.removeChip() },
     )
 
     Spacer(Modifier.height(20.dp))
@@ -170,16 +174,12 @@ private fun ClosedContent(state: LaunchpadState.Closed) {
 @Composable
 private fun ActionButtons(
     state: LaunchpadState,
-    scrubbing: Boolean,
-    scrubReason: String,
     onToggleChip: (Int) -> Unit,
     onAddChip: () -> Unit,
     onRemoveChip: () -> Unit,
     onConfirm: () -> Unit,
     onLaunch: () -> Unit,
     onRequestScrub: () -> Unit,
-    onCancelScrub: () -> Unit,
-    onConfirmScrub: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -212,25 +212,63 @@ private fun DraftActions(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        InkButton(
+        DraftStepButton(
             text = "−",
+            enabled = count > 1,
             onClick = onRemoveChip,
             modifier = Modifier.width(48.dp),
-            height = 40.dp,
         )
         Text(
             text = "$count sorties",
             style = LiftoffType.note().copy(color = Muted),
         )
-        InkButton(
+        DraftStepButton(
             text = "+",
+            enabled = count < 7,
             onClick = onAddChip,
             modifier = Modifier.width(48.dp),
-            height = 40.dp,
         )
     }
     Spacer(Modifier.height(12.dp))
     PrimaryButton(text = "Confirm", onClick = onConfirm)
+}
+
+// InkButton has no enabled parameter and ui.theme is out of scope for this brief, so the draft's
+// stepper is drawn here. The width arrives through modifier: a fillMaxWidth() inside would swallow
+// the SpaceBetween row.
+@Composable
+private fun DraftStepButton(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 40.dp,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed = interactionSource.collectIsPressedAsState()
+    val shadow = if (!enabled) Rule else if (pressed.value) RedPressed else Red
+    OffsetShadowBox(
+        color = shadow,
+        offset = 4.dp,
+        modifier = modifier.height(height),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(if (enabled) Ink else Muted, ButtonShape)
+                .border(BorderStroke(2.dp, Ink), ButtonShape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClick = onClick,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text, style = LiftoffType.landLabel().copy(color = if (enabled) Cream else Sand))
+        }
+    }
 }
 
 @Composable
@@ -260,51 +298,11 @@ private fun InFlightActions(onLaunch: () -> Unit) {
     )
 }
 
-/** Scrub confirmation dialog built from a Paper card inside a Dialog. */
-@Composable
-private fun ScrubDialog(
-    sortieIndex: Int,
-    reason: String,
-    onReasonChange: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    Dialog(onDismissRequest = { /* no dismiss outside buttons */ }) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Paper, CardShape)
-                .border(BorderStroke(2.dp, Ink), CardShape)
-                .padding(16.dp),
-        ) {
-            Text(
-                text = "Scrub sortie ${sortieIndex + 1}?",
-                style = LiftoffType.sectionHead(),
-                color = Ink,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            OutlinedTextField(
-                value = reason,
-                onValueChange = onReasonChange,
-                label = { Text("Reason (optional)") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                PrimaryButton(text = "Scrub", onClick = onConfirm, height = 48.dp)
-                UnderlinedTextButton(text = "Cancel", onClick = onCancel)
-            }
-        }
-    }
-}
-
 /** Editable pattern chips for Draft state — copied from MissionControlScreen's PatternChips. */
 @Composable
 private fun DraftPatternChips(
     pattern: String,
     onToggle: (Int) -> Unit,
-    onAdd: () -> Unit,
-    onRemove: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(
@@ -332,31 +330,6 @@ private fun DraftPatternChips(
                         color = if (isSelected) White else Ink,
                     )
                 }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            OutlinedButton(
-                onClick = onRemove,
-                enabled = pattern.length > 1,
-                shape = ButtonShape,
-                border = BorderStroke(2.dp, Ink),
-                modifier = Modifier.size(44.dp),
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Text("-", style = LiftoffType.index(), color = Ink)
-            }
-            OutlinedButton(
-                onClick = onAdd,
-                enabled = pattern.length < 7,
-                shape = ButtonShape,
-                border = BorderStroke(2.dp, Ink),
-                modifier = Modifier.size(44.dp),
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Text("+", style = LiftoffType.index(), color = Ink)
             }
         }
     }
