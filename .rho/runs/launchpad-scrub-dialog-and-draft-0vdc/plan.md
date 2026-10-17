@@ -1,9 +1,9 @@
 # Plan — Launchpad scrub dialog and draft controls cleanup
 
 Two independent cleanups, both inside `com.liftoff.app.ui.launchpad`. Part 1 deletes the
-Launchpad's private scrub dialog and adopts the themed one already used by In-Flight. Part 2
-removes the duplicate −/+ pair under the draft chips and gives the surviving bottom-bar pair real
-disabled states at 1 and 7 sorties.
+Launchpad's private scrub dialog, adopts the themed one already used by In-Flight, and trims the
+reason the same way In-Flight does. Part 2 removes the duplicate −/+ pair under the draft chips and
+gives the surviving bottom-bar pair real disabled states at 1 and 7 sorties.
 
 ## Why this approach fits the codebase
 
@@ -18,8 +18,10 @@ call site, not a redesign.
 
 For the stepper: `InkButton` (`ui/theme/Buttons.kt:92`) has **no `enabled` parameter**, and
 `ui.theme` is outside the files this brief allows. The disabled state therefore has to be built in
-`LaunchpadScreen.kt` out of pieces that are already public: `Modifier.offsetShadow`
-(`ui/theme/OffsetShadow.kt:25`), `ButtonShape`, `Ink`, `Red`, `Muted`, `Cream`, `LiftoffType`.
+`LaunchpadScreen.kt` out of pieces that are already public: `OffsetShadowBox`
+(`ui/theme/OffsetShadow.kt:63`, the same wrapper `InkButton` uses), `ButtonShape`, `Ink`, `Red`,
+`RedPressed`, `Muted`, `Rule`, `Cream`, `Sand`, `LiftoffType` — all reachable through the file's
+existing `com.liftoff.app.ui.theme.*` import.
 `Modifier.clickable(enabled = false, role = Role.Button)` applies the `disabled()` semantics itself,
 so `assertIsNotEnabled()` works in a Compose test without touching `ui.theme`.
 
@@ -27,16 +29,18 @@ so `assertIsNotEnabled()` works in a Compose test without touching `ui.theme`.
 
 **`app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadViewModel.kt`**
 - `confirmScrub()` (:121-138): today `manager.scrub(sortieId, _scrubReason.takeIf { it.isNotBlank() })`
-  — never trims, so `'  sore knee  '` is stored with its spaces. Change to
+  — never trims, so `'  sore knee  '` is stored with its spaces (domain `scrub()` in
+  `domain/Sorties.kt:49` stores non-blank text exactly as passed). Change to
   `reason.trim().takeIf { it.isNotEmpty() }`, the rule `InFlightViewModel.normalizeNote`
   (`InFlightViewModel.kt:134`) uses. `trim()` only touches the ends, so interior line breaks survive.
-- After the dialog swap: delete `_scrubReason`, `scrubReason` and `setScrubReason` (:23-24, :117-119),
-  because `ScrubDialogContent` keeps the draft text in its own `remember` (`ScrubDialog.kt:59`).
-  `requestScrub()` (:112-115) and `cancelScrub()` (:140-143) keep clearing `scrubbing`, so a reopened
-  dialog still starts empty.
 - `confirmScrub` becomes `confirmScrub(reason: String)`. Its `sortieId` `when` over
   Planned/Pending/InFlight and its `finally { scrubbing = false }` stay as they are, so the dialog
   still closes once the write has finished.
+- Delete `_scrubReason`, `scrubReason` and `setScrubReason` (:23-24, :117-119), and the
+  `_scrubReason = ""` lines in `requestScrub()` / `cancelScrub()`, because `ScrubDialogContent` keeps
+  the draft text in its own `remember` (`ScrubDialog.kt:59`). `requestScrub()` still sets
+  `scrubbing = true` and `cancelScrub()` still sets it false; the dialog leaves composition when
+  `scrubbing` is false, so a reopened dialog starts empty.
 - `addChip` / `removeChip` keep their `>= 7` / `<= 1` guards, as the brief requires.
 
 **`app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt`**
@@ -50,51 +54,70 @@ so `assertIsNotEnabled()` works in a Compose test without touching `ui.theme`.
   and the shared dialog renders `sortieNumber` directly. The `showScrubDialog` / `sortieIndex` `when`
   blocks (:82-94) are unchanged.
 - `ActionButtons` (:171-199): drop the `scrubbing` and `scrubReason` parameters — the `when` inside
-  never reads them, and nothing else passes them. Update the call in the `bottomBar` (:64-76).
+  never reads them. Update the call in the `bottomBar` (:64-76); its `onConfirmScrub` lambda becomes
+  `{ }`-free by dropping that parameter too, since `ActionButtons` never uses `onCancelScrub` /
+  `onConfirmScrub` either (remove both, or keep them and pass `{ viewModel.cancelScrub() }` /
+  drop only `onConfirmScrub` — whichever compiles cleanly; nothing else calls `ActionButtons`).
 - `DraftPatternChips` (:303-363): delete the whole second `Row` (:337-361, the two stock M3
   `OutlinedButton`s) and its `onAdd` / `onRemove` parameters. The chip circles and `onToggle` stay.
   Update the call in `DraftContent` (:113-118).
 - `DraftActions` (:201-234): replace the two `InkButton`s with a private `DraftStepButton`, keeping
-  the `"$count sorties"` text and `PrimaryButton(text = "Confirm")` untouched:
+  the `"$count sorties"` text and `PrimaryButton(text = "Confirm")` untouched. It mirrors `InkButton`
+  (same `OffsetShadowBox`, same press feedback on the shadow) and adds `enabled`:
 
   ```kotlin
   // InkButton has no enabled parameter, and ui.theme is out of scope for this brief.
   @Composable
-  private fun DraftStepButton(text: String, enabled: Boolean, onClick: () -> Unit) {
+  private fun DraftStepButton(
+      text: String,
+      enabled: Boolean,
+      onClick: () -> Unit,
+      modifier: Modifier = Modifier,
+      height: Dp = 40.dp,
+  ) {
       val interactionSource = remember { MutableInteractionSource() }
       val pressed = interactionSource.collectIsPressedAsState()
-      val fill = if (!enabled) Muted else if (pressed.value) RedPressed else Ink
-      Box(
-          modifier = Modifier
-              .fillMaxWidth()
-              .offsetShadow(color = if (enabled) Red else Rule, shape = ButtonShape, offset = 4.dp)
-              .background(fill, ButtonShape)
-              .border(BorderStroke(2.dp, Ink), ButtonShape)
-              .clickable(
-                  interactionSource = interactionSource,
-                  indication = null,
-                  enabled = enabled,
-                  role = Role.Button,
-                  onClick = onClick,
-              ),
-          contentAlignment = Alignment.Center,
+      val shadow = if (!enabled) Rule else if (pressed.value) RedPressed else Red
+      OffsetShadowBox(
+          color = shadow,
+          offset = 4.dp,
+          modifier = modifier.height(height),
       ) {
-          Text(text, style = LiftoffType.landLabel().copy(color = if (enabled) Cream else Sand))
+          Box(
+              modifier = Modifier
+                  .fillMaxSize()
+                  .background(if (enabled) Ink else Muted, ButtonShape)
+                  .border(BorderStroke(2.dp, Ink), ButtonShape)
+                  .clickable(
+                      interactionSource = interactionSource,
+                      indication = null,
+                      enabled = enabled,
+                      role = Role.Button,
+                      onClick = onClick,
+                  ),
+              contentAlignment = Alignment.Center,
+          ) {
+              Text(text, style = LiftoffType.landLabel().copy(color = if (enabled) Cream else Sand))
+          }
       }
   }
   ```
 
-  `−` gets `enabled = count > 1`, `+` gets `enabled = count < 7`. Both keep
-  `Modifier.width(48.dp)` and `height = 40.dp`, so the bar's layout does not move.
+  Called as `DraftStepButton(text = "−", enabled = count > 1, onClick = onRemoveChip, modifier = Modifier.width(48.dp))`
+  and `DraftStepButton(text = "+", enabled = count < 7, onClick = onAddChip, modifier = Modifier.width(48.dp))`.
+  The width must come in through `modifier` — no `fillMaxWidth()` inside — or the first button
+  swallows the whole `SpaceBetween` row. Same 48×40 dp as today, so the bar's layout does not move.
   `FooterCell` (`InFlightScreen.kt:831`) is the precedent for a dimmed, non-clickable control.
-  `BorderStroke`, `background`, `border`, `clickable` and `Modifier.offsetShadow` are already imported
-  in this file; `Role`, `MutableInteractionSource` and `collectIsPressedAsState` need new imports.
+  New imports: `androidx.compose.ui.semantics.Role`,
+  `androidx.compose.foundation.interaction.MutableInteractionSource`,
+  `androidx.compose.foundation.interaction.collectIsPressedAsState`, `androidx.compose.ui.unit.Dp`.
+  `InkButton` is then unused in this file; that is fine (it is a public theme component).
 - Split the screen body so a test can render the whole draft state without an `AppContainer`
   (`AppContainer` opens an on-disk `liftoff.db`, which a Robolectric test should not do):
   `LaunchpadScreen(container, onOpenInFlight)` keeps its exact signature — it only builds the
   `LaunchpadViewModel` from the container — and delegates to a new
   `internal fun LaunchpadContent(viewModel: LaunchpadViewModel, onOpenInFlight: (Long) -> Unit)`
-  holding the `Scaffold`, the state `when`, the bottom bar and the scrub-dialog block.
+  holding the `Scaffold`, the state `when`, the bottom bar and the scrub-dialog block, moved verbatim.
   `ui/LiftoffShell.kt:132` is untouched.
 
 **Tests** — new files under `app/src/test/java/com/liftoff/app/ui/launchpad/`, which today holds only
@@ -105,13 +128,13 @@ so `assertIsNotEnabled()` works in a Compose test without touching `ui.theme`.
 Each step compiles and passes on its own, and is committed as soon as it does. Commit messages are
 `area: lowercase summary` per CLAUDE.md, staging named files only.
 
-1. **Reason normalization** — `LaunchpadViewModel.confirmScrub` trims and maps blank to null; add
-   `LaunchpadScrubTest.kt`. Gate, then commit `launchpad: trim the scrub reason and store blank as null`.
-2. **Dialog swap** — delete the private `ScrubDialog`, import the In-Flight one, rewrite the call
-   site, move the reason into the dialog (`confirmScrub(reason: String)`), strip `scrubReason` from
-   the view model and `ActionButtons`. Gate, then commit `launchpad: show the themed scrub dialog`.
-3. **Draft controls** — delete the chip-row pair, add `DraftStepButton` with `enabled`, split out
-   `LaunchpadContent`, add `LaunchpadDraftControlsTest.kt`. Gate, then commit
+1. **Part 1, scrub dialog and reason** — delete the private `ScrubDialog`, import the In-Flight one,
+   rewrite the call site, change to `confirmScrub(reason: String)` with trim-and-null, strip
+   `scrubReason` from the view model and `ActionButtons`; add `LaunchpadScrubTest.kt`. Done as one
+   step because the test needs the new `confirmScrub(reason)` signature. Gate, then commit
+   `launchpad: show the themed scrub dialog and trim the reason`.
+2. **Part 2, draft controls** — delete the chip-row pair, add `DraftStepButton` with `enabled`, split
+   out `LaunchpadContent`, add `LaunchpadDraftControlsTest.kt`. Gate, then commit
    `launchpad: keep one draft stepper and disable it at the limits`.
 
 Gate each step with `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`, run detached (see
@@ -120,18 +143,21 @@ the fast check.
 
 ## How the result is tested
 
-**`LaunchpadScrubTest.kt`** — Robolectric (`@Config(sdk = [34])`), fixture copied from
-`LaunchpadStatesTest`: in-memory Room with `allowMainThreadQueries()`,
+**`LaunchpadScrubTest.kt`** — Robolectric (`@RunWith(RobolectricTestRunner::class)`, `@Config(sdk = [34])`),
+fixture copied from `LaunchpadStatesTest`: in-memory Room with `allowMainThreadQueries()`,
 `PreferenceDataStoreFactory.create { File(context.cacheDir, "settings.preferences_pb") }` →
 `SettingsStore`, `MissionManager(db, settingsStore, clock = Clock.fixed(Instant.parse("2026-01-12T00:00:00Z"), ZoneOffset.UTC), zone = { ZoneOffset.UTC })`,
-and a `CoroutineScope(Dispatchers.Unconfined + Job())` with an exception handler that records escapes.
+and a `CoroutineScope(Dispatchers.Unconfined + job)` (`job = Job()`) with a
+`CoroutineExceptionHandler` that records escapes; assert none were recorded.
+`@After`: `job.cancel()` **before** `db.close()` — `stateIn(Lazily)` keeps the Room flow collecting
+for the scope's lifetime — then delete the preferences file.
 Setup: `settingsStore.setDefaultPattern("RL")` → `manager.onAppOpen()` → `manager.confirm(mission.id)`
 (a mission must be ACTIVE or `MissionManager.scrub` rejects it). Build the view model, then
 `withTimeout(5_000) { vm.state.first { it is LaunchpadState.Planned } }` — `stateIn` is `Lazily`, and
 `confirmScrub` reads `state.value`, so the state must be collected before the scrub. Then
 `vm.requestScrub()` and `vm.confirmScrub("  sore knee  ")`, then poll `sortieDao.get(sortieId)` inside
-`withTimeout(5_000)` until `state == SortieState.SCRUBBED`.
-- `launchpadScrubTrimsTheReason` → `scrubReason == "sore knee"`.
+`withTimeout(5_000)` (short `delay` between polls) until `state == SortieState.SCRUBBED`.
+- `launchpadScrubTrimsTheReason` → `scrubReason == "sore knee"`, and `vm.scrubbing` is false afterwards.
 - `launchpadScrubStoresBlankReasonAsNull` → `"   "` → `scrubReason == null`, sortie still SCRUBBED.
 - `launchpadScrubKeepsInteriorLineBreaks` → `"  sore\nknee  "` → `"sore\nknee"`.
 
@@ -140,22 +166,29 @@ inside a `Dialog` never lets Compose go idle under Robolectric (the reason `Land
 renders `ScrubDialogContent` in the main window instead).
 
 **`LaunchpadDraftControlsTest.kt`** — `createComposeRule()`, `@RunWith(AndroidJUnit4::class)`,
-`@Config(qualifiers = "w411dp-h2000dp")`, content wrapped in `LiftoffTheme { }`, rendering
+`@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`, content wrapped in `LiftoffTheme { }`, rendering
 `LaunchpadContent(vm, onOpenInFlight = {})` with a view model built on the same in-memory fixture as
-above, left in Draft (`onAppOpen()` only). No Dialog, no text field anywhere.
+above, left in Draft (`onAppOpen()` only). Same `@After` order: cancel the view model's job, then
+close the database. Before asserting, `composeRule.waitUntil(timeoutMillis = 5_000)` until the
+`"N sorties"` text for the expected pattern is present, since the Draft arrives from Room
+asynchronously. No Dialog, no text field anywhere.
 - `draftDrawsOneStepperPair` — default pattern `RLRLR`: `onAllNodesWithText("+").assertCountEquals(1)`
   and `onAllNodesWithText("−").assertCountEquals(1)` (U+2212, the character the bottom bar uses), plus
   `onAllNodesWithText("-").assertCountEquals(0)` (ASCII hyphen, the character the chip row used).
   Counting `+` is what proves the duplicate pair is gone; counting only `−` would pass before the fix.
 - `draftMinusDisabledAtOneSortie` — `settingsStore.setDefaultPattern("R")` before `onAppOpen()`:
   `onNodeWithText("−").assertIsNotEnabled()`, `onNodeWithText("+").assertIsEnabled()`.
-- `draftPlusDisabledAtSevenSorties` — `setDefaultPattern("RLRLRLR")`: `onNodeWithText("+").assertIsNotEnabled()`.
+- `draftPlusDisabledAtSevenSorties` — `setDefaultPattern("RLRLRLR")`: `onNodeWithText("+").assertIsNotEnabled()`,
+  `onNodeWithText("−").assertIsEnabled()`.
 - `draftStepperClicksStopAtTheLimits` — from `RLRLR`, `performClick()` on `+` and
-  `composeRule.waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("7 sorties").fetchSemanticsNodes().isNotEmpty() }`,
-  twice, then `assertIsNotEnabled()` on `+`; then `−` back down to `1 sorties` and the same on `−`.
+  `composeRule.waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("6 sorties").fetchSemanticsNodes().isNotEmpty() }`,
+  then again to `7 sorties`, then `assertIsNotEnabled()` on `+`; then `−` step by step back down to
+  `1 sorties` (each step waited on with a timeout) and the same on `−`. Confirm still renders.
 - `addChipAtSevenLeavesPatternUnchanged` and `removeChipAtOneLeavesPatternUnchanged` — view-model
-  only (no Compose): call `vm.addChip()` / `vm.removeChip()` at the limit and assert the stored
-  `mission.pattern` length is still 7 / 1, which is the guard the brief says to keep.
+  only (no Compose): first `withTimeout(5_000) { vm.state.first { it is LaunchpadState.Draft && it.pattern.length == 7 } }`
+  (resp. `== 1`) so `state.value` is really the Draft — otherwise it is `Loading` and the guard is
+  never exercised. Then call `vm.addChip()` / `vm.removeChip()` and assert the stored
+  `missionDao.get(missionId)!!.pattern` length is still 7 / 1, which is the guard the brief says to keep.
 
 **Untouched and still green:** `LandScrubDialogTest`, `InFlightLandScrubTest`, `InFlightScreenTest`,
 `LaunchpadStatesTest`, the Mission screen tests, `MissionManager` and the domain tests.
@@ -169,12 +202,12 @@ matches; `grep -n "private fun ScrubDialog" app/src/main/java/com/liftoff/app/ui
 ## Risks and uncertainties
 
 - **Compose test + real Room writes.** `LaunchpadContent` drives a live `observe()` flow, so the
-  click test is the flaky one: every wait needs a timeout, and the screen must be unmounted before
-  `tearDown()` closes the database, or the still-collecting flow fails the test with
-  "connection pool has been closed". If a run hangs with no XML and climbing CPU, `jstack` the test
-  executor (Room's `InvalidationTracker` spins on Robolectric's paused clock), `bash gradlew.sh --stop`,
-  delete `app/build/test-results/testDebugUnitTest`, and re-run once before treating it as broken —
-  one hung run is not a broken suite.
+  click test is the flaky one: every wait needs a timeout, and the view model's scope must be
+  cancelled in `@After` before `db.close()` (the compose rule tears down after `@After`), or the
+  still-collecting flow fails the test with "connection pool has been closed". If a run hangs with no
+  XML and climbing CPU, `jstack` the test executor (Room's `InvalidationTracker` spins on
+  Robolectric's paused clock), `bash gradlew.sh --stop`, delete `app/build/test-results/testDebugUnitTest`,
+  and re-run once before treating it as broken — one hung run is not a broken suite.
 - **The gate outlasts a shell command.** Run it detached: `mkdir -p app/build` first (a fresh
   worktree has no `app/build`, so a redirect into it silently produces no log), then
   `nohup bash -c 'bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache > app/build/gate.log 2>&1; echo EXIT=$? >> app/build/gate.log' >/dev/null 2>&1 &`
@@ -215,8 +248,8 @@ matches; `grep -n "private fun ScrubDialog" app/src/main/java/com/liftoff/app/ui
      they already have. Hiding the buttons instead would make the bar jump.
 
 3. **What does the reason field show when the dialog is reopened?**
-   - Choice: empty, because the text now lives inside the dialog and `requestScrub()` still clears
-     `scrubbing` on each open.
+   - Choice: empty, because the text now lives inside the dialog, which leaves composition whenever
+     `scrubbing` is false.
    - Alternative: keep the last typed reason in the view model and re-show it.
    - Why: this is what the Launchpad does today (`requestScrub` sets `_scrubReason = ""`) and what the
      In-Flight dialog does, so nothing visible changes.
