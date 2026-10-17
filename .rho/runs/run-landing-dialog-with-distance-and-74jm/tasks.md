@@ -16,7 +16,7 @@ Baseline: the suite is 463 tests and green at the start of this run. Iterate wit
 `bash gradlew.sh :app:compileDebugKotlin :app:compileDebugUnitTestKotlin` (~35 s) and a single
 test class; the full cold gate takes ~4 minutes and must be run detached (Task 5).
 
-- [ ] Put the distance unit on the `Run` state
+- [x] Put the distance unit on the `Run` state
   `app/src/main/java/com/liftoff/app/ui/inflight/InFlightState.kt`: `InFlightState.Run` gains
   `val distanceUnit: DistanceUnit` (`DistanceUnit` is already imported in that file), and
   `deriveInFlight`'s run branch fills it from the `distanceUnit` parameter it already has. The
