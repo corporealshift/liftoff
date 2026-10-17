@@ -35,7 +35,7 @@ test class; the full cold gate takes ~4 minutes and must be run detached (Task 5
   `landingARunNeedsNoChecklist`, `confirmationNeededOnlyWhenSetsAreOpen`, `noChecklistNeedsNoConfirmation`,
   `openCountCountsOpenSets` — all still pass. Commit `in-flight: carry the distance unit on the run state`.
 
-- [ ] Write `RunLandDialog.kt`, wired to nothing
+- [x] Write `RunLandDialog.kt`, wired to nothing
   New file `app/src/main/java/com/liftoff/app/ui/inflight/RunLandDialog.kt`, the fourth member of
   the `ui.inflight` dialog family. Read `ScrubDialog.kt` first and copy its shape: a thin
   `RunLandDialog(sortieNumber, distanceUnit, errors: RunEntry.Invalid?, onLand: (String, String) -> Unit, onDismiss)`
