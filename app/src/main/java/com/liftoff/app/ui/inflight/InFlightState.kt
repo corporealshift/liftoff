@@ -33,6 +33,7 @@ sealed interface InFlightState {
         val targetPace: String?,      // as written in the plan
         val segments: List<RunSegmentRow>,
         val sortieNote: String?,      // the sortie row's own note
+        val distanceUnit: DistanceUnit, // the configured unit, so the land dialog can label its field
     ) : InFlightState
 
     /** Full checklist state for a LIFT sortie with exercises. */
@@ -136,6 +137,7 @@ fun deriveInFlight(
                 RunSegmentRow(description = segment.description, detail = detail)
             },
             sortieNote = sortie.notes,
+            distanceUnit = distanceUnit,
         )
     }
 

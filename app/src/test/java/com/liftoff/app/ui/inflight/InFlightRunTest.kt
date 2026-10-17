@@ -213,7 +213,8 @@ class InFlightRunTest {
     // ── The distance unit setting moves the run state live ───────────
     // The setting changes while the run state is already showing, and the state the view model
     // publishes moves with it: the same stored number read under the other unit's label, never a
-    // conversion. Nothing is re-derived by hand here — only vm.state is read.
+    // conversion, and the unit itself carried on the state for anything that has to label a distance.
+    // Nothing is re-derived by hand here — only vm.state is read.
 
     @Test
     fun runDistanceUnitChangeUpdatesStateLive() = runBlocking {
@@ -225,6 +226,7 @@ class InFlightRunTest {
         val vm = viewModel(sortie.id)
         val miles = awaitRun(vm) { it.targetDistance == "5 mi" }
         assertEquals(listOf("1 mi \u00b7 10 min", "3.1 mi \u00b7 25 min"), miles.segments.map { it.detail })
+        assertEquals(DistanceUnit.MI, miles.distanceUnit)
 
         settingsStore.setDistanceUnit(DistanceUnit.KM)
 
@@ -233,6 +235,7 @@ class InFlightRunTest {
         } as InFlightState.Run
         assertEquals("5 km", km.targetDistance)
         assertEquals(listOf("1 km \u00b7 10 min", "3.1 km \u00b7 25 min"), km.segments.map { it.detail })
+        assertEquals(DistanceUnit.KM, km.distanceUnit)
         // The same run, the same plan: only the unit it is read under changed.
         assertEquals(miles.title, km.title)
         assertEquals(miles.notesLine, km.notesLine)
