@@ -37,7 +37,15 @@ fun LaunchpadScreen(
     val viewModel = remember(container) {
         LaunchpadViewModel(container.database, container.missionManager, scope)
     }
+    LaunchpadContent(viewModel = viewModel, onOpenInFlight = onOpenInFlight)
+}
 
+/** The screen body, apart from AppContainer so a test can render it on its own view model. */
+@Composable
+internal fun LaunchpadContent(
+    viewModel: LaunchpadViewModel,
+    onOpenInFlight: (Long) -> Unit,
+) {
     val s by viewModel.state.collectAsState()
 
     Scaffold(
@@ -107,8 +115,6 @@ private fun DraftContent(draft: LaunchpadState.Draft, viewModel: LaunchpadViewMo
     DraftPatternChips(
         pattern = draft.pattern,
         onToggle = { viewModel.toggleChip(it) },
-        onAdd = { viewModel.addChip() },
-        onRemove = { viewModel.removeChip() },
     )
 
     Spacer(Modifier.height(20.dp))
@@ -255,8 +261,6 @@ private fun InFlightActions(onLaunch: () -> Unit) {
 private fun DraftPatternChips(
     pattern: String,
     onToggle: (Int) -> Unit,
-    onAdd: () -> Unit,
-    onRemove: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(
@@ -284,31 +288,6 @@ private fun DraftPatternChips(
                         color = if (isSelected) White else Ink,
                     )
                 }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            OutlinedButton(
-                onClick = onRemove,
-                enabled = pattern.length > 1,
-                shape = ButtonShape,
-                border = BorderStroke(2.dp, Ink),
-                modifier = Modifier.size(44.dp),
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Text("-", style = LiftoffType.index(), color = Ink)
-            }
-            OutlinedButton(
-                onClick = onAdd,
-                enabled = pattern.length < 7,
-                shape = ButtonShape,
-                border = BorderStroke(2.dp, Ink),
-                modifier = Modifier.size(44.dp),
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Text("+", style = LiftoffType.index(), color = Ink)
             }
         }
     }
