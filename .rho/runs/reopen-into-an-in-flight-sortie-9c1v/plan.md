@@ -162,17 +162,17 @@ Every wait is `withTimeout(5_000)` polling the counter, the `awaitReady` shape a
 `job.cancel()` before `db.close()` in `tearDown`.
 
 **Must stay green** (read each class's own `TEST-<fully.qualified>.xml` header rather than a
-package-scoped grep): `ShellNavTest`, `LiftoffShellTest`, `InFlightScreenTest`, `InFlightRunTest`,
-`InFlightLandScrubTest`, `InFlightStatesTest`, `InFlightViewModelTest`, `LandScrubDialogTest`,
-`NoteDialogTest`, `RunLandingTest`, the four `ui/launchpad` tests, `MissionManagerTest`, `SortieDaoTest`,
-`SchemaExportTest`, and the coach tests.
+package-scoped grep): `ShellNavTest`, `LiftoffShellTest`, `MainActivityTest`, `InFlightScreenTest`,
+`InFlightRunTest`, `InFlightLandScrubTest`, `InFlightStatesTest`, `InFlightViewModelTest`,
+`LandScrubDialogTest`, `NoteDialogTest`, `RunLandingTest`, the four `ui/launchpad` tests,
+`MissionManagerTest`, `SortieDaoTest`, `SchemaExportTest`, and the coach tests.
 
 ## Risks
 
-- **The brief names `MainActivityTest`, which does not exist and never did.** The shell's
-  activity-level tests are `LiftoffShellTest`, which uses `createAndroidComposeRule<MainActivity>()`
-  (line 26) and calls `onAppOpen()` in its `@Before` (42-50). Nothing else in the repo matches that
-  name, so "must not break `MainActivityTest`" is satisfied by `LiftoffShellTest` staying green.
+- **`MainActivityTest`** (`app/src/test/java/com/liftoff/app/MainActivityTest.kt`) is plain JUnit and
+  compares only local constants and `Color` values; it never starts `MainActivity` or the shell, so this
+  work cannot affect it. The shell's real activity-level tests are `LiftoffShellTest`, which uses
+  `createAndroidComposeRule<MainActivity>()` (line 26) and calls `onAppOpen()` in its `@Before` (42-50).
 - **`SortieDao` has no delete today** — the only deletes in `app/src/main` are
   `FlightPlanDao.kt:21` (`DELETE FROM flightPlan WHERE sortieId`) and `GenerationDao.kt:17` (`@Delete`).
   The "no longer exists" case needs one. A `@Query` delete is chosen because Room's generated DAO code
