@@ -41,7 +41,7 @@ Shared facts every task needs (the plan has the detail; these are the ones that 
   Done when: the new file compiles, both names read `pass` in this run's XML reports, and the detached gate
   reports no failures anywhere. Commit `launchpad: test the draft pattern limit guards`.
 
-- [ ] Show the themed scrub dialog on the Launchpad and trim the reason
+- [x] Show the themed scrub dialog on the Launchpad and trim the reason
   Covers: brief part 1, in one commit because the test needs the new `confirmScrub(reason)` signature.
   `LaunchpadViewModel.kt`: `confirmScrub()` becomes `confirmScrub(reason: String)` and stores
   `reason.trim().takeIf { it.isNotEmpty() }` (the rule `InFlightViewModel.normalizeNote` uses) instead of
