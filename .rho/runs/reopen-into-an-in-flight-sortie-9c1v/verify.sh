@@ -10,7 +10,7 @@
 # Gradle exits 0 when a named test never existed, so each test below is looked for by name in this run's
 # reports; a test that was not written cannot pass on its own. Names are matched across every report, so
 # which class and package each one sits in is the implementer's call; what it must show is written above
-# it. The eleven names under "opening" and "leaving" are tests this run has to write. The names under
+# it. The twelve names under "opening" and "leaving" are tests this run has to write. The names under
 # "must not break" already exist and this run has to keep them passing.
 #
 # The brief's own shape for the two pieces is what the names follow: the start decision is a plain Kotlin
@@ -27,9 +27,9 @@
 # runs the real MainActivity on a cold start against the app's own database, still opens on the Launchpad
 # and still restores saved navigation after recreation.
 #
-# The plan's "## Decisions" are not pinned here: leaving quietly with no message, saved state winning even
-# when a different sortie is IN_FLIGHT, and a rotation during the read not retrying it. Where a named test
-# also shows a decision, the comment says which.
+# The plan's "## Decisions" are not pinned here: waiting for the rollover before the cold-start read,
+# leaving quietly with no message, saved state winning even when a different sortie is IN_FLIGHT, and a
+# rotation during the read not retrying it. Where a named test also shows a decision, the comment says which.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -146,8 +146,8 @@ t coldStartWithSeveralInFlightOpensTheHighestId
 # Saved navigation state wins over an IN_FLIGHT sortie: the state that was saved comes back unchanged,
 # whatever the read found. Covers a saved Mission tab, a saved Mission Control, and a saved Launchpad that
 # already points at a different In-Flight sortie id.
-# Decision (plan): a restored state pointing at a sortie that has since landed stays put, and the Launchpad
-# offers Resume for the other sortie rather than the app jumping to it.
+# Decision (plan, "saved state points at a sortie that has landed while a different sortie is IN_FLIGHT"):
+# the start decision does not swap in the other sortie; the saved state comes back as it was.
 t savedStateWinsOverTheInFlightSortie
 
 # ─── 3. Leaving: the "no longer in flight" signal ──────────────────────────────
@@ -174,10 +174,16 @@ t landElsewhereLeavesTheInFlightScreenOnce
 # deleted sortie would offer Land and Scrub for a row that is gone.
 t deletedSortieLeavesTheInFlightScreenOnce
 
+# A restored navigation state that points at a sortie that has since landed: the sortie is already LANDED
+# before the view model is built and the watch starts, and the leave callback still fires exactly once.
+# Without this, a watcher that only reacts to a change after it starts would pass the three tests above
+# and leave the restored screen stuck on a landed sortie.
+t alreadyLandedSortieLeavesOnceWhenTheWatchStarts
+
 # The control case: the sortie is still IN_FLIGHT and the screen writes to it — a set checked, a sortie
 # note saved (a sortie-only write, the one that only re-derives because the state flow observes the sortie
 # row). Over a bounded wait the leave callback never fires, and the state flow still shows the checklist.
-# Without this, a watcher that fires on any re-emission would pass the three tests above.
+# Without this, a watcher that fires on any re-emission would pass the tests above.
 t noLeaveWhileTheSortieIsStillInFlight
 
 # A Land done on this screen leaves once, not twice: the screen's own Land both calls its done callback
@@ -194,16 +200,16 @@ t afterLeavingTheScreenWritesNothing
 
 # ─── 4. ARCHITECTURE.md ───────────────────────────────────────────────────────
 # Brief Done-when: the milestone table marks M4 done, and the area map describes com.liftoff.app.ui as
-# having a real In-Flight screen rather than a placeholder. Both rows stay single lines in the same
-# columns; the M4 status cell uses ';'-separated clauses with no em dash inside a clause.
+# having a real In-Flight screen rather than a placeholder. Read off the two table rows the brief names;
+# the wording inside them is the implementer's.
 echo ""
 echo "=== ARCHITECTURE.md ==="
 
-uirow="$(awk -F'|' '/^\| `com\.liftoff\.app\.ui` \|/' ARCHITECTURE.md)"
+uirow="$(awk '/^\| `com\.liftoff\.app\.ui` \|/' ARCHITECTURE.md)"
 if [ -z "$uirow" ]; then
     bad "the com.liftoff.app.ui row is in ARCHITECTURE.md's area map"
-elif grep -qiE 'in-flight[^,;|]*real|real[^,;|]*in-flight' <<<"$uirow" \
-     && ! grep -qiE 'in-flight (as a|is a|still a|remains a) placeholder' <<<"$uirow"; then
+elif grep -qi 'in-flight' <<<"$uirow" && grep -qiw 'real' <<<"$uirow" \
+     && ! grep -qiE 'in-flight (placeholder|(as|is|still|remains) a placeholder)' <<<"$uirow"; then
     ok "ARCHITECTURE.md describes the ui package's In-Flight as a real screen"
 else
     bad "ARCHITECTURE.md describes the ui package's In-Flight as a real screen, not a placeholder"
@@ -212,7 +218,7 @@ fi
 m4status="$(awk -F'|' '/^\| M4 \|/ { print $4 }' ARCHITECTURE.md)"
 if [ -z "$m4status" ]; then
     bad "the M4 row is in ARCHITECTURE.md's milestone table"
-elif grep -qi 'done' <<<"$m4status" && ! grep -qiE 'not started|partial' <<<"$m4status"; then
+elif grep -qi 'done' <<<"$m4status" && ! grep -qiE 'not started|not done|partial' <<<"$m4status"; then
     ok "ARCHITECTURE.md marks M4 done"
 else
     bad "ARCHITECTURE.md marks M4 done (its status cell still reads: $m4status)"
