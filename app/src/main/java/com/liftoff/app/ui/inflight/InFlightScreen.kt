@@ -51,12 +51,14 @@ fun InFlightScreen(
     }
     val state by vm.state.collectAsState()
     val message by vm.message.collectAsState()
+    val runErrors by vm.runErrors.collectAsState()
 
     var expandedSet by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var editingSetId by remember { mutableStateOf<Long?>(null) }
     var noteTarget by remember { mutableStateOf<NoteTarget?>(null) }
     var confirmingLand by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
+    var landingRun by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -91,8 +93,10 @@ fun InFlightScreen(
                     message = message,
                     onLand = {
                         vm.clearMessage()
-                        // A run has no sets to leave unchecked, so it lands without asking.
-                        vm.land(onBack)
+                        // A run has no sets to leave unchecked, but its plan carries a distance and a
+                        // duration, so Land asks for them in the dialog rather than landing blind.
+                        vm.clearRunErrors()
+                        landingRun = true
                     },
                     onScrub = {
                         vm.clearMessage()
@@ -182,6 +186,23 @@ fun InFlightScreen(
             },
             onDismiss = {
                 confirmingLand = false
+                vm.clearMessage()
+            },
+        )
+    }
+
+    // A run with a plan lands through this dialog, which carries its distance and duration.
+    if (landingRun && state is InFlightState.Run) {
+        val run = state as InFlightState.Run
+        RunLandDialog(
+            sortieNumber = run.sortieNumber,
+            distanceUnit = run.distanceUnit,
+            errors = runErrors,
+            // The dialog closes on landRun's true, not in onDone.
+            onLand = { distance, minutes -> if (vm.landRun(distance, minutes, onBack)) landingRun = false },
+            onDismiss = {
+                landingRun = false
+                vm.clearRunErrors()
                 vm.clearMessage()
             },
         )
