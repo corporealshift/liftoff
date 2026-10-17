@@ -32,9 +32,15 @@ which is exactly the brief's "no saved `ShellNav`". Declare a plain `remember { 
 must not itself be saveable: on `recreate()` the composition is new, so the flag re-initialises to
 false and the nav init lambda does not run — which is what "nothing new happens" on a restore means.
 
-On a cold start, a `LaunchedEffect(Unit)` calls `sortieDao().getInFlight()` and applies `startNav(null, ids)`.
-Room's suspend DAO already runs the query on its own dispatcher, so it is off the main thread without
-an explicit `withContext`. The Launchpad is composed first and stays there while the read runs.
+On a cold start, a `LaunchedEffect(Unit)` first waits for this run's rollover —
+`container.missionManager.currentWeekStart.filterNotNull().first()`, the same gate `LaunchpadState.kt:74`
+and `MissionState.kt:102` already use, set at the end of `MissionManager.onAppOpen()` (line 57) — then
+calls `sortieDao().getInFlight()` and applies `startNav(null, ids.map { it.id })`. Waiting means a
+sortie that the week-ended rollover is about to scrub is never opened only to vanish a moment later
+(see Decisions). Room's suspend DAO already runs the query on its own dispatcher, so it is off the main
+thread without an explicit `withContext`. The Launchpad is composed first and stays there while the
+wait and the read run (the Launchpad waits on the same flow, so it shows its own loading state for that
+moment anyway).
 
 "If the user has already navigated, leave them where they are" is a second plain `remember`ed
 `navigated` flag that every user-driven nav assignment sets: the `BackHandler` (67-69), Mission
@@ -51,11 +57,11 @@ Nothing else changes. `ShellNav.back()` already returns `copy(tab = Launchpad, i
 **Leaving — one gate in the view model.** `InFlightStates.observe()` ends in `mapNotNull`
 (`InFlightStates.kt:25-28`), which drops a null sortie, and `deriveInFlight` (`InFlightState.kt:99-147`)
 never looks at `sortie.state` at all. So a landed, scrubbed or deleted sortie still produces a full
-`InFlightState` and the screen cannot learn from that flow that its sortie is gone. Do not add a new
-`InFlightState` variant for it: every `when` over the sealed state is exhaustive — `InFlightScreen.kt:68`
-and the scrub sortie-number `when` at 213-218 — so a new variant has to be handled at each one, and it
-still would not give a single "leave once" point. Watch `SortieDao.observeById(sortieId)`
-(`SortieDao.kt:44-45`, already exists) directly instead:
+`InFlightState` (or, when deleted, leaves the screen on `Loading`) and the screen cannot learn from that
+flow that its sortie is gone. Do not add a new `InFlightState` variant for it: every `when` over the
+sealed state is exhaustive — `InFlightScreen.kt:68` and the scrub sortie-number `when` at 213-218 — so a
+new variant has to be handled at each one, and it still would not give a single "leave once" point.
+Watch `SortieDao.observeById(sortieId)` (`SortieDao.kt:44-45`, already exists) directly instead:
 
 ```kotlin
 /** Plain signal: the sortie this screen is showing is gone or no longer in flight. */
@@ -65,41 +71,57 @@ fun sortieIsNoLongerInFlight(sortie: Sortie?): Boolean =
 
 top-level in `ui/inflight/InFlightViewModel.kt`, plus in the class:
 
-- `private var left = false` and `private fun leaveOnce(onLeave: () -> Unit)` — calls `onLeave` the
-  first time only.
+- `private val left = java.util.concurrent.atomic.AtomicBoolean(false)` and
+  `private fun leaveOnce(onLeave: () -> Unit) { if (left.compareAndSet(false, true)) onLeave() }`.
+  It must be atomic, not a plain `var`: in the app both callers run on the main dispatcher, but the
+  Robolectric tests use `Dispatchers.Unconfined`, where the Land coroutine resumes on Room's transaction
+  thread and the watcher on Room's query thread, so a plain flag can let both through and the
+  "leaves once" test would flake at 2.
 - `fun watchLeave(onLeave: () -> Unit)` — `scope.launch` collecting
   `sortieDao.observeById(sortieId).map(::sortieIsNoLongerInFlight)` and calling `leaveOnce(onLeave)` on
   the first `true`.
 - `land` (58-74), `landRun` (85-112) and `scrub` (115-131) call `leaveOnce(onDone)` instead of `onDone()`.
   A Land on this screen now fires both the success callback and the DB observer, and `onBack` still runs
   exactly once.
-- Once `left` is set, the action methods (`check`, `uncheck`, `saveEdit`, `skipSet`, `reopenSet`,
+- Once `left.get()` is true, the action methods (`check`, `uncheck`, `saveEdit`, `skipSet`, `reopenSet`,
   `skipExercise`, `unskipExercise`, `addSet`, `saveExerciseNote`, `saveSortieNote`, `land`, `landRun`,
   `scrub`) return without writing: the screen never acts on a sortie that is no longer in flight.
+  (`landRun` returns `false` in that case, so its dialog stays as it is until the screen goes.)
 
 `ui/inflight/InFlightScreen.kt` starts the watch next to the view model it already remembers
-(lines 48-51): `LaunchedEffect(vm) { vm.watchLeave(onBack) }`. The existing `onBack` call sites
-(69 `LoadingContent`, 80, 121, 185, 202, 224) stay as they are — the once-guard is in the view model.
+(lines 48-51):
+
+```kotlin
+val currentOnBack by rememberUpdatedState(onBack)
+LaunchedEffect(vm) { vm.watchLeave { currentOnBack() } }
+```
+
+`rememberUpdatedState` so the watcher always calls the latest `onBack` the screen was given, not the one
+from its first composition. The existing `onBack` call sites (69 `LoadingContent`, 80, 121, 185, 202,
+224) stay as they are — the once-guard is in the view model.
 
 This fits the codebase because `InFlightViewModel` is already a plain holder driven by an injected
 `CoroutineScope` and an injected `MissionManager` (`InFlightViewModel.kt:16-24`), and the existing
 Robolectric tests already build it against in-memory Room on a fixed clock.
 
-**Rollover needs no ordering.** `MainActivity.kt:26-30` runs `MissionManager.onAppOpen()` inside
+**Rollover.** `MainActivity.kt:26-30` runs `MissionManager.onAppOpen()` inside
 `repeatOnLifecycle(STARTED)`, which is where `domain/Rollover.kt:13-29` scrubs a past week's unfinished
 sorties — including an IN_FLIGHT one — with reason `WEEK_ENDED` = "week ended" (line 9). On a cold start
-after the week ended, the shell's read may open In-Flight a moment before that scrub lands; the leave
-signal then returns to the Launchpad. The two hooks stay independent.
+the shell waits for `currentWeekStart` (above), so it reads after that scrub and stays on the Launchpad.
+When the app returns to the foreground with In-Flight already open, `onAppOpen()` scrubs the sortie and
+the leave signal returns to the Launchpad. If the process survived from an earlier week (activity
+finished, process kept), `currentWeekStart` is already set from last time and the read can race the
+scrub; the leave signal covers that case too.
 
 ## Files
 
 | File | Change |
 |---|---|
 | `app/src/main/java/com/liftoff/app/ui/ShellNav.kt` | `startNav` in the existing companion object. |
-| `app/src/main/java/com/liftoff/app/ui/LiftoffShell.kt` | `coldStart` + `navigated` flags, the cold-start read, `startNav` applied; `navigated` set at the six nav-assignment sites listed above. Read the container with a safe cast (`as? LiftoffApplication`) so the `@Preview` at line 207 cannot crash the new effect. |
-| `app/src/main/java/com/liftoff/app/ui/inflight/InFlightViewModel.kt` | `sortieIsNoLongerInFlight`, `left`/`leaveOnce`, `watchLeave`, the no-write guard after leaving. |
-| `app/src/main/java/com/liftoff/app/ui/inflight/InFlightScreen.kt` | `LaunchedEffect(vm) { vm.watchLeave(onBack) }`. |
-| `app/src/main/java/com/liftoff/app/data/SortieDao.kt` | `@Query("DELETE FROM sortie WHERE id = :id") suspend fun deleteById(id: Long)` — only the "no longer exists" test calls it. See Risks for why a DAO delete rather than raw SQL. A `@Query` is not a schema change, so `SchemaExportTest` (which reads `app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json`) stays green. |
+| `app/src/main/java/com/liftoff/app/ui/LiftoffShell.kt` | `coldStart` + `navigated` flags, the cold-start effect (wait for `currentWeekStart`, then `getInFlight()`, then `startNav` applied unless `navigated`); `navigated` set at the nav-assignment sites listed above. Read the container with a safe cast (`as? LiftoffApplication`) so the `@Preview` at line 207 cannot crash the new effect. |
+| `app/src/main/java/com/liftoff/app/ui/inflight/InFlightViewModel.kt` | `sortieIsNoLongerInFlight`, atomic `left`/`leaveOnce`, `watchLeave`, the no-write guard after leaving. |
+| `app/src/main/java/com/liftoff/app/ui/inflight/InFlightScreen.kt` | `rememberUpdatedState(onBack)` + `LaunchedEffect(vm) { vm.watchLeave { currentOnBack() } }`. |
+| `app/src/main/java/com/liftoff/app/data/SortieDao.kt` | `@Query("DELETE FROM sortie WHERE id = :id") suspend fun deleteById(id: Long)` — only the "no longer exists" test calls it. See Risks for why a DAO delete rather than raw SQL. A `@Query` is not a schema change, so `SchemaExportTest` (which reads `app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json`) stays green. The flight plan, exercises and sets cascade (`FlightPlan.kt:16` etc. are `onDelete = CASCADE`). |
 | `app/src/test/java/com/liftoff/app/ui/ShellNavTest.kt` | `startNav` cases. Plain JUnit, as that file already is. |
 | `app/src/test/java/com/liftoff/app/ui/inflight/InFlightLeaveTest.kt` (new) | Robolectric leave tests. |
 | `ARCHITECTURE.md` | the `ui` row (line 37) and the M4 row (line 83). Exact text below. |
@@ -150,12 +172,15 @@ its own thread and the test thread only polls it: `vm.watchLeave { count.increme
   reason "week ended" and that `count` reaches exactly 1.
 - **Landed**: `manager.land(sortieId)` → `count` reaches exactly 1.
 - **No longer exists**: `sortieDao.deleteById(sortieId)` → `count` reaches exactly 1.
-- **Still in flight**: `vm.check(setId)` and `vm.saveSortieNote("left shoulder twinge")`, then a bounded
-  wait → `count` is 0, and the state flow still shows `Ready`.
+- **Still in flight**: `vm.check(setId)` and `vm.saveSortieNote("left shoulder twinge")` (the note
+  rewrites the sortie row, so `observeById` does re-emit), then a bounded wait → `count` is 0, and the
+  state flow still shows `Ready`.
 - **Land on this screen leaves once**: `vm.watchLeave { count.incrementAndGet() }` and
-  `vm.land { count.incrementAndGet() }` → `count` is exactly 1, not 2. Same for `vm.scrub(null) { … }`.
-- **After leaving, no further action**: once the signal has fired, `vm.check(setId)` leaves the set
-  `OPEN` in the database.
+  `vm.land { count.incrementAndGet() }` → `count` is exactly 1, not 2. Same for `vm.scrub(null) { … }`,
+  as its own test on a fresh fixture.
+- **After leaving, no further action**: leave via the rollover scrub (it touches only the sortie row, so
+  the sets stay `OPEN`; a Land would mark them not done and hide the check), wait for `count == 1`, then
+  `vm.check(setId)` and a bounded wait → the set is still `OPEN` in the database.
 
 Every wait is `withTimeout(5_000)` polling the counter, the `awaitReady` shape at
 `InFlightLandScrubTest.kt:148`; after reaching 1, wait a short bounded time and assert it is still 1.
@@ -172,7 +197,8 @@ package-scoped grep): `ShellNavTest`, `LiftoffShellTest`, `MainActivityTest`, `I
 - **`MainActivityTest`** (`app/src/test/java/com/liftoff/app/MainActivityTest.kt`) is plain JUnit and
   compares only local constants and `Color` values; it never starts `MainActivity` or the shell, so this
   work cannot affect it. The shell's real activity-level tests are `LiftoffShellTest`, which uses
-  `createAndroidComposeRule<MainActivity>()` (line 26) and calls `onAppOpen()` in its `@Before` (42-50).
+  `createAndroidComposeRule<MainActivity>()` (line 26) and calls `onAppOpen()` in its `@Before` (42-50),
+  so `currentWeekStart` is set and the cold-start wait ends.
 - **`SortieDao` has no delete today** — the only deletes in `app/src/main` are
   `FlightPlanDao.kt:21` (`DELETE FROM flightPlan WHERE sortieId`) and `GenerationDao.kt:17` (`@Delete`).
   The "no longer exists" case needs one. A `@Query` delete is chosen because Room's generated DAO code
@@ -191,17 +217,22 @@ package-scoped grep): `ShellNavTest`, `LiftoffShellTest`, `MainActivityTest`, `I
   time.
 - **Cold-start detection relies on `rememberSaveable` running its init lambda only when nothing was
   restored.** That is documented Compose behaviour and is the brief's own definition of a cold start.
+- **If `onAppOpen()` throws, `currentWeekStart` never becomes non-null** and the cold-start read never
+  runs; the user stays on the Launchpad, which waits on the same flow and is equally stuck. No worse than
+  today.
 - **Room flows emit off the main thread.** The leave tests poll an `AtomicInteger` under a timeout; they
   must not assume a synchronous emission, and a plain `var Int` incremented from Room's thread is a
-  visibility flake waiting to happen.
+  visibility flake waiting to happen. The same reason makes `left` an `AtomicBoolean`.
 - **The watcher adds a second live Room flow per In-Flight screen.** A screen test that writes through
   Room must unmount the screen before `tearDown` closes the database, or the live `observe()` fails with
   "connection pool has been closed". `InFlightScreenTest` already follows that shape, and one such
   failure on a re-run of the same tree is the known flake (`doneBodyweightSetStepperShowsBW`) — re-run
   before treating it as broken.
 - `InFlightScreenTest` seeds every sortie as `SortieState.IN_FLIGHT`, so the new watcher does not fire
-  spuriously there; its landing test (368-398) asserts `onBack` was called exactly once, which the
-  once-guard keeps true.
+  spuriously there; its landing test (368-398) asserts `onBack` was called and that the sortie is
+  `LANDED`. The watcher may now be what calls `onBack` first, but it fires only after the land
+  transaction has committed (`MissionManager.land` is one `withTransaction`), so the assertion on the
+  row still holds, and the once-guard keeps it a single call.
 
 ## ARCHITECTURE.md rows, as they will be written
 
@@ -218,6 +249,17 @@ with no em dash inside it, because the runner's checks split that cell on `;` an
 
 ## Decisions
 
+- **A cold start after the week has ended: the read may open In-Flight just before `onAppOpen` scrubs
+  that sortie.** Chosen: let it open, then leave on the signal; the cold-start read does not wait for the
+  rollover. Alternative: the shell waits for `onAppOpen()` to finish before reading. Why: reopening should
+  be immediate, and the brief lists the week-ended rollover under "Leaving", which presumes the screen
+  can be open when the rollover happens.
+  Changed by review: the plan chose to open In-Flight and let it leave again; the review chose to wait
+  for `missionManager.currentWeekStart` to be non-null before reading, because someone opening the app a
+  week later would otherwise see a stale In-Flight screen flash and vanish, the wait costs one short
+  transaction that the Launchpad already waits on itself (`LaunchpadState.kt:74`), and the brief's
+  "Leaving" case is the app *returning to the foreground* with In-Flight already open, which the leave
+  signal still covers.
 - **The user navigates while the cold-start read is running.** Chosen: any navigation counts, so they
   stay where they are — including a user who tapped to Mission and back to the Launchpad. Alternative:
   open In-Flight unless they are visibly somewhere else at the moment the read returns. Why: a screen
@@ -229,11 +271,6 @@ with no em dash inside it, because the runner's checks split that cell on `;` an
   the Launchpad quietly, with no message. Alternative: show a notice such as "this sortie was scrubbed".
   Why: the brief says only "returns to the Launchpad", and the Launchpad already shows the current
   sortie and its state (`DESIGN.md:563-568`).
-- **A cold start after the week has ended: the read may open In-Flight just before `onAppOpen` scrubs
-  that sortie.** Chosen: let it open, then leave on the signal; the cold-start read does not wait for the
-  rollover. Alternative: the shell waits for `onAppOpen()` to finish before reading. Why: reopening should
-  be immediate, and the brief lists the week-ended rollover under "Leaving", which presumes the screen
-  can be open when the rollover happens.
 - **Saved state points at a sortie that has landed while a different sortie is IN_FLIGHT.** Chosen: leave
   to the Launchpad, which offers Resume for the other sortie. Alternative: jump straight to the in-flight
   sortie. Why: saved state wins on a restore and the brief says nothing new happens there, and the
@@ -242,6 +279,10 @@ with no em dash inside it, because the runner's checks split that cell on `;` an
   alone and change only the two rows the brief names. Alternative: update M2's status cell too. Why: the
   runner's checks grep these rows by their delimiters, the brief asks for exactly two, and M2's clause
   describes what M2 shipped rather than what the app does now.
+- **Added by review: the device rotates while the cold-start read is still running.** Chosen: the
+  restored state wins (the Launchpad) and the read is not retried, so the user taps Resume. Alternative:
+  save a "read pending" flag and re-run the read after the restore. Why: the brief says saved state wins
+  and nothing new happens on a restore; the window is a fraction of a second and Resume is right there.
 
 The brief settles everything else it touches: which sortie to open when several are in flight (highest
 id), that the Launchpad shows first while the read runs, that saved state wins, and that back from
