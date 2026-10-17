@@ -92,7 +92,7 @@ Shared facts every task needs (the plan has the detail; these are the ones that 
   nothing, and the gate leaves `LaunchpadStatesTest` and `LiftoffShellTest` (which composes the Launchpad
   through the shell) green. Commit `launchpad: draw the draft stepper once`.
 
-- [ ] Disable the surviving draft stepper at 1 and at 7 sorties
+- [x] Disable the surviving draft stepper at 1 and at 7 sorties
   Covers: brief part 2, second half, on top of the previous task. `LaunchpadScreen.kt`: replace the two
   `InkButton`s in `DraftActions` (:201-234) with a private `DraftStepButton(text, enabled, onClick, modifier,
   height)` built exactly as the plan spells it out of pieces already public — `OffsetShadowBox` with shadow
