@@ -204,7 +204,7 @@ with its own tests passing before it is committed.
   the string "Landed sorties will appear here".
   Commit body records which shell assertions changed, since `verify.sh` cannot see the rename.
 
-- [ ] `ui: add the landed detail view and its note editor`
+- [x] `ui: add the landed detail view and its note editor`
   Covers: opening a row and everything the detail shows. `LandedScreen` keeps its own selection exactly
   like `MissionScreen`: `var selectedSortieId: Long? by rememberSaveable { mutableStateOf(null) }`,
   `BackHandler(enabled = selectedSortieId != null) { selectedSortieId = null }` composed **after** the
