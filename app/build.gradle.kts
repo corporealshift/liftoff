@@ -1,3 +1,5 @@
+import java.time.Duration
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -41,6 +43,10 @@ android {
         unitTests {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
+            all {
+                // A Robolectric + Room test can hang forever on the paused clock; fail fast instead.
+                it.timeout.set(Duration.ofMinutes(5))
+            }
         }
     }
 }
