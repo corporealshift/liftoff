@@ -173,7 +173,7 @@ Facts that bite, shared by the tasks:
   may now come from the watcher but is still called exactly once. Commit
   `inflight: leave the screen when its sortie is no longer in flight`.
 
-- [ ] Stop the screen acting on a sortie it has already left
+- [x] Stop the screen acting on a sortie it has already left
   Covers: brief part 2's "it must not try to act on that sortie", on top of task 3.
   `app/src/main/java/com/liftoff/app/ui/inflight/InFlightViewModel.kt` only: once `left.get()` is true, every
   action method returns without writing — `check`, `uncheck`, `saveEdit`, `skipSet`, `reopenSet`,
