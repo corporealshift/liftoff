@@ -90,7 +90,7 @@ with its own tests passing before it is committed.
   `--tests "com.liftoff.app.ui.landed.LandedStatesTest"` runs those three cold, with the XML showing
   three passing testcases under those names.
 
-- [ ] `ui: derive the landed detail of a landed lift, and save its note`
+- [x] `ui: derive the landed detail of a landed lift, and save its note`
   Covers: the detail half of `LandedState.kt` and the Room read that feeds it — the plan's
   `LandedDetail` (`Loading` / `Lift` / `Run` / `Scrubbed`), `SetMark`, `RecordedExercise`,
   `RecordedSet`, and the pure `deriveLandedDetail(plan: FlightPlanDetail?, sortie: Sortie,
