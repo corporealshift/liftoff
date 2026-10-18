@@ -59,6 +59,25 @@ The 24 "must not break" names it checks, all present and green at `e7f40fc` — 
 
 The ARCHITECTURE.md check reads the M5 row with `awk '/^\| M5 \|/'` and takes field 4 (`-F'|'`), then reads the cell clause by clause (`;`, `.`, em dash end a clause; a comma does not, so a parenthetical list stays inside its clause). Re-fly passes only if some clause names it with a built word AND no clause names it as missing with nothing built in that clause; export/import must appear in a clause that calls it missing, so a bare "Done" fails. Not-built phrases are struck out before looking for a built word, so "not done" is not read as "done": `not (yet )?(started|built|done|shipped|implemented|covered|present|available|wired|in place)`, `not yet`, `missing`, `unbuilt`, `pending`, `to come`, `to do`, `todo`, `later`, `remaining`, `next`, `outstanding`, `no …yet`, ❌, ⏳. Built words: `built done shipped exists exist real complete wired in place available` ✅. Probed against ~48 candidate cells (scratch `app/build/probe.sh`, `probe2.sh`, `prog.awk` = the awk body extracted with sed): the current row and every "Re-fly not started"/"not yet built"/"all built" wording fails; every wording that marks Re-fly built and export/import to come passes, including "Re-fly built; export/import next" and "no export/import yet". Step 5 writes the row to match: keep `| M5 |` at the line start, one status cell, no `|` inside it.
 
+## Task 5 — the run's cold whole-suite gate (this step)
+
+Ran detached after `bash gradlew.sh --stop` and `mkdir -p app/build`:
+`:app:assembleDebug :app:testDebugUnitTest --no-build-cache` → `BUILD SUCCESSFUL in 56s`, `EXIT=0`,
+`:app:testDebugUnitTest` executed (no `FROM-CACHE`/`UP-TO-DATE` anywhere in the log), 65 `TEST-*.xml`
+reports, **517 tests, 0 failures, 0 errors, 0 skipped**. Nothing needed fixing — the four classes the
+plan names all green (`MissionManagerTest` 18, `LaunchpadStatesTest` 10, `LaunchpadScrubTest` 3,
+`LiftoffShellTest` 12), and all 42 names verify.sh looks for are present and passing in this run's
+reports. The known flake `doneBodyweightSetStepperShowsBW` did not fire.
+
+`ARCHITECTURE.md` line 84's M5 status cell is now: `Partial: the Landed history list and its detail view
+are built; Re-fly is built — the pure source chooser, the copy through MissionManager and the Launchpad's
+PENDING action are in place; export/import not started`. Clause shape: `;` ends a clause and the em dash
+inside the Re-fly clause is turned into `;` by verify.sh's `gsub`, so "Re-fly is built" is its own clause
+(a built word survives the strike-out) and "export/import not started" is its own (a not-built phrase
+next to `export`). The `domain` row names `ReFly.kt` and the `ui` row names the Launchpad's Re-fly action.
+Probed by extracting verify.sh's doc section with `sed -n '284,323p'` into `app/build/m5check.sh` and
+running it: 2 passed / 0 failed.
+
 ## Tasks (written by the tasks session)
 
 `tasks.md` splits the plan's 6 Order steps into 5 tasks, each ending in its own commit: 1 the chooser
