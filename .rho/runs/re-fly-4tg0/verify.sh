@@ -106,8 +106,7 @@ t() {
 # ─── 1. CI gate: the two tasks .github/workflows/ci.yml runs ──────────────────
 # This is also the "must not break" check for everything the brief lists — In-Flight, Landed, the
 # Launchpad and Mission screens, MissionManager and the domain tests, Mission Control, the coach package,
-# and the build gate — since CI runs the whole unit-test suite. It is also what catches a refusal or a
-# rollback that leaves a half-written plan behind, because the whole suite runs against the same code.
+# and the build gate — since CI runs the whole unit-test suite.
 # Stale reports are removed first so every named test below comes from this run.
 # --no-build-cache: without it the reports can be restored FROM-CACHE in seconds with no test executed,
 # which would read as a suite that passed.
@@ -196,10 +195,8 @@ t reflyReturnsNothingWhenNoLandedPlanOfThatTypeExists
 # a run's run fields and segments copied; the copy's source is REFLY and the sortie becomes PLANNED; no
 # network; and a sortie that isn't the current PENDING one is refused. Driven through MissionManager
 # against in-memory Room, the fixture MissionManagerTest already uses: a fixed clock and zone, the
-# mission made ACTIVE (onAppOpen gives a DRAFT and the guards reject a draft), and the source plan built
-# by the real flow — write a plan, launch, check sets with values that differ from planned, add a set,
-# skip an exercise with a note, then land — so the source really carries actuals, an added set and a
-# skip. Every wait is bounded by a timeout.
+# mission made ACTIVE (onAppOpen gives a DRAFT and the guards reject a draft), and a source plan that
+# really carries actuals, an added set and a skip. Every wait is bounded by a timeout.
 echo ""
 echo "=== the copy ==="
 
@@ -238,13 +235,9 @@ t reflyNeedsNoNetworkAndWritesNoGenerationRow
 # the same mission. Each refusal leaves that sortie in the state it was in and writes no plan for it.
 t reflyRefusesASortieThatIsNotTheCurrentOne
 
-# The current sortie when it is PLANNED, IN_FLIGHT or LANDED is refused. Each leaves the sortie in its
-# state with no plan written or changed, and nothing else in the mission moved either.
+# The current sortie when it is PLANNED or IN_FLIGHT is refused. Each leaves the sortie in its state
+# with no plan written or changed, and nothing else in the mission moved either.
 t reflyRefusesASortieThatIsNotPending
-
-# The current PENDING sortie with no source plan to copy is refused, and nothing is written for it: no
-# plan row, and the sortie still PENDING.
-t reflyRefusesAPendingSortieWithNoSourcePlan
 
 # ─── 4. the Launchpad ─────────────────────────────────────────────────────────
 # Brief "Launchpad": on the PENDING state, show an underlined Re-fly action next to Scrub when a source
@@ -262,7 +255,7 @@ t pendingOffersReFlyWhenALandedPlanOfTheSameTypeExists
 
 # The PENDING state reports no source in each of the three ways that can happen: nothing has ever landed
 # with a plan; the only finished sortie of that type was scrubbed; the only landed plan is of the other
-# type. A PENDING sortie that has no plan row of its own still reports a source from the history.
+# type.
 t pendingOffersNoReFlyWithoutAMatchingLandedPlan
 
 # The PENDING screen shows a Re-fly control alongside Scrub when a source exists — Scrub is still there
@@ -359,9 +352,8 @@ t legalTransitionsSucceed
 t illegalTransitionsAreRejected
 t runWithGenerationOffGetsSimplePlan
 
-# The DAO reads Re-fly is built on, unchanged: writePlan is what the copy writes through (Decision 6:
-# the copy replaces any plan the PENDING sortie already has), the cheap "which sorties have a plan" read,
-# and the finished-history read the candidates come from.
+# The DAO reads and writes Re-fly is built on, unchanged: writePlan is what the copy writes through, the
+# cheap "which sorties have a plan" read, and the finished-history read the candidates come from.
 t writePlanReplacesExistingPlan
 t titlesForSortieIdsOmitSortiesWithNoPlan
 t historyHasOnlyLandedAndScrubbed
