@@ -247,7 +247,7 @@ with its own tests passing before it is committed.
   read the log) is green with the Landed screen compiling and `LandedStatesTest`'s eight tests still
   passing; the owner reviews the rendering in the pull request — `verify.sh` says so in its header.
 
-- [ ] `docs: mark landed history built under m5`
+- [x] `docs: mark landed history built under m5`
   Covers: the two `ARCHITECTURE.md` rows the brief's Done-when names, and one read of the whole suite.
   `ARCHITECTURE.md:37`, the `com.liftoff.app.ui` area row: drop "Landed as a placeholder" (the row must
   stay **one line**; "Mission Control stub" may stay — `verify.sh` only rejects `landed…placeholder` in
