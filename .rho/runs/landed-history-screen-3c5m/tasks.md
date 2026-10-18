@@ -132,7 +132,7 @@ with its own tests passing before it is committed.
   Done when: `--tests "com.liftoff.app.ui.landed.LandedStatesTest"` runs six passing testcases cold —
   the three from the previous task plus the two lift tests and the note test.
 
-- [ ] `ui: cover the landed run and scrubbed detail`
+- [x] `ui: cover the landed run and scrubbed detail`
   Covers: the two paths the previous task declared but did not prove, and whatever the derivation
   needs to make them right. `Run` carries the plan summary the user launched against — `kind`
   (`formatRunKind`), the target line (`formatDistance(targetDistance, unit)` · `targetPace`), the
