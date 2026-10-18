@@ -1,6 +1,7 @@
 package com.liftoff.app.ui.launchpad
 
 import com.liftoff.app.data.*
+import com.liftoff.app.domain.chooseReflySource
 import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatEyebrow
@@ -41,6 +42,8 @@ sealed interface LaunchpadState {
         val chips: List<com.liftoff.app.ui.theme.PatternChip>,
         val sortieId: Long,
         val sortieIndex: Int,
+        /** Whether a landed sortie of this sortie's type has a Flight Plan to re-fly from. */
+        val reFlyAvailable: Boolean,
     ) : LaunchpadState
 
     /** Current sortie is IN_FLIGHT — resume available. */
@@ -153,6 +156,8 @@ class LaunchpadStates(
                         chips = chips,
                         sortieId = current.id,
                         sortieIndex = current.index,
+                        // refly refuses a PLANNED sortie, so this state carries no source for it.
+                        reFlyAvailable = false,
                     )
                 }
             }
@@ -162,12 +167,16 @@ class LaunchpadStates(
                     SortieType.RUN -> "Run"
                     SortieType.LIFT -> "Lift"
                 }
+                // The only branch that reads history: derive runs on every emission. It asks the question
+                // MissionManager.refly asks, so the offer and the act cannot disagree.
+                val candidates = reflyCandidates(db.sortieDao(), db.flightPlanDao(), current)
                 LaunchpadState.Pending(
                     eyebrow = eyebrow,
                     title = title,
                     chips = chips,
                     sortieId = current.id,
                     sortieIndex = current.index,
+                    reFlyAvailable = chooseReflySource(current, candidates) != null,
                 )
             }
 
@@ -200,6 +209,8 @@ class LaunchpadStates(
                     chips = chips,
                     sortieId = current.id,
                     sortieIndex = current.index,
+                    // currentSortie never returns a LANDED or SCRUBBED sortie, and refly refuses them anyway.
+                    reFlyAvailable = false,
                 )
             }
         }
