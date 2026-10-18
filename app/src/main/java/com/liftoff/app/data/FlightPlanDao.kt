@@ -107,6 +107,10 @@ abstract class FlightPlanDao(private val db: LiftoffDatabase) {
         return FlightPlanDetail(plan, exercises, getSegments(plan.id))
     }
 
+    // A history row needs only the title, so one read covers the whole list instead of a getPlan each.
+    @Query("SELECT sortieId, title FROM flightPlan WHERE sortieId IN (:ids)")
+    abstract suspend fun getTitlesForSortieIds(ids: List<Long>): List<SortiePlanTitle>
+
     @Query("SELECT * FROM flightPlan WHERE sortieId = :sortieId")
     protected abstract fun getPlanBySortieId(sortieId: Long): FlightPlan?
 

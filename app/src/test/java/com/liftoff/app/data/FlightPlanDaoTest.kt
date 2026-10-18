@@ -93,6 +93,26 @@ class FlightPlanDaoTest {
     }
 
     @Test
+    fun titlesForSortieIdsOmitSortiesWithNoPlan() = runBlocking {
+        val plannedId = makeSortie()
+        // Second sortie under the same Mission: mission.weekStart is UNIQUE, so makeSortie() cannot run twice.
+        val unplannedId = sortieDao.insert(Sortie(missionId = sortieDao.get(plannedId)!!.missionId, index = 1, type = SortieType.LIFT, focus = null, focusRationale = null, state = SortieState.PLANNED, launchedAt = null, landedAt = null, scrubReason = null, notes = null, runDistance = null, runMinutes = null))
+
+        flightPlanDao.writePlan(plannedId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Push Day", estimatedMinutes = 20, warmup = null, notes = null, runKind = null, targetDistance = null, targetPace = null, rawJson = "{}",
+            exercises = listOf(ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(SetDraft(reps = 8, seconds = null, weight = 60.0)))),
+            segments = emptyList()
+        ))
+
+        val titles = flightPlanDao.getTitlesForSortieIds(listOf(plannedId, unplannedId))
+        assertEquals(1, titles.size)
+        assertEquals(plannedId, titles[0].sortieId)
+        assertEquals("Push Day", titles[0].title)
+
+        assertTrue(flightPlanDao.getTitlesForSortieIds(emptyList()).isEmpty())
+    }
+
+    @Test
     fun writePlanReplacesExistingPlan() = runBlocking {
         val sortieId = makeSortie()
         val draft1 = FlightPlanDraft(

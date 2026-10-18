@@ -170,7 +170,7 @@ fun LiftoffShell() {
                             },
                         )
                         Tab.Mission -> MissionScreen(container)
-                        Tab.Landed -> LandedScreen()
+                        Tab.Landed -> LandedScreen(container)
                     }
                 }
 

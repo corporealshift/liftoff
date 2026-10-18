@@ -31,6 +31,12 @@ data class PlannedExerciseDetail(
     val sets: List<PlannedSet>
 )
 
+// Read model for a list of sorties' plan titles — no sets or exercises, so a row costs no getPlan.
+data class SortiePlanTitle(
+    val sortieId: Long,
+    val title: String
+)
+
 // Write input types
 data class FlightPlanDraft(
     val source: FlightPlanSource,

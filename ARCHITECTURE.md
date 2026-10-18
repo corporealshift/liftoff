@@ -34,7 +34,7 @@ All source lives under `com.liftoff.app`.
 | `com.liftoff.app.domain` | State machines for Mission and Sortie lifecycle. Pure Kotlin, no Android imports. | ✅ (Week, pattern, Mission and sortie rules, rollover, sortie planning) |
 | `com.liftoff.app.coach` | Prompt builder, validator, JSON schemas — the three output schemas (`outline.json`, `lift-plan.json`, `run-plan.json`) sit in `app/src/main/resources/schemas/`. Pure Kotlin, no Android imports. | ✅ (`ExerciseNames.kt` exercise-name normalizer §7.7; the JSON Schema checker `CoachSchema.kt` and `SchemaChecker.kt`; the coach reply validator `CoachModels.kt` and `CoachReplyValidator.kt` against recorded-style reply fixtures in `app/src/test/resources/fixtures/coach/`; the prompt builder `CoachPromptBuilder.kt` and `PromptInputs.kt` with the three golden-file prompts in `app/src/test/resources/prompts/`) |
 | `com.liftoff.app.work` | Android-side workers (`GenerationWorker`). Uses WorkManager and Android APIs. | — |
-| `com.liftoff.app.ui` | Navigation shell, Launchpad, Mission and In-Flight as real screens, Landed as a placeholder, Mission Control stub, theme and shared composables. | ✅ (navigation shell with cold-start reopen into the in-flight sortie, Launchpad, Mission, In-Flight with Land, Scrub and leaving when the sortie is gone, Landed, Mission Control stub, `ui/theme`) |
+| `com.liftoff.app.ui` | Navigation shell, Launchpad, Mission, In-Flight and Landed history as real screens, Mission Control stub, theme and shared composables. | ✅ (navigation shell with cold-start reopen into the in-flight sortie, Launchpad, Mission, In-Flight with Land, Scrub and leaving when the sortie is gone, Landed history list and detail view with its note editor, Mission Control stub, `ui/theme`) |
 
 ---
 
@@ -81,5 +81,5 @@ Each milestone ends with the project gate (`./gradlew :app:assembleDebug :app:te
 | M2 | Missions and sorties — domain state machines, draft/confirm UI, Launchpad, Scrub | Done — Regenerate comes with generation (M3); In-Flight is a placeholder until M4 |
 | M3 | Generation — nabu client copy, `GenerationWorker`, outline + lift plan end to end | Not started |
 | M4 | In flight — In-Flight screen, Launch, Land, resume after process kill | Done; the In-Flight screen is a real screen; the shell reopens into the in-flight sortie on a cold start; the screen leaves when its sortie is no longer in flight |
-| M5 | Landed and safety nets — history screens, Re-fly, export/import | Not started |
+| M5 | Landed and safety nets — history screens, Re-fly, export/import | Partial: the Landed history list and its detail view are built; Re-fly and export/import not started |
 | M6 | Run plans — run-generation toggle, run Flight Plans | Not started |
