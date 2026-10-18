@@ -51,7 +51,7 @@ with its own tests passing before it is committed.
   --tests "com.liftoff.app.data.FlightPlanDaoTest" --tests "com.liftoff.app.data.SchemaExportTest"
   --tests "com.liftoff.app.data.MissionDaoTest"`).
 
-- [ ] `ui: derive the landed history list`
+- [x] `ui: derive the landed history list`
   Covers: the plain-Kotlin history derivation the brief asks for, and nothing about rendering.
   New `app/src/main/java/com/liftoff/app/ui/landed/LandedState.kt` with the history half of the
   plan's "Derived state" — `LandedHistoryState` (`Loading` / `Empty` / `Weeks`), `HistoryWeek`
