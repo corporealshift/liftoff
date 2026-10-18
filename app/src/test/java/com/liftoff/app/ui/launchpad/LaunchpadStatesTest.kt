@@ -9,6 +9,7 @@ import com.liftoff.app.ui.sortie.formatExerciseLoad
 import com.liftoff.app.ui.sortie.formatPlanHead
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -197,6 +198,79 @@ class LaunchpadStatesTest {
         // advance() returns AwaitGeneration for LIFT index 1 — it stays PENDING.
         val state = states.observe().first { it is LaunchpadState.Pending } as LaunchpadState.Pending
         assertEquals(1, state.sortieIndex)
+    }
+
+    // ── Pending: whether a re-fly source exists ────────────────────────
+    // The same question MissionManager.refly asks, read off the derived state. Seeded through the real
+    // flow, as pendingAfterScrub seeds it.
+
+    /** The derived PENDING state for [sortieIndex], bounded so a state that never arrives fails. */
+    private suspend fun awaitPending(sortieIndex: Int): LaunchpadState.Pending =
+        withTimeout(5_000L) {
+            states.observe().first { it is LaunchpadState.Pending && it.sortieIndex == sortieIndex }
+        } as LaunchpadState.Pending
+
+    private fun liftPlan(title: String) = FlightPlanDraft(
+        source = FlightPlanSource.GENERATED, title = title, estimatedMinutes = 45,
+        warmup = null, notes = null, runKind = null, targetDistance = null,
+        targetPace = null, rawJson = "{}",
+        exercises = listOf(
+            ExerciseDraft(
+                name = "Bench Press", equipmentIds = emptyList(), restSeconds = 90, notes = null,
+                sets = listOf(SetDraft(reps = 8, seconds = null, weight = 135.0))
+            )
+        ),
+        segments = emptyList()
+    )
+
+    // Confirm, land the first sortie with a plan, and the sortie that follows is PENDING with a source: a
+    // landed sortie of its own type has a plan. Before anything had landed, the same state said no.
+    @Test
+    fun pendingOffersReFlyWhenALandedPlanOfTheSameTypeExists() = runBlocking {
+        settingsStore.setDefaultPattern("LL")
+        val mission = manager.onAppOpen()
+        manager.confirm(mission.id)
+
+        assertFalse("nothing has landed with a plan yet", awaitPending(0).reFlyAvailable)
+
+        val first = sortieDao.getForMission(mission.id)[0]
+        flightPlanDao.writePlan(first.id, liftPlan("Full Body A"))
+        sortieDao.update(com.liftoff.app.domain.markPlanned(first))
+        manager.launch(first.id)
+        manager.land(first.id)
+
+        val next = awaitPending(1)
+        assertEquals(1, next.sortieIndex)
+        assertTrue(next.reFlyAvailable)
+    }
+
+    // No source, in each of the three ways that happens: nothing has ever landed with a plan; the only
+    // finished sortie of this type was scrubbed and its plan row is still there; the only landed plan is
+    // of the other type.
+    @Test
+    fun pendingOffersNoReFlyWithoutAMatchingLandedPlan() = runBlocking {
+        settingsStore.setDefaultPattern("LRL")
+        val mission = manager.onAppOpen()
+        manager.confirm(mission.id)
+
+        val seeded = sortieDao.getForMission(mission.id)
+        assertFalse("nothing has landed with a plan yet", awaitPending(0).reFlyAvailable)
+
+        flightPlanDao.writePlan(seeded[0].id, liftPlan("Full Body A"))
+        manager.scrub(seeded[0].id, "sore knee")
+
+        // advance() prepared the RUN with a SIMPLE_RUN plan, so it can land and leave a landed plan.
+        val middle = sortieDao.get(seeded[1].id)!!
+        assertEquals(SortieState.PLANNED, middle.state)
+        manager.launch(middle.id)
+        manager.land(middle.id)
+
+        assertNotNull(flightPlanDao.getPlan(seeded[0].id))
+        assertNotNull(flightPlanDao.getPlan(middle.id))
+
+        val last = awaitPending(2)
+        assertEquals(2, last.sortieIndex)
+        assertFalse(last.reFlyAvailable)
     }
 
     // ── In-Flight ──────────────────────────────────────────────────────
