@@ -3,6 +3,7 @@ package com.liftoff.app.data
 import androidx.room.withTransaction
 import com.liftoff.app.domain.MissionLifecycle
 import com.liftoff.app.domain.allSortiesDone
+import com.liftoff.app.domain.chooseReflySource
 import com.liftoff.app.domain.confirmWithoutOutline
 import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.domain.launch
@@ -126,6 +127,30 @@ class MissionManager(
             db.sortieDao().update(landed)
             db.flightPlanDao().markOpenSetsNotDone(sortieId)
             advance(sortie.missionId, settings)
+        }
+    }
+
+    /**
+     * Copy the most recent landed Flight Plan of this sortie's type onto the current PENDING sortie, and
+     * move it to PLANNED. No generation is queued, so it works with the coach unreachable.
+     */
+    suspend fun refly(sortieId: Long) {
+        db.withTransaction {
+            val sortie = db.sortieDao().get(sortieId)!!
+            val mission = db.missionDao().get(sortie.missionId)!!
+            check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
+            val sorties = db.sortieDao().getForMission(mission.id)
+            val current = currentSortie(sorties)
+            check(current != null && current.id == sortieId) { "Sortie must be current" }
+            check(sortie.state == SortieState.PENDING) { "Sortie must be PENDING" }
+
+            val source = chooseReflySource(sortie, reflyCandidates(db.sortieDao(), db.flightPlanDao(), sortie))
+            check(source != null) { "No landed Flight Plan to re-fly" }
+
+            val sourcePlan = db.flightPlanDao().getPlan(source.sortie.id)!!
+            db.flightPlanDao().writePlan(sortieId, reflyDraft(sourcePlan))
+            // markPlanned, not advance: the copy is what prepares this sortie, and advance would prepare the next one.
+            db.sortieDao().update(markPlanned(sortie))
         }
     }
 
