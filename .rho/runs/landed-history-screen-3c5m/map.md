@@ -142,6 +142,53 @@ HEAD at plan time: `808f9e3 run: brief` (over `74dffb0 Reopen into an in-flight 
 - `test/…/ui/sortie/PlanFormatTest.kt`, `FlightPlanSectionTest.kt` ✓ — plain + Compose tests
   of the shared helpers.
 
+## Read while splitting the plan into tasks (2026-10-18, `run: tasks`)
+
+- `tasks.md` ✓ — seven tasks, in the plan's order of work, one commit each: 1 the DAO title query,
+  2 the history derivation (+ its 3 tests), 3 the detail derivation for a landed lift and `saveNote`
+  (+ 2 lift tests and the note test), 4 the run and scrubbed paths (+ their 2 tests), 5 the list screen
+  with the shell call site and the `LiftoffShellTest` updates, 6 the detail view and note editor,
+  7 the two `ARCHITECTURE.md` rows plus one read of the whole detached suite. The eight names
+  `verify.sh` requires are each written by exactly one task (2, 3, 4).
+- `ui/inflight/InFlightScreen.kt` ✓ — `CollapsedRow` (:504), `FullCard` (:553), `ValueCell` (:690) and
+  `CheckBox` are **`private` to that file**, so `ui.landed` cannot import them. `FullCard` takes
+  In-Flight's `ExerciseCard` and `ValueCell` takes `onValueClick: () -> Unit` (a landed sortie has
+  neither), so the Landed cards are built from the theme pieces in the same shape rather than by
+  widening them. `ValueCell`'s deviation rendering, which the plan says to copy: `LiftoffType.setValue()`
+  in `Red` with `Modifier.weight(1f)`, then `"of $plannedLabel"` in `LiftoffType.barLabel()` Muted 11sp W600.
+- `ui/mission/MissionState.kt` ✓ — `class MissionStates(db, manager)` at :96 (no settings store);
+  `sortieEyebrow` at :199 is **private**, so the Landed detail writes its own eyebrow string. Its shape:
+  `"SORTIE ${index + 1} · ${type} · ${state}"`, each `name.replace("_", " ").uppercase()`.
+- `ui/mission/MissionViewModel.kt` ✓ — `MissionViewModel(db, manager, scope)`; each flow is
+  `…stateIn(scope, SharingStarted.Lazily, …Loading)`; a detail flow is a `fun observeSortie(id): StateFlow<…>`
+  that builds a fresh `MissionStates` per call. `ui/inflight/InFlightStates.kt` ✓ — `InFlightStates(db, settings)`.
+- `ui/theme/Type.kt` ✓ — `LiftoffType` has `sectionHead`, `cardTitle`, `setValue`, `load`, `index`,
+  `barLabel`, `eyebrow`, `exerciseName`, `textButton`, `note` (no-arg `@Composable` forms at :83-98).
+- `ui/theme/Headings.kt` ✓ — `Eyebrow` and `DisplayTitle` both call `text.uppercase()`, so
+  `TitleBlock(eyebrow = "History", …)` already satisfies the shell test's `onNodeWithText("HISTORY")`.
+- `ui/LiftoffShell.kt` ✓ — `NavigationBarItem` renders `Text(label.uppercase())` **and**
+  `Icon(contentDescription = label)` (:241-251), so `hasText("LANDED")` matches the bottom-bar label as
+  well as a screen title: assert on the empty-state line and the eyebrow, never on `LANDED`.
+- `ui/PlaceholderScreen.kt` ✓ — the only other user of it is `LandedScreen` (:8); the placeholder line is
+  the string `"Landed sorties will appear here, newest first."`.
+- `ui/LiftoffShellTest.kt` ✓ — `placeholderScreensShowTheirCopy` (:193-201) asserts **only** the Landed
+  tab (`"HISTORY"` + the placeholder line), so it becomes a test of the real screen's copy and is renamed
+  by task 5. The file's `waitFor(matcher)` helper (`waitUntil(5_000)`) is what the updated Landed
+  assertions should use: the history read is async. `appOpensOnLaunchpad` :53,
+  `bottomBarReachesEveryTab` :59 (assertion :66), `systemBackFromATabGoesToLaunchpad` :74,
+  `missionControlBackButtonReturnsToTabItWasOpenedFrom` :145 (assertions :148, :157);
+  `backFromMissionOrLandedGoesToLaunchpad` is in `ui/ShellNavTest.kt:42`.
+- `data/FlightPlanDaoTest.kt` ✓ — exists with `createDb`/`closeDb`/`makeSortie()` helpers and 17 cases;
+  the new title-query case reuses them. `data/FlightPlan.kt` ✓ — `title: String` non-null,
+  `runKind: String?`, `targetDistance: Double?`, `targetPace: String?`, `estimatedMinutes: Int?`, `notes: String?`.
+- `ui/inflight/InFlightState.kt` ✓ — `data class RunSegmentRow(description, detail)` at :93 is public,
+  so the Landed run summary can reuse it.
+- `ARCHITECTURE.md` ✓ — the exact current text: :37 row ends
+  `… Launchpad, Mission and In-Flight as real screens, Landed as a placeholder, Mission Control stub, theme and shared composables.`;
+  :84 is `| M5 | Landed and safety nets — history screens, Re-fly, export/import | Not started |`.
+- `AppContainer.kt` ✓ — `settingsStore` (:13) and `database` (:19) are the fields a screen's
+  `container` argument exposes; `missionManager` at :24.
+
 ## What verify.sh gates (written 2026-10-18, `run: verify`)
 
 `.rho/runs/landed-history-screen-3c5m/verify.sh` is the run's definition of done. It runs
