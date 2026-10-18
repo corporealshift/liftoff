@@ -36,10 +36,9 @@ HEAD at plan time: `808f9e3 run: brief` (over `74dffb0 Reopen into an in-flight 
   display title, ink-ruled lists, `paper` cards with ink borders, the bottom bar."
 - `ARCHITECTURE.md` ✓ — line 37 `com.liftoff.app.ui` row says "Landed as a placeholder";
   line 84 M5 row "Landed and safety nets — history screens, Re-fly, export/import | Not
-  started". Both need updating. Memory `architecture-md-rows-are-grepped-by-verify-sh`: the
-  area row must stay on **one line** (verify.sh greps the whole line case-insensitively for
-  the brief's words); the milestone status cell is split on `;` and on the em dash, so each
-  required clause is a separate `;`-separated clause with **no em dash inside a clause**.
+  started". Both need updating. What **this run's** verify.sh actually greps is written under
+  "What verify.sh gates" below; it is not the older `;`-splitting form that memory
+  `architecture-md-rows-are-grepped-by-verify-sh` describes.
 
 ## Shell and navigation
 
@@ -142,3 +141,51 @@ HEAD at plan time: `808f9e3 run: brief` (over `74dffb0 Reopen into an in-flight 
   Replacing the placeholder breaks them unless the new screen renders something they can match.
 - `test/…/ui/sortie/PlanFormatTest.kt`, `FlightPlanSectionTest.kt` ✓ — plain + Compose tests
   of the shared helpers.
+
+## What verify.sh gates (written 2026-10-18, `run: verify`)
+
+`.rho/runs/landed-history-screen-3c5m/verify.sh` is the run's definition of done. It runs
+`rm -rf app/build/test-results/testDebugUnitTest`, then
+`timeout 2400 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`
+(what `.github/workflows/ci.yml` runs, ✓), fails if the test task comes back
+`FROM-CACHE`/`UP-TO-DATE` or if no `TEST-*.xml` appeared, then looks every name below up in
+one index built from all reports (`index_reports` → `$WORK/index`, deduped per method at its
+worst outcome). A name that never ran is a failure; class and package are the implementer's
+choice, **the method names are not** — spell them exactly.
+
+The eight tests this run must write (comments in the script say what each must show):
+
+- `historyGroupsByWeekNewestFirstAcrossTwoWeeks`
+- `emptyHistoryShowsTheEmptyState`
+- `historyUpdatesWhenASortieIsLanded`
+- `liftDetailShowsPlannedAndActualValuesAndFlagsDeviations`
+- `liftDetailMarksSkippedNotDoneAndAddedSets`
+- `runDetailShowsRecordedDistanceAndDurationInConfiguredUnits`
+- `scrubbedDetailShowsReasonAndOnlyTheSetsCheckedBeforeTheScrub`
+- `editingTheNoteOfALandedSortieWritesItBack`
+
+None is a Compose test: the brief says Compose UI tests are not required and asks for the
+derivation in plain Kotlin driven against in-memory Room.
+
+It also re-names 27 existing tests under "must not break" (shell/LiftoffShell, In-Flight,
+Mission, MissionManager + domain, Mission Control, schema + DAO guard, PlanFormat, coach). All
+27 were checked ✓ to exist once in `app/src/test` at HEAD, and all 27 read `pass` against the
+most recent full-suite reports in `../reopen-into-an-in-flight-sortie-9c1v`, so the script's
+indexing is confirmed against real Gradle XML. Renaming any of them fails the run.
+`LiftoffShellTest.placeholderScreensShowTheirCopy` (its Landed assertions at :195-201) is
+**deliberately not named**, because its name is about the placeholder this run removes and
+renaming it is the right thing to do; the gate still runs it. The other two tests that read
+the Landed tab's copy — `bottomBarReachesEveryTab` (:59, assertion :66) and
+`missionControlBackButtonReturnsToTabItWasOpenedFrom` (:145, assertions :148 and :157) — are
+named and keep their names; their Landed assertions must change in the same commit that
+replaces the placeholder.
+
+ARCHITECTURE.md, as this script checks it ✓:
+- area row: `awk '/^\| `com\.liftoff\.app\.ui` \|/'` takes the **whole single line**, and the
+  only thing rejected is `landed[^,;|]*placeholder` (case-insensitive) — so "Landed as a
+  placeholder" must go, "Mission Control stub" may stay, and no positive wording is required.
+- M5 row: `awk -F'|' '{print $4}'` of `^\| M5 \|` is the status cell. Rejected only if the cell
+  is exactly `Not started`; otherwise it must match `landed|histor` **and** one of
+  `done|built|exists|exist|shipped|partial|complete|progress|real|✅`. No delimiter is
+  required, so `;`-separated clauses or plain prose both pass. Verified ✓ against the untouched
+  tree (both fail) and against two plausible rewrites (both pass).
