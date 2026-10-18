@@ -27,6 +27,10 @@ abstract class EquipmentDao {
     @Query("SELECT * FROM equipment ORDER BY name")
     abstract fun observeAll(): Flow<List<Equipment>>
 
+    // The export's whole-table read: observeAll is a Flow, and export wants the rows once.
+    @Query("SELECT * FROM equipment ORDER BY id")
+    abstract suspend fun getAll(): List<Equipment>
+
     @Query("UPDATE equipment SET active = 0 WHERE id = :id")
     abstract suspend fun deactivate(id: Long)
 

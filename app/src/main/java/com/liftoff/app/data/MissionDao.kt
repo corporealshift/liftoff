@@ -26,6 +26,10 @@ abstract class MissionDao {
     @Query("SELECT * FROM mission WHERE id IN (:ids)")
     abstract suspend fun getByIds(ids: List<Long>): List<Mission>
 
+    // The export's whole-table read; id order so two exports of the same data read alike.
+    @Query("SELECT * FROM mission ORDER BY id")
+    abstract suspend fun getAll(): List<Mission>
+
     @Query("SELECT * FROM mission WHERE weekStart = :weekStart")
     protected abstract fun observeRaw(weekStart: java.time.LocalDate): Flow<MissionWithSorties?>
 

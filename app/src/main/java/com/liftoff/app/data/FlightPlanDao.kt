@@ -21,6 +21,19 @@ abstract class FlightPlanDao(private val db: LiftoffDatabase) {
     @Query("DELETE FROM flightPlan WHERE sortieId = :sortieId")
     abstract suspend fun deleteForSortie(sortieId: Long)
 
+    // The export's whole-table reads; id order so two exports of the same data read alike.
+    @Query("SELECT * FROM flightPlan ORDER BY id")
+    abstract suspend fun getAllPlans(): List<FlightPlan>
+
+    @Query("SELECT * FROM plannedExercise ORDER BY id")
+    abstract suspend fun getAllPlannedExercises(): List<PlannedExercise>
+
+    @Query("SELECT * FROM plannedSet ORDER BY id")
+    abstract suspend fun getAllPlannedSets(): List<PlannedSet>
+
+    @Query("SELECT * FROM runSegment ORDER BY id")
+    abstract suspend fun getAllRunSegments(): List<RunSegment>
+
     @Transaction
     open suspend fun writePlan(sortieId: Long, draft: FlightPlanDraft): Long {
         deleteForSortie(sortieId)
