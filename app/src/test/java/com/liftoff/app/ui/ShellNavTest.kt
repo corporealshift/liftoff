@@ -179,4 +179,39 @@ class ShellNavTest {
         // Genuinely bad input decodes to default.
         assertEquals(ShellNav(), ShellNav.decode("Launchpad|2:x"))
     }
+
+    @Test
+    fun coldStartOpensTheInFlightSortie() {
+        // No saved state, one IN_FLIGHT sortie: that sortie's id, and still the Launchpad tab it was
+        // opened from and that back returns to.
+        val nav = ShellNav.startNav(null, listOf(7L))
+        assertEquals(7L, nav.inFlightSortieId)
+        assertEquals(Tab.Launchpad, nav.tab)
+    }
+
+    @Test
+    fun coldStartWithNoneInFlightStaysOnLaunchpad() {
+        assertEquals(ShellNav(), ShellNav.startNav(null, emptyList()))
+    }
+
+    @Test
+    fun coldStartWithSeveralInFlightOpensTheHighestId() {
+        // Tie-break only: the highest id, not the first listed and not the lowest.
+        val nav = ShellNav.startNav(null, listOf(3L, 9L, 6L))
+        assertEquals(9L, nav.inFlightSortieId)
+        assertEquals(Tab.Launchpad, nav.tab)
+    }
+
+    @Test
+    fun savedStateWinsOverTheInFlightSortie() {
+        // The saved state comes back unchanged whatever the read found, including a saved Launchpad
+        // pointing at a different (landed) sortie while another one is IN_FLIGHT.
+        for (saved in listOf(
+            ShellNav(tab = Tab.Mission),
+            ShellNav(missionControlOpen = true),
+            ShellNav(tab = Tab.Launchpad, inFlightSortieId = 4L),
+        )) {
+            assertEquals(saved, ShellNav.startNav(saved, listOf(7L)))
+        }
+    }
 }

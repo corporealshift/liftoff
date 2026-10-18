@@ -44,6 +44,10 @@ interface SortieDao {
     @Query("SELECT * FROM sortie WHERE id = :sortieId")
     fun observeById(sortieId: Long): Flow<Sortie?>
 
+    // A @Query delete, not a raw one: Room's invalidation tracker is what makes observeById re-emit.
+    @Query("DELETE FROM sortie WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     // Notes-only, so a sortie with no Flight Plan can carry a note.
     @Query("UPDATE sortie SET notes = :notes WHERE id = :sortieId")
     suspend fun updateNotes(sortieId: Long, notes: String?)

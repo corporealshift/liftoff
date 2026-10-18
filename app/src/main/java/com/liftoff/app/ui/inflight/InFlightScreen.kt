@@ -49,6 +49,9 @@ fun InFlightScreen(
     val vm = remember(sortieId) {
         InFlightViewModel(container.database, container.settingsStore, sortieId, scope, container.missionManager)
     }
+    // The watcher outlives a change of the onBack this screen was handed, so it reads the latest one.
+    val currentOnBack by rememberUpdatedState(onBack)
+    LaunchedEffect(vm) { vm.watchLeave { currentOnBack() } }
     val state by vm.state.collectAsState()
     val message by vm.message.collectAsState()
     val runErrors by vm.runErrors.collectAsState()

@@ -22,9 +22,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,6 +39,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.liftoff.app.LiftoffApplication
 import com.liftoff.app.R
 import com.liftoff.app.ui.control.MissionControlScreen
 import com.liftoff.app.ui.inflight.InFlightScreen
@@ -52,20 +55,41 @@ import com.liftoff.app.ui.theme.Mustard
 import com.liftoff.app.ui.theme.Rule
 import com.liftoff.app.ui.theme.TriStripe
 import com.liftoff.app.ui.theme.Wordmark
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun LiftoffShell() {
+    // Compose runs the nav init lambda below only when nothing was restorable: that is a cold start.
+    // A plain remember, so recreate() re-initialises it to false and the read does not fire again.
+    var coldStart by remember { mutableStateOf(false) }
+    // Any nav the user caused counts, so the read never jumps someone who has already moved.
+    var navigated by remember { mutableStateOf(false) }
+
     var nav by rememberSaveable(
         stateSaver = Saver(
             save = { it.encode() },
             restore = { ShellNav.decode(it) },
         ),
-    ) { mutableStateOf(ShellNav()) }
+    ) {
+        coldStart = true
+        mutableStateOf(ShellNav())
+    }
 
     val shellScope = rememberCoroutineScope()
 
     BackHandler(enabled = nav.back() != null) {
+        navigated = true
         nav.back()?.let { nav = it }
+    }
+
+    // The Launchpad is already composed and stays there while the rollover wait and the read run.
+    val coldStartContainer = (LocalContext.current.applicationContext as? LiftoffApplication)?.container
+    LaunchedEffect(coldStart) {
+        if (!coldStart || coldStartContainer == null) return@LaunchedEffect
+        coldStartContainer.missionManager.currentWeekStart.filterNotNull().first()
+        val ids = coldStartContainer.database.sortieDao().getInFlight().map { it.id }
+        if (!navigated) nav = ShellNav.startNav(null, ids)
     }
 
     // Light nav-bar icons over cream (Mission Control, In-Flight); dark icons over ink (tabs).
@@ -88,14 +112,20 @@ fun LiftoffShell() {
                 settingsStore = container.settingsStore,
                 scope = shellScope,
                 equipmentDao = container.database.equipmentDao(),
-                onBack = { nav = nav.back() ?: nav },
+                onBack = {
+                    navigated = true
+                    nav = nav.back() ?: nav
+                },
             )
         } else if (nav.inFlightSortieId != null) {
             val container = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container
             InFlightScreen(
                 sortieId = nav.inFlightSortieId!!,
                 container = container,
-                onBack = { nav = nav.back() ?: nav },
+                onBack = {
+                    navigated = true
+                    nav = nav.back() ?: nav
+                },
             )
         } else {
             Column(Modifier.weight(1f)) {
@@ -110,7 +140,10 @@ fun LiftoffShell() {
                     Wordmark()
 
                     OutlinedButton(
-                        onClick = { nav = nav.openMissionControl() },
+                        onClick = {
+                            navigated = true
+                            nav = nav.openMissionControl()
+                        },
                         modifier = Modifier.size(44.dp),
                         shape = ButtonShape,
                         border = BorderStroke(2.dp, Ink),
@@ -129,7 +162,13 @@ fun LiftoffShell() {
                 Box(Modifier.weight(1f)) {
                     val container = (LocalContext.current.applicationContext as com.liftoff.app.LiftoffApplication).container
                     when (nav.tab) {
-                        Tab.Launchpad -> LaunchpadScreen(container, onOpenInFlight = { nav = nav.openInFlight(it) })
+                        Tab.Launchpad -> LaunchpadScreen(
+                            container,
+                            onOpenInFlight = {
+                                navigated = true
+                                nav = nav.openInFlight(it)
+                            },
+                        )
                         Tab.Mission -> MissionScreen(container)
                         Tab.Landed -> LandedScreen()
                     }
@@ -150,21 +189,30 @@ fun LiftoffShell() {
                         iconRes = R.drawable.ic_rocket,
                         label = "Launchpad",
                         selected = nav.tab == Tab.Launchpad,
-                        onClick = { nav = nav.select(Tab.Launchpad) },
+                        onClick = {
+                            navigated = true
+                            nav = nav.select(Tab.Launchpad)
+                        },
                     )
                     NavigationBarItem(
                         tab = Tab.Mission,
                         iconRes = R.drawable.ic_planet,
                         label = "Mission",
                         selected = nav.tab == Tab.Mission,
-                        onClick = { nav = nav.select(Tab.Mission) },
+                        onClick = {
+                            navigated = true
+                            nav = nav.select(Tab.Mission)
+                        },
                     )
                     NavigationBarItem(
                         tab = Tab.Landed,
                         iconRes = R.drawable.ic_flag,
                         label = "Landed",
                         selected = nav.tab == Tab.Landed,
-                        onClick = { nav = nav.select(Tab.Landed) },
+                        onClick = {
+                            navigated = true
+                            nav = nav.select(Tab.Landed)
+                        },
                     )
                 }
             }
