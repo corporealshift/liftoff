@@ -79,7 +79,7 @@ field 3 added, and 5 is the run's gate over all of it.
   `LaunchpadState.kt`, `LaunchpadStatesTest.kt` and whichever `data/` file holds the shared candidate read
   (e.g. `launchpad: derive whether a re-fly source exists`).
 
-- [ ] Put the Re-fly action and the muted line on the PENDING screen
+- [x] Put the Re-fly action and the muted line on the PENDING screen
   Covers plan Order step 4: `ui/launchpad/LaunchpadViewModel.kt` gains `refly()` with the same
   guard-and-catch shape as `confirmScrub`; `ui/launchpad/LaunchpadScreen.kt` — `PendingActions` renders
   `UnderlinedTextButton("Re-fly")` beside Scrub when the state says a source exists, and a short muted
