@@ -285,6 +285,131 @@ class LandedStatesTest {
         assertFalse("a set that was not done is not a deviation", openSet.weightDeviates || openSet.countDeviates)
     }
 
+    // ── A landed run shows its recorded values in the unit the app is set to ──
+
+    @Test
+    fun runDetailShowsRecordedDistanceAndDurationInConfiguredUnits() = runBlocking {
+        val jan12 = insertWeek(LocalDate.of(2026, 1, 12))
+        val sortieId = insertSortie(jan12, 0, SortieType.RUN, SortieState.PLANNED, focus = "Tempo")
+        flightPlanDao.writePlan(sortieId, tempoRunPlanDraft())
+        manager.launch(sortieId)
+        manager.land(sortieId, runDistance = 5.0, runMinutes = 32.0)
+        states.saveNote(sortieId, "legs were fresh")
+
+        assertEquals("the fixture starts in miles", DistanceUnit.MI,
+            withTimeout(5_000) { settingsStore.settings.first() }.distanceUnit)
+
+        // One subscription, opened before the unit change and left open through it.
+        val received = mutableListOf<LandedDetail>()
+        val collecting = launch { states.observeDetail(sortieId).collect { received += it } }
+
+        withTimeout(5_000) {
+            while ((received.lastOrNull() as? LandedDetail.Run)?.recordedDistance != "5 mi") delay(25)
+        }
+        val miles = received.last() as LandedDetail.Run
+        assertEquals("SORTIE 1 · RUN · LANDED", miles.eyebrow)
+        assertEquals("Tempo Tuesday", miles.title)
+        assertEquals("JAN 12", miles.dateLabel)
+        assertEquals("Tempo", miles.kind)
+        assertEquals("5 mi · 9:30/mi", miles.targetLine)
+        assertEquals(listOf("1 mi · 10 min", "3.1 mi · 25 min"), miles.segments.map { it.detail })
+        assertEquals("5 mi", miles.recordedDistance)
+        assertEquals("32 min", miles.recordedDuration)
+        assertEquals("Hold it honest", miles.planNote)
+        assertEquals("legs were fresh", miles.sortieNote)
+
+        settingsStore.setDistanceUnit(DistanceUnit.KM)
+
+        withTimeout(5_000) {
+            while ((received.lastOrNull() as? LandedDetail.Run)?.recordedDistance != "5 km") delay(25)
+        }
+        collecting.cancel()
+
+        val km = received.last() as LandedDetail.Run
+        assertEquals("5 km", km.recordedDistance)
+        assertEquals("5 km · 9:30/mi", km.targetLine)
+        assertEquals(listOf("1 km · 10 min", "3.1 km · 25 min"), km.segments.map { it.detail })
+        assertEquals("minutes are not a distance, so they do not move", "32 min", km.recordedDuration)
+        assertNotEquals("the same flow re-emitted the same sortie under the other unit", miles, km)
+        val stored = sortieDao.get(sortieId)!!
+        assertEquals("only the unit changed; the stored run is untouched",
+            listOf(5.0, 32.0), listOf(stored.runDistance, stored.runMinutes))
+
+        // A run whose plan was never written is still a Run, carrying only what the sortie recorded.
+        val noPlanId = insertSortie(jan12, 1, SortieType.RUN, SortieState.LANDED,
+            focus = null, landedAt = Instant.parse("2026-01-11T09:00:00Z"),
+            runDistance = 5.0, runMinutes = 32.0)
+        val bare = deriveLandedDetail(null, sortieDao.get(noPlanId)!!, missionDao.get(jan12),
+            WeightUnit.LB, DistanceUnit.MI, ZoneOffset.UTC) as LandedDetail.Run
+        assertEquals("Run", bare.title)
+        assertNull(bare.kind)
+        assertNull(bare.targetLine)
+        assertTrue(bare.segments.isEmpty())
+        assertEquals("5 mi", bare.recordedDistance)
+        assertEquals("32 min", bare.recordedDuration)
+    }
+
+    // ── A scrub keeps only the sets that were already checked ─────────────────
+
+    @Test
+    fun scrubbedDetailShowsReasonAndOnlyTheSetsCheckedBeforeTheScrub() = runBlocking {
+        val jan12 = insertWeek(LocalDate.of(2026, 1, 12))
+        val sortieId = insertSortie(jan12, 0, SortieType.LIFT, SortieState.PLANNED, focus = "Bench")
+        // A scrubbed sortie is done, so a second one is what keeps the mission ACTIVE for the
+        // reason-less scrub at the end of this test.
+        val bareId = insertSortie(jan12, 1, SortieType.LIFT, SortieState.PLANNED, focus = "Easy lift")
+        flightPlanDao.writePlan(sortieId, liftPlanDraft())
+        manager.launch(sortieId)
+
+        val plan = flightPlanDao.getPlan(sortieId)!!
+        val bench = plan.exercises.first { it.displayName == "Bench Press" }
+        val pushup = plan.exercises.first { it.displayName == "Push-up" }
+        flightPlanDao.checkSet(bench.sets[0].id)
+        // A skip chosen on purpose; Plank and bench's second set are still OPEN when the scrub comes.
+        flightPlanDao.skipExercise(pushup.plannedExercise.id)
+        manager.scrub(sortieId, "sick")
+        states.saveNote(sortieId, "rest instead")
+
+        val detail = withTimeout(5_000) {
+            states.observeDetail(sortieId).first { it is LandedDetail.Scrubbed }
+        } as LandedDetail.Scrubbed
+
+        assertEquals("SORTIE 1 · LIFT · SCRUBBED", detail.eyebrow)
+        assertEquals("Upper Push", detail.title)
+        assertEquals("sick", detail.reason)
+        assertEquals("rest instead", detail.sortieNote)
+        assertEquals(1, detail.doneCount)
+        assertEquals(5, detail.setCount)
+
+        // The plan really does hold all three kinds of set, which is what the rule has to filter out.
+        assertEquals(
+            listOf(SetStatus.DONE, SetStatus.OPEN, SetStatus.SKIPPED, SetStatus.SKIPPED, SetStatus.OPEN),
+            flightPlanDao.getPlan(sortieId)!!.exercises.flatMap { it.sets }.map { it.status }
+        )
+
+        val kept = detail.exercises.single()
+        assertEquals("Bench Press", kept.name)
+        assertEquals(1, kept.doneCount)
+        assertEquals("the counts still read 1 of 2, not 1 of 1", 2, kept.setCount)
+        assertEquals(listOf("SET 1"), kept.sets.map { it.label })
+        assertEquals(listOf(SetMark.DONE), kept.sets.map { it.mark })
+        assertTrue("no unchecked set survives the scrub",
+            detail.exercises.flatMap { it.sets }.all { it.mark == SetMark.DONE })
+
+        // Decision 10: a scrub with no reason recorded leaves the derivation with nothing to quote —
+        // the screen is what says "No reason given". A scrubbed sortie with no plan has no exercises.
+        assertNull("the second sortie never had a plan written", flightPlanDao.getPlan(bareId))
+        manager.scrub(bareId, null)
+        val bare = withTimeout(5_000) {
+            states.observeDetail(bareId).first { it is LandedDetail.Scrubbed }
+        } as LandedDetail.Scrubbed
+        assertNull("nothing was recorded, so the detail carries nothing", bare.reason)
+        assertTrue("a scrubbed sortie with no plan has no exercises", bare.exercises.isEmpty())
+        assertEquals(0, bare.doneCount)
+        assertEquals(0, bare.setCount)
+        assertEquals("Easy lift", bare.title)
+    }
+
     // ── The note is the one thing a finished sortie can still be edited ───────
 
     @Test
@@ -335,6 +460,8 @@ class LandedStatesTest {
         launchedAt: Instant? = null,
         landedAt: Instant? = null,
         scrubReason: String? = null,
+        runDistance: Double? = null,
+        runMinutes: Double? = null,
     ): Long = sortieDao.insert(
         Sortie(
             missionId = missionId,
@@ -347,8 +474,8 @@ class LandedStatesTest {
             landedAt = landedAt?.toEpochMilli(),
             scrubReason = scrubReason,
             notes = null,
-            runDistance = null,
-            runMinutes = null
+            runDistance = runDistance,
+            runMinutes = runMinutes
         )
     )
 
@@ -370,6 +497,24 @@ class LandedStatesTest {
             )
         )
     }
+
+    /** A generated run plan: kind, target distance/pace and two segments. No exercises. */
+    private fun tempoRunPlanDraft() = FlightPlanDraft(
+        source = FlightPlanSource.GENERATED,
+        title = "Tempo Tuesday",
+        estimatedMinutes = 35,
+        warmup = null,
+        notes = "Hold it honest",
+        runKind = "tempo",
+        targetDistance = 5.0,
+        targetPace = "9:30/mi",
+        rawJson = "{}",
+        exercises = emptyList(),
+        segments = listOf(
+            RunSegmentDraft(description = "Warm-up", distance = 1.0, minutes = 10.0),
+            RunSegmentDraft(description = "Tempo", distance = 3.1, minutes = 25.0)
+        )
+    )
 
     /** A lift plan with a bodyweight exercise and a timed one, so every label shape is exercised. */
     private fun liftPlanDraft() = FlightPlanDraft(
