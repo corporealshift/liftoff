@@ -79,6 +79,7 @@ data class HistoryRow(
     val sortieId: Long,
     val indexLabel: String,      // "%02d".format(sortie.index + 1), the InkRuledListRow index
     val type: SortieType,
+    val typeLabel: String,       // "LIFT" | "RUN" — shown on the row, the brief requires it
     val title: String,           // plan title, else focus, else "Run" / "Lift"
     val dateLabel: String,       // "OCT 12" — which timestamp, Decision 2
     val stateLabel: String,      // "LANDED" | "SCRUBBED"
@@ -104,7 +105,7 @@ data class RecordedExercise(
 
 data class RecordedSet(
     val label: String,              // "SET 1"
-    val mark: SetMark,              // DONE | SKIPPED | NOT_DONE
+    val mark: SetMark,              // DONE | SKIPPED | NOT_DONE — mapping in Decision 1
     val added: Boolean,             // plannedSet.added
     val plannedLabel: String,       // "135 LB × 8", "BW × 8", "45 s"
     val actualLabel: String?,       // null when nothing was recorded
@@ -112,6 +113,9 @@ data class RecordedSet(
     val countDeviates: Boolean,     // DONE only
 )
 ```
+
+Set marks (Decision 1): `DONE` → `DONE`; `SKIPPED` in an exercise whose `skipped` flag is set →
+`SKIPPED`; any other `SKIPPED` set, and any `OPEN` set, on a landed sortie → `NOT_DONE`.
 
 `Run` carries the plan summary the user launched against — `kind` (`formatRunKind`),
 `targetLine` (`formatDistance(targetDistance, unit)` · `targetPace`), `segments`
@@ -198,13 +202,13 @@ else LandedHistoryContent(state = history, onSelect = { selectedSortieId = it })
 **List.** `TitleBlock(eyebrow = "HISTORY", title = "Landed")` — the same eyebrow and title the
 placeholder used, which keeps the shell test's `onNodeWithText("HISTORY")` assertion true. Then,
 per week: a section head (`LiftoffType.sectionHead()`, Ink) reading `WEEK OF OCT 5`, then one
-`InkRuledListRow(index = "02", title = row.title, detail = "OCT 12 · LANDED",
-modifier = Modifier.clickable { onSelect(row.id) })` — the same way `MissionScreen` makes a row
-tappable without changing the theme composable. A scrubbed row passes its reason through the
-composable's `actions` slot, which renders between the row and its ink rule, in
-`LiftoffType.note()`/`Muted`. `Empty` renders `TitleBlock` plus "No history yet."; `Loading`
-renders the `TitleBlock` only, so the eyebrow is on screen before the first read and the empty
-state never flashes over real data.
+`InkRuledListRow(index = "02", title = row.title, detail = "OCT 12 · LIFT · LANDED",
+modifier = Modifier.clickable { onSelect(row.sortieId) })` — date, type and state, as the brief
+requires of every row — the same way `MissionScreen` makes a row tappable without changing the
+theme composable. A scrubbed row passes its reason through the composable's `actions` slot, which
+renders between the row and its ink rule, in `LiftoffType.note()`/`Muted`. `Empty` renders
+`TitleBlock` plus "No history yet."; `Loading` renders the `TitleBlock` only, so the eyebrow is on
+screen before the first read and the empty state never flashes over real data.
 
 **Detail.** `TitleBlock(eyebrow, title)` where the eyebrow is `SORTIE 2 · LIFT · LANDED` — the
 shape `MissionState.sortieEyebrow` (:199) already uses for a finished sortie's detail — and the title
@@ -270,18 +274,20 @@ Cases, one per line of the brief's "Done when":
 1. `historyGroupsByWeekNewestFirstAcrossTwoWeeks` — missions at 2026-01-05 and 2026-01-12, several
    LANDED and one SCRUBBED sortie in each; assert the week order, the heads `WEEK OF JAN 12` /
    `WEEK OF JAN 5`, the row order inside a week, the row titles (plan title where a plan exists,
-   focus where it does not), `LANDED` / `SCRUBBED`, and the scrub reason on the scrubbed row.
+   focus where it does not), the type labels (`LIFT` / `RUN`), `LANDED` / `SCRUBBED`, and the
+   scrub reason on the scrubbed row.
 2. `emptyHistoryShowsTheEmptyState` — no LANDED/SCRUBBED rows → `LandedHistoryState.Empty`.
 3. `historyUpdatesWhenASortieIsLanded` — collect `observeHistory()`, then `manager.land(...)`;
    assert a second emission that contains the sortie, proving the live Room read.
 4. `liftDetailShowsPlannedAndActualValuesAndFlagsDeviations` — a DONE set whose actual reps/weight
    differ from the plan → `actualLabel` ≠ `plannedLabel`, `weightDeviates` / `countDeviates` true;
    a DONE set recorded as planned → both false.
-5. `liftDetailMarksSkippedNotDoneAndAddedSets` — `skipExercise` on one exercise (its sets become
-   SKIPPED, `exerciseSkipped` true); an `added = true` set; and a NOT_DONE set. **The not-done case
-   has to be built by inserting a LANDED sortie with a plan that still has an OPEN set directly
-   into the database**, because `MissionManager.land()` always calls `markOpenSetsNotDone`, which
-   rewrites every OPEN set to SKIPPED — see Decisions.
+5. `liftDetailMarksSkippedNotDoneAndAddedSets` — built through the real flow: launch, check some
+   sets, `skipExercise` on one exercise, `addSet` on another, leave at least one set unchecked, then
+   `manager.land(...)`. Assert: the skipped exercise has `exerciseSkipped` true and its sets are
+   `SKIPPED`; the set left unchecked (which `land()` rewrote to `SetStatus.SKIPPED`) is `NOT_DONE`;
+   the added set has `added = true`. Also cover the `OPEN` → `NOT_DONE` mapping with a pure
+   `deriveLandedDetail` call on a plan that still has an OPEN set.
 6. `runDetailShowsRecordedDistanceAndDurationInConfiguredUnits` — `runDistance = 5.0`,
    `runMinutes = 32.0` → `5 mi` / `32 min` under `DistanceUnit.MI`, and `5 km` after the setting is
    changed to `KM` (the flow re-emits, so the same test can assert both).
@@ -313,12 +319,12 @@ green-looking tail, and confirm the new test class actually ran.
 
 ## Risks and unknowns
 
-- **"skipped" vs "not done" cannot be recovered from the data.** `MissionManager.land()` always
-  calls `markOpenSetsNotDone`, which rewrites every still-OPEN set to SKIPPED, and In-Flight also
-  has a per-set `skipSet`. After landing, a deliberately skipped set and a set left unchecked are
-  the same row. The plan uses `plannedExercise.skipped` as the only signal that a skip was
-  deliberate, and states the limit in Decisions. If the owner wants the two distinguished properly,
-  that needs a schema change, which this run forbids.
+- **"skipped" vs "not done" cannot be fully recovered from the data.** `MissionManager.land()`
+  always calls `markOpenSetsNotDone`, which rewrites every still-OPEN set to SKIPPED, and In-Flight
+  also has a per-set `skipSet` that writes the same status. After landing, a single set skipped on
+  purpose and a set left unchecked are the same row. The plan uses `plannedExercise.skipped` as the
+  only signal that a skip was deliberate (Decision 1). If the owner wants per-set skips
+  distinguished properly, that needs a schema change, which this run forbids.
 - **`MissionDao.getByIds` with an empty id list** produces `IN ()`, which SQLite rejects. The
   derivation must return before calling it when there are no rows.
 - **`LiftoffShellTest` breaks the moment the placeholder goes**, so the screen and that test change
@@ -350,6 +356,13 @@ Why: it is the wording the app already uses — `CoachPromptBuilder` renders SKI
 anything still open as "not done", and In-Flight's checkbox says "skipped" for the same status. A
 user who skipped an exercise or a set on purpose sees the word they chose; the two are only
 distinguishable through `plannedExercise.skipped`, which is what this uses.
+Changed by review: the plan chose SKIPPED → "skipped" and OPEN → "not done"; the review chose
+"skipped" only for sets in an exercise whose `skipped` flag is set, and "not done" for every other
+SKIPPED or OPEN set on a landed sortie, because `land()` rewrites every unchecked set to SKIPPED
+(`MissionManager.kt:127`), so under the plan's rule "not done" would never appear on a real landed
+lift. The Land confirmation also tells the user "They will be recorded as not done." Showing those
+sets as "skipped" would contradict that promise. The cost is that a single set skipped on purpose
+with `skipSet` reads "not done", which is still true.
 
 **2. What date does a row show, when the sortie has no landed time?**
 Chosen: the rule the app already uses for a finished sortie — `landedAt`, else `launchedAt`, else the
