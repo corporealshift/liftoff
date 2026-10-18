@@ -55,7 +55,7 @@ field 3 added, and 5 is the run's gate over all of it.
   --tests '*MissionManagerReFlyTest*'` shows those 8 passing, and the commit names only `ReFlyCopy.kt`,
   `MissionManager.kt` and that test file (e.g. `data: re-fly copies a landed plan onto the pending sortie`).
 
-- [ ] Derive Re-fly availability into the Launchpad's PENDING state
+- [x] Derive Re-fly availability into the Launchpad's PENDING state
   Covers plan Order step 3: `ui/launchpad/LaunchpadState.kt` (it holds both the sealed states and
   `LaunchpadStates.observe`/`derive`) — `LaunchpadState.Pending` gains whether a source plan exists;
   `derive` computes it in the PENDING branch only, through the same candidate read `refly` uses (share it
