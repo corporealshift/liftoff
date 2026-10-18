@@ -161,7 +161,7 @@ with its own tests passing before it is committed.
   and those eight names are exactly the eight `verify.sh` lists under "history list" and "detail view"
   (check them off against the script; a name spelled differently is a failed run).
 
-- [ ] `ui: show the landed history list`
+- [x] `ui: show the landed history list`
   Covers: the list half of the real screen, and the shell, in one commit — the placeholder cannot go
   without the shell test changing at the same time.
   New `app/src/main/java/com/liftoff/app/ui/landed/LandedViewModel.kt`:
