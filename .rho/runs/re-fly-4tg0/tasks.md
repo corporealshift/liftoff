@@ -12,7 +12,7 @@ them; they are matched across every JUnit report, so class and package are the i
 Do them in order: 2 calls the chooser 1 defines, 3 reuses the candidate read 2 introduced, 4 renders the
 field 3 added, and 5 is the run's gate over all of it.
 
-- [ ] Write the pure source chooser and its §13 cases
+- [x] Write the pure source chooser and its §13 cases
   Covers plan Order step 1: `app/src/main/java/com/liftoff/app/domain/ReFly.kt` (new) — the pure chooser
   and the candidate it weighs (a finished sortie plus whether it has a plan), no Android imports, no Room,
   no Compose. Ordering, the focus preference, the "most recent = the candidate's landed time" rule
