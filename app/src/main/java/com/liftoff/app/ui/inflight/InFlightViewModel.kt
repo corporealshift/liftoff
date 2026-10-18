@@ -55,21 +55,25 @@ class InFlightViewModel(
         }
     }
 
-    fun check(setId: Long)            { scope.launch { dao.checkSet(setId) } }
-    fun uncheck(setId: Long)          { scope.launch { dao.uncheckSet(setId) } }
+    // Once this screen has left its sortie, no action starts a write to it.
+    fun check(setId: Long)            { if (left.get()) return; scope.launch { dao.checkSet(setId) } }
+    fun uncheck(setId: Long)          { if (left.get()) return; scope.launch { dao.uncheckSet(setId) } }
     fun saveEdit(setId: Long, reps: Int?, seconds: Int?, weight: Double?) {
+        if (left.get()) return
         scope.launch { dao.saveSetEdit(setId, reps, seconds, weight) }
     }
-    fun skipSet(setId: Long)          { scope.launch { dao.skipSet(setId) } }
-    fun reopenSet(setId: Long)        { scope.launch { dao.reopenSet(setId) } }
-    fun skipExercise(id: Long)        { scope.launch { dao.skipExercise(id) } }
-    fun unskipExercise(id: Long)      { scope.launch { dao.unskipExercise(id) } }
-    fun addSet(id: Long)              { scope.launch { dao.addSet(id) } }
+    fun skipSet(setId: Long)          { if (left.get()) return; scope.launch { dao.skipSet(setId) } }
+    fun reopenSet(setId: Long)        { if (left.get()) return; scope.launch { dao.reopenSet(setId) } }
+    fun skipExercise(id: Long)        { if (left.get()) return; scope.launch { dao.skipExercise(id) } }
+    fun unskipExercise(id: Long)      { if (left.get()) return; scope.launch { dao.unskipExercise(id) } }
+    fun addSet(id: Long)              { if (left.get()) return; scope.launch { dao.addSet(id) } }
     fun saveExerciseNote(id: Long, text: String) {
+        if (left.get()) return
         scope.launch { dao.saveExerciseNote(id, normalizeNote(text)) }
     }
     // Sortie-row-only write, so a sortie with no Flight Plan can carry a note too.
     fun saveSortieNote(text: String) {
+        if (left.get()) return
         scope.launch { sortieDao.updateNotes(sortieId, normalizeNote(text)) }
     }
 
@@ -83,6 +87,7 @@ class InFlightViewModel(
     fun clearMessage() { message.value = null }
 
     fun land(onDone: () -> Unit) {
+        if (left.get()) return
         if (busy) return
         busy = true
         message.value = null
@@ -110,6 +115,7 @@ class InFlightViewModel(
      * field lands nothing. The return tells the dialog whether to close (Decision 16).
      */
     fun landRun(distanceText: String?, minutesText: String?, onDone: () -> Unit): Boolean {
+        if (left.get()) return false
         if (busy) return false
         return when (val entry = parseRunEntry(distanceText, minutesText)) {
             is RunEntry.Invalid -> {
@@ -140,6 +146,7 @@ class InFlightViewModel(
 
     /** Scrub keeps the sets already logged; the reason is optional and normalised like a note. */
     fun scrub(reason: String?, onDone: () -> Unit) {
+        if (left.get()) return
         if (busy) return
         busy = true
         message.value = null

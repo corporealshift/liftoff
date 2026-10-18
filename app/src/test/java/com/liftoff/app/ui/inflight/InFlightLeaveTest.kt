@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -36,7 +37,9 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * The leave callback counts into an AtomicInteger because Room delivers an emission on its own thread and
  * the test thread can only poll it. Every test waits for 1 under a timeout, then waits a short bounded
- * time and asserts it is still 1: that is what "leaves once, not twice" means.
+ * time and asserts it is still 1: that is what "leaves once, not twice" means. The last two tests are the
+ * pair that shows the write guard bites only after leaving: while the sortie is still IN_FLIGHT the screen
+ * writes as normal, and after it has left a check reaches nothing.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -177,6 +180,20 @@ class InFlightLeaveTest {
         )
     }
 
+    /** The set as the database holds it, read through the plan rather than through the screen's state. */
+    private suspend fun setInDb(sortieId: Long, setId: Long): PlannedSet? =
+        flightPlanDao.getPlan(sortieId)?.exercises?.flatMap { it.sets }?.firstOrNull { it.id == setId }
+
+    /** A bounded wait for something that must NOT happen: true if the set became DONE within 2 s. */
+    private suspend fun setBecomesDone(sortieId: Long, setId: Long): Boolean = try {
+        withTimeout(2_000) {
+            while (setInDb(sortieId, setId)?.status != SetStatus.DONE) delay(25)
+        }
+        true
+    } catch (e: TimeoutCancellationException) {
+        false
+    }
+
     // ── The week-ended rollover when the app returns to the foreground ──
     // A manager on a clock past the week scrubs the IN_FLIGHT sortie with reason 'week ended' and the
     // screen leaves once. The DESIGN.md §6 safety net: a sortie left open over the weekend does not stay
@@ -290,5 +307,59 @@ class InFlightLeaveTest {
         assertEquals(SortieState.SCRUBBED, scrubbed.state)
         assertEquals("sore knee", scrubbed.scrubReason)
         assertNull(vm.message.value)
+    }
+
+    // ── The control: the sortie is still IN_FLIGHT, so the screen keeps writing ──
+    // A checked set and a sortie note — the note rewrites the sortie row, so observeById does re-emit —
+    // must not leave the screen, and both writes must land. Without this, a watcher that fired on any
+    // re-emission, or a write guard that never let a write through, would pass the tests above.
+
+    @Test
+    fun noLeaveWhileTheSortieIsStillInFlight() = runBlocking {
+        val (vm, ready) = launchSortie1()
+        val sortieId = ready.sortieId
+        val setId = ready.currentSetId ?: ready.cards[0].sets[0].setId
+        val count = AtomicInteger(0)
+        watching(vm, count)
+
+        vm.check(setId)
+        vm.saveSortieNote("left shoulder twinge")
+
+        val wrote = setBecomesDone(sortieId, setId)
+        delay(500)
+
+        assertTrue("a write to a sortie still IN_FLIGHT must land in the database", wrote)
+        assertEquals("a sortie still IN_FLIGHT must not leave the screen", 0, count.get())
+        assertTrue("a leave callback threw out of the view model: $escaped", escaped.isEmpty())
+        assertTrue("the state flow must still show the checklist", vm.state.value is InFlightState.Ready)
+        assertEquals(SetStatus.DONE, setInDb(sortieId, setId)?.status)
+        assertEquals("left shoulder twinge", sortieDao.get(sortieId)?.notes)
+    }
+
+    // ── After the screen has left, it writes nothing ─────────────────
+    // Left through the rollover scrub, which touches only the sortie row so the sets are still OPEN (a
+    // Land would mark them not done and hide the check). The check afterwards never reaches the database.
+
+    @Test
+    fun afterLeavingTheScreenWritesNothing() = runBlocking {
+        val (vm, ready) = launchSortie1()
+        val sortieId = ready.sortieId
+        val setId = ready.currentSetId ?: ready.cards[0].sets[0].setId
+        assertEquals("the fixture's set must start OPEN", SetStatus.OPEN, setInDb(sortieId, setId)?.status)
+
+        val count = AtomicInteger(0)
+        watching(vm, count)
+
+        advanceClock(7)
+        manager.onAppOpen()
+
+        withTimeout(5_000) { while (count.get() == 0) delay(25) }
+        assertEquals("the rollover scrub must leave the sets OPEN", SetStatus.OPEN, setInDb(sortieId, setId)?.status)
+
+        vm.check(setId)
+
+        assertFalse("after leaving, the screen must not write to that sortie", setBecomesDone(sortieId, setId))
+        assertEquals(1, count.get())
+        assertTrue("a leave callback threw out of the view model: $escaped", escaped.isEmpty())
     }
 }
