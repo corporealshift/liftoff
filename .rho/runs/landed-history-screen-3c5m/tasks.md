@@ -34,7 +34,7 @@ with its own tests passing before it is committed.
 
 ---
 
-- [ ] `data: read plan titles for a list of sorties`
+- [x] `data: read plan titles for a list of sorties`
   Covers: one read-only query so a history row can show its plan title without a `getPlan` per row.
   `app/src/main/java/com/liftoff/app/data/FlightPlanDao.kt` gains
   `@Query("SELECT sortieId, title FROM flightPlan WHERE sortieId IN (:ids)")`
