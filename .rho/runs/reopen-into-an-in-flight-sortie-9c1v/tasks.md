@@ -122,7 +122,7 @@ Facts that bite, shared by the tasks:
   still passes (`drawsEdgeToEdgeWithDarkSystemBarIcons` lives in `MainActivityTest`, and verify.sh lists it
   under "must not break"). Commit `ui: reopen into the in-flight sortie on a cold start`.
 
-- [ ] Leave the In-Flight screen once its sortie is no longer in flight
+- [x] Leave the In-Flight screen once its sortie is no longer in flight
   Covers: brief part 2's signal, watcher and once-only gate, in one commit because the tests need the whole
   chain. Read the plan's "Leaving" and "Rollover" paragraphs first.
   - `app/src/main/java/com/liftoff/app/data/SortieDao.kt`: add
