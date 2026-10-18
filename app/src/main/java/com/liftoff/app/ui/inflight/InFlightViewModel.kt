@@ -2,6 +2,8 @@ package com.liftoff.app.ui.inflight
 
 import com.liftoff.app.data.LiftoffDatabase
 import com.liftoff.app.data.MissionManager
+import com.liftoff.app.data.Sortie
+import com.liftoff.app.data.SortieState
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -9,8 +11,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** Plain signal: the sortie this screen is showing is gone or no longer in flight. */
+fun sortieIsNoLongerInFlight(sortie: Sortie?): Boolean =
+    sortie == null || sortie.state != SortieState.IN_FLIGHT
 
 /** Plain state holder for the In-Flight screen. */
 class InFlightViewModel(
@@ -27,6 +34,26 @@ class InFlightViewModel(
 
     val state: StateFlow<InFlightState> = InFlightStates(db, settings).observe(sortieId)
         .stateIn(scope, SharingStarted.Lazily, InFlightState.Loading)
+
+    // ── Leaving the screen ───────────────────────────────────────────
+    // The state flow cannot report a gone sortie — mapNotNull drops a null one and deriveInFlight never
+    // reads sortie.state — so the screen watches the sortie row itself.
+    // left is atomic because the watcher emits on Room's query thread and a Land resumes on its
+    // transaction thread.
+    private val left = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun leaveOnce(onLeave: () -> Unit) {
+        if (left.compareAndSet(false, true)) onLeave()
+    }
+
+    /** Watch this sortie; the first moment it is gone or no longer IN_FLIGHT, leave — once. */
+    fun watchLeave(onLeave: () -> Unit) {
+        scope.launch {
+            sortieDao.observeById(sortieId)
+                .map(::sortieIsNoLongerInFlight)
+                .collect { gone -> if (gone) leaveOnce(onLeave) }
+        }
+    }
 
     fun check(setId: Long)            { scope.launch { dao.checkSet(setId) } }
     fun uncheck(setId: Long)          { scope.launch { dao.uncheckSet(setId) } }
@@ -62,7 +89,7 @@ class InFlightViewModel(
         scope.launch {
             try {
                 missionManager.land(sortieId)
-                onDone()
+                leaveOnce(onDone)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -97,7 +124,7 @@ class InFlightViewModel(
                 scope.launch {
                     try {
                         missionManager.land(sortieId, entry.distance, entry.minutes)
-                        onDone()
+                        leaveOnce(onDone)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -119,7 +146,7 @@ class InFlightViewModel(
         scope.launch {
             try {
                 missionManager.scrub(sortieId, normalizeNote(reason))
-                onDone()
+                leaveOnce(onDone)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
