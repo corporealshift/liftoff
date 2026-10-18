@@ -5,7 +5,9 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.liftoff.app.data.*
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.settings.SettingsStore
+import com.liftoff.app.settings.WeightUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -162,6 +164,157 @@ class LandedStatesTest {
         assertEquals("JAN 12", row.dateLabel)
     }
 
+    // ── A landed lift shows planned and actual values, and flags a deviation ──
+
+    @Test
+    fun liftDetailShowsPlannedAndActualValuesAndFlagsDeviations() = runBlocking {
+        val jan12 = insertWeek(LocalDate.of(2026, 1, 12))
+        val sortieId = insertSortie(jan12, 0, SortieType.LIFT, SortieState.PLANNED, focus = "Bench")
+        flightPlanDao.writePlan(sortieId, liftPlanDraft())
+        manager.launch(sortieId)
+
+        val bench = flightPlanDao.getPlan(sortieId)!!.exercises.first { it.displayName == "Bench Press" }
+        // Recorded off-plan on purpose: 8 reps at 40 against a planned 10 at 35.
+        flightPlanDao.saveSetEdit(bench.sets[0].id, reps = 8, seconds = null, weight = 40.0)
+        // Ticked as planned, which is the write the In-Flight tick itself makes.
+        flightPlanDao.checkSet(bench.sets[1].id)
+        manager.land(sortieId)
+
+        val detail = withTimeout(5_000) {
+            states.observeDetail(sortieId).first { it is LandedDetail.Lift }
+        } as LandedDetail.Lift
+
+        assertEquals("SORTIE 1 · LIFT · LANDED", detail.eyebrow)
+        assertEquals("Upper Push", detail.title)
+        assertEquals("JAN 12", detail.dateLabel)
+        assertEquals(2, detail.doneCount)
+        assertEquals(5, detail.setCount)
+
+        val sets = detail.exercises.first { it.name == "Bench Press" }.sets
+
+        val deviating = sets[0]
+        assertEquals("35 LB × 10", deviating.plannedLabel)
+        assertEquals("40 LB × 8", deviating.actualLabel)
+        assertNotEquals("an actual recorded off-plan reads differently from its plan",
+            deviating.plannedLabel, deviating.actualLabel)
+        assertTrue("the weight changed, so the weight is flagged", deviating.weightDeviates)
+        assertTrue("the reps changed, so the count is flagged", deviating.countDeviates)
+
+        val exact = sets[1]
+        assertEquals("35 LB × 10", exact.plannedLabel)
+        assertEquals("35 LB × 10", exact.actualLabel)
+        assertFalse("a set done exactly as planned is not a deviation", exact.weightDeviates)
+        assertFalse("a set done exactly as planned is not a deviation", exact.countDeviates)
+    }
+
+    // ── Skipped, not-done and added sets are marked, on a real land ───────────
+
+    @Test
+    fun liftDetailMarksSkippedNotDoneAndAddedSets() = runBlocking {
+        val jan12 = insertWeek(LocalDate.of(2026, 1, 12))
+        val sortieId = insertSortie(jan12, 0, SortieType.LIFT, SortieState.PLANNED, focus = "Bench")
+        flightPlanDao.writePlan(sortieId, liftPlanDraft())
+        manager.launch(sortieId)
+
+        val plan = flightPlanDao.getPlan(sortieId)!!
+        val bench = plan.exercises.first { it.displayName == "Bench Press" }
+        val plank = plan.exercises.first { it.displayName == "Plank" }
+        val uncheckedId = bench.sets[1].id
+        flightPlanDao.checkSet(bench.sets[0].id)
+        flightPlanDao.addSet(bench.plannedExercise.id)
+        // Last, because ticking a set clears its exercise's skip.
+        flightPlanDao.skipExercise(plank.plannedExercise.id)
+        // bench.sets[1] and both Push-up sets are still OPEN when land() rewrites them.
+        manager.land(sortieId)
+
+        val detail = withTimeout(5_000) {
+            states.observeDetail(sortieId).first { it is LandedDetail.Lift }
+        } as LandedDetail.Lift
+
+        assertEquals(listOf(1, 2, 3), detail.exercises.map { it.number })
+        assertEquals(listOf("Bench Press", "Push-up", "Plank"), detail.exercises.map { it.name })
+
+        val skipped = detail.exercises.first { it.name == "Plank" }
+        assertTrue("the skip the user chose on purpose reads as skipped", skipped.exerciseSkipped)
+        assertEquals(listOf(SetMark.SKIPPED), skipped.sets.map { it.mark })
+        assertEquals(0, skipped.doneCount)
+        assertEquals(1, skipped.setCount)
+        assertFalse("a skipped set is never a deviation",
+            skipped.sets.any { it.weightDeviates || it.countDeviates })
+
+        val pushup = detail.exercises.first { it.name == "Push-up" }
+        assertFalse(pushup.exerciseSkipped)
+        assertEquals("sets land() rewrote read as not done, not as skipped",
+            listOf(SetMark.NOT_DONE, SetMark.NOT_DONE), pushup.sets.map { it.mark })
+
+        val recorded = detail.exercises.first { it.name == "Bench Press" }
+        assertEquals(1, recorded.doneCount)
+        assertEquals(3, recorded.setCount)
+        assertEquals(listOf(SetMark.DONE, SetMark.NOT_DONE, SetMark.NOT_DONE), recorded.sets.map { it.mark })
+        val added = recorded.sets.last()
+        assertTrue("the set the user added reads as added", added.added)
+        assertFalse("the two planned sets are not added", recorded.sets.take(2).any { it.added })
+        // addSet copies the values of the set it followed, which was still unlogged.
+        assertEquals("35 LB × 10", added.plannedLabel)
+
+        // The same rule for a set land() never rewrote: deriveLandedDetail sees an OPEN set on a
+        // landed sortie and calls it not done. Proven on the post-land plan with one row put back to
+        // OPEN, so the assertion cannot be satisfied by a rule that keys off SKIPPED instead.
+        val landedPlan = flightPlanDao.getPlan(sortieId)!!
+        val openPlan = landedPlan.copy(
+            exercises = landedPlan.exercises.map { ex ->
+                ex.copy(sets = ex.sets.map { s ->
+                    if (s.id == uncheckedId) s.copy(status = SetStatus.OPEN) else s
+                })
+            }
+        )
+        assertEquals("the row land() rewrote is stored as SKIPPED",
+            SetStatus.SKIPPED, landedPlan.setsFor("Bench Press")[1].status)
+        assertEquals(SetStatus.OPEN, openPlan.setsFor("Bench Press")[1].status)
+
+        val fromOpen = deriveLandedDetail(
+            openPlan,
+            sortieDao.get(sortieId)!!,
+            missionDao.get(jan12),
+            WeightUnit.LB,
+            DistanceUnit.MI,
+            ZoneOffset.UTC
+        ) as LandedDetail.Lift
+        val openSet = fromOpen.exercises.first { it.name == "Bench Press" }.sets[1]
+        assertEquals("an OPEN set on a landed sortie is not done either", SetMark.NOT_DONE, openSet.mark)
+        assertFalse("a set that was not done is not a deviation", openSet.weightDeviates || openSet.countDeviates)
+    }
+
+    // ── The note is the one thing a finished sortie can still be edited ───────
+
+    @Test
+    fun editingTheNoteOfALandedSortieWritesItBack() = runBlocking {
+        val jan12 = insertWeek(LocalDate.of(2026, 1, 12))
+        val sortieId = insertSortie(jan12, 0, SortieType.LIFT, SortieState.LANDED,
+            focus = "Bench", landedAt = Instant.parse("2026-01-12T09:00:00Z"))
+
+        // One subscription, opened before either save and left open through both.
+        val received = mutableListOf<LandedDetail>()
+        val collecting = launch { states.observeDetail(sortieId).collect { received += it } }
+        withTimeout(5_000) { while (received.none { it is LandedDetail.Lift }) delay(25) }
+        assertNull("a finished sortie starts with no note of its own", latestSortieNote(received))
+
+        states.saveNote(sortieId, "knee felt fine")
+        withTimeout(5_000) { while (latestSortieNote(received) != "knee felt fine") delay(25) }
+        assertEquals("knee felt fine", sortieDao.get(sortieId)!!.notes)
+
+        states.saveNote(sortieId, "")
+        withTimeout(5_000) { while (latestSortieNote(received) != null) delay(25) }
+        collecting.cancel()
+
+        assertNull("Decision 7: a blank saves as null, which is what clears the note",
+            sortieDao.get(sortieId)!!.notes)
+        assertNull("the detail stops carrying the note", latestSortieNote(received))
+    }
+
+    private fun latestSortieNote(received: List<LandedDetail>): String? =
+        (received.last() as LandedDetail.Lift).sortieNote
+
     // ── Fixture ───────────────────────────────────────────────────────────────
 
     private suspend fun insertWeek(weekStart: LocalDate): Long = missionDao.insert(
@@ -217,4 +370,41 @@ class LandedStatesTest {
             )
         )
     }
+
+    /** A lift plan with a bodyweight exercise and a timed one, so every label shape is exercised. */
+    private fun liftPlanDraft() = FlightPlanDraft(
+        source = FlightPlanSource.GENERATED,
+        title = "Upper Push",
+        estimatedMinutes = 40,
+        warmup = null,
+        notes = null,
+        runKind = null,
+        targetDistance = null,
+        targetPace = null,
+        rawJson = "{}",
+        exercises = listOf(
+            ExerciseDraft(
+                name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null,
+                sets = listOf(
+                    SetDraft(reps = 10, seconds = null, weight = 35.0),
+                    SetDraft(reps = 10, seconds = null, weight = 35.0)
+                )
+            ),
+            ExerciseDraft(
+                name = "Push-up", equipmentIds = emptyList(), restSeconds = null, notes = null,
+                sets = listOf(
+                    SetDraft(reps = 12, seconds = null, weight = null),
+                    SetDraft(reps = 12, seconds = null, weight = null)
+                )
+            ),
+            ExerciseDraft(
+                name = "Plank", equipmentIds = emptyList(), restSeconds = null, notes = null,
+                sets = listOf(SetDraft(reps = null, seconds = 45, weight = null))
+            )
+        ),
+        segments = emptyList()
+    )
+
+    private fun FlightPlanDetail.setsFor(displayName: String): List<PlannedSet> =
+        exercises.first { it.displayName == displayName }.sets
 }
