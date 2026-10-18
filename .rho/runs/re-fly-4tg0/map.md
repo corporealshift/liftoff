@@ -1,6 +1,6 @@
 # Map — re-fly-4tg0
 
-HEAD at plan time: `a0d7f70 run: plan outline` (on top of `9b1b7c7 Landed history screen (#24)`).
+HEAD at plan time: `a0d7f70 run: plan outline` (on top of `9b1b7c7 Landed history screen (#24)`). HEAD now: `e7f40fc run: plan revised by claude review`.
 Docs that set rules: `CLAUDE.md` (gate via `bash gradlew.sh …`, `area: lowercase summary`, stage named files, §2 vocabulary, LF), `ARCHITECTURE.md` (invariant 2: `domain/` and `coach/` pure Kotlin), `DESIGN.md` §5.1 states (155–173), §5.4 Re-fly (195–200), §8 data model (520–551), §9 Launchpad PENDING (561–567), §13 Re-fly test cases (680–681), §10 failure handling (Re-fly available when the daemon is unreachable).
 
 ## Domain (pure, no Android imports) — `app/src/main/java/com/liftoff/app/domain/`
@@ -40,4 +40,21 @@ Docs that set rules: `CLAUDE.md` (gate via `bash gradlew.sh …`, `area: lowerca
 ## Machine notes
 
 - Gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`; run it detached (`nohup … > app/build/gate.log 2>&1; echo EXIT=$?`) after `bash gradlew.sh --stop` and `mkdir -p app/build`; `wait` on `EXIT=`.
+- Measured: the whole gate (`:app:assembleDebug :app:testDebugUnitTest --no-build-cache`) took 1m55s with a warm daemon and wrote 62 `TEST-*.xml` reports. A cold daemon adds ~30s. So the whole verify.sh runs in about 2–3 minutes — no need to detach it yourself, and verify.sh runs it inline under `timeout 2400`.
 - `git show branch:path` fails in Git Bash here; `git commit -F <file>` needs the file in the worktree root.
+- Scratch files for this run go under `app/build/` (already holds `verify-probe.log`, `m5probe.sh`, `m5body.sh`).
+
+## verify.sh (committed by this session — the run's definition of done)
+
+Shape copied whole from `.rho/runs/landed-history-screen-3c5m/verify.sh`: `index_reports` (one awk pass over every `TEST-*.xml` into `<method> <pass|fail|skipped>`, worst outcome wins), `t <method>` (the name must have run in this invocation and passed), `run_gate` (clears `$RESULTS`, `--no-build-cache`, rejects `FROM-CACHE|UP-TO-DATE`, one retry only when the log says the daemon died or OOM'd).
+
+Ran at `e7f40fc` (untouched code): exit 1, 26 passed / 20 failed — the gate, 24 must-not-break names and one doc sub-check passed; the 19 names below and the M5 row failed. That is the intended failure mode.
+
+The 19 names this run must write (any class, any package — names are matched across every report):
+- chooser (plain JUnit over the pure function): `reflyPrefersSameTypeAndFocusOverAMoreRecentDifferentFocusPlan`, `reflyFallsBackToTheMostRecentSameTypeWhenNoFocusMatches`, `reflyChoosesTheMostRecentlyLandedOfTheFocusMatches`, `reflyIgnoresScrubbedSortiesAndFinishedSortiesWithNoPlan`, `reflyReturnsNothingWhenNoLandedPlanOfThatTypeExists`
+- copy (through `MissionManager` over in-memory Room): `reflyCopiesPlannedValuesAndNotActuals`, `reflyDoesNotCopyAddedSets`, `reflyClearsSkippedFlagsAndUserNotes`, `reflyCopiesRunFieldsAndSegments`, `reflyMarksTheCopyReFlyAndMakesTheSortiePlanned`, `reflyNeedsNoNetworkAndWritesNoGenerationRow`, `reflyRefusesASortieThatIsNotTheCurrentOne`, `reflyRefusesASortieThatIsNotPending`, `reflyRefusesAPendingSortieWithNoSourcePlan`
+- Launchpad (2 derivation + 3 screen): `pendingOffersReFlyWhenALandedPlanOfTheSameTypeExists`, `pendingOffersNoReFlyWithoutAMatchingLandedPlan`, `pendingScreenShowsReFlyBesideScrubWhenASourceExists`, `pendingScreenShowsAMutedLineAndNoReFlyWhenNoSourceExists`, `tappingReFlyCopiesThePlanAndMovesTheLaunchpadToPlanned`
+
+The 24 "must not break" names it checks, all present and green at `e7f40fc` — do not rename them: `pendingAfterScrub`, `liveUpdateThroughStates`, `launchpadScrubTrimsTheReason`, `draftDrawsOneStepperPair`, `confirmLeavesLiftPending`, `scrubStoresReasonAndPreparesNextSortie`, `landAdvancesToNextSortie`, `landMarksUncheckedSetsNotDone`, `scrubInFlightKeepsCheckedSets`, `legalTransitionsSucceed`, `illegalTransitionsAreRejected`, `runWithGenerationOffGetsSimplePlan`, `writePlanReplacesExistingPlan`, `titlesForSortieIdsOmitSortiesWithNoPlan`, `historyHasOnlyLandedAndScrubbed`, `historyIsNewestFirstByWeekThenIndex`, `exportedV1SchemaMatchesDatabase`, `appOpensOnLaunchpad`, `bottomBarReachesEveryTab`, `pendingSortieWithoutPlanShowsNoPlan`, `seededLiftPlanShowsHeaderProgressAndCards`, `historyGroupsByWeekNewestFirstAcrossTwoWeeks`, `liftFlightPlanPromptWithOutlineMatchesGoldenFile`, `historyCarriesActualSetsAndExerciseNotes`.
+
+The ARCHITECTURE.md check reads the M5 row with `awk '/^\| M5 \|/'` and takes field 4 (`-F'|'`), then reads the cell clause by clause (`;`, `.`, em dash end a clause; a comma does not, so a parenthetical list stays inside its clause). Re-fly passes only if some clause names it with a built word AND no clause names it as missing with nothing built in that clause; export/import must appear in a clause that calls it missing, so a bare "Done" fails. Not-built phrases are struck out before looking for a built word, so "not done" is not read as "done": `not (yet )?(started|built|done|shipped|implemented|covered|present|available|wired|in place)`, `not yet`, `missing`, `unbuilt`, `pending`, `to come`, `to do`, `todo`, `later`, `remaining`, `next`, `outstanding`, `no …yet`, ❌, ⏳. Built words: `built done shipped exists exist real complete wired in place available` ✅. Probed against ~48 candidate cells (scratch `app/build/probe.sh`, `probe2.sh`, `prog.awk` = the awk body extracted with sed): the current row and every "Re-fly not started"/"not yet built"/"all built" wording fails; every wording that marks Re-fly built and export/import to come passes, including "Re-fly built; export/import next" and "no export/import yet". Step 5 writes the row to match: keep `| M5 |` at the line start, one status cell, no `|` inside it.
