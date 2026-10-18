@@ -197,7 +197,7 @@ Facts that bite, shared by the tasks:
   and `InFlightScreenTest` (which checks and unchecks sets on a live screen) stays green. Commit
   `inflight: stop acting on a sortie the screen has left`.
 
-- [ ] Mark M4 done and In-Flight a real screen, then run the full gate
+- [x] Mark M4 done and In-Flight a real screen, then run the full gate
   Covers: brief part 3 and the run's evidence. `ARCHITECTURE.md` only, the two rows the brief names, written
   as single-line table rows in the same columns, exactly as the plan's "ARCHITECTURE.md rows" section spells
   them: the `com.liftoff.app.ui` area-map row (currently "…Launchpad and Mission as real screens, In-Flight
