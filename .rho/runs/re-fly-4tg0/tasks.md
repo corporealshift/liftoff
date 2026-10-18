@@ -96,7 +96,7 @@ field 3 added, and 5 is the run's gate over all of it.
   --tests '*LaunchpadReFlyTest*'` shows those 3 passing, and the commit names only `LaunchpadViewModel.kt`,
   `LaunchpadScreen.kt` and that test file (e.g. `launchpad: offer re-fly on a pending sortie`).
 
-- [ ] Mark Re-fly built under M5 and run the cold whole-suite gate
+- [x] Mark Re-fly built under M5 and run the cold whole-suite gate
   Covers plan Order steps 5 and 6. First run the whole suite cold and detached — `bash gradlew.sh --stop`,
   `mkdir -p app/build`, then `nohup bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
   --no-build-cache > app/build/gate.log 2>&1 &` and `wait` on `EXIT=` — and fix whatever it breaks:
