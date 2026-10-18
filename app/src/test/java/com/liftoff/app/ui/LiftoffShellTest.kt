@@ -63,7 +63,7 @@ class LiftoffShellTest {
 
         // Navigate to Landed via bottom bar.
         composeRule.onNodeWithContentDescription("Landed").performClick()
-        composeRule.onNodeWithText("Landed sorties will appear here, newest first.").assertIsDisplayed()
+        waitFor(hasText("No history yet."))
 
         // Navigate back to Launchpad.
         composeRule.onNodeWithContentDescription("Launchpad").performClick()
@@ -145,7 +145,7 @@ class LiftoffShellTest {
     fun missionControlBackButtonReturnsToTabItWasOpenedFrom() {
         // Navigate to Landed tab, then open Mission Control.
         composeRule.onNodeWithContentDescription("Landed").performClick()
-        composeRule.onNodeWithText("Landed sorties will appear here, newest first.").assertIsDisplayed()
+        waitFor(hasText("No history yet."))
 
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
         composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
@@ -154,7 +154,7 @@ class LiftoffShellTest {
         composeRule.onNodeWithContentDescription("Back").performClick()
 
         // Should return to Landed tab.
-        composeRule.onNodeWithText("Landed sorties will appear here, newest first.").assertIsDisplayed()
+        waitFor(hasText("No history yet."))
     }
 
     @Test
@@ -192,11 +192,10 @@ class LiftoffShellTest {
     }
 
     @Test
-    fun placeholderScreensShowTheirCopy() {
-        // Landed copy — still a placeholder.
+    fun landedScreenShowsItsEmptyStateCopy() {
+        // The shell's fixture has no finished sorties, so the real Landed screen reads as its empty state.
         composeRule.onNodeWithContentDescription("Landed").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("HISTORY").assertIsDisplayed()
-        composeRule.onNodeWithText("Landed sorties will appear here, newest first.").assertIsDisplayed()
+        waitFor(hasText("HISTORY"))
+        waitFor(hasText("No history yet."))
     }
 }
