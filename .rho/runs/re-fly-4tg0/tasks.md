@@ -31,7 +31,7 @@ field 3 added, and 5 is the run's gate over all of it.
   pick up `MissionManagerReFlyTest`), and the commit names only those two files
   (e.g. `domain: re-fly source chooser`).
 
-- [ ] Copy the chosen plan through `MissionManager.refly`
+- [x] Copy the chosen plan through `MissionManager.refly`
   Covers plan Order step 2: `data/ReFlyCopy.kt` (new) turning a source `FlightPlanDetail` into a
   `FlightPlanDraft` (`source = REFLY`, plan fields unchanged, exercises' display names/equipment keys/rest
   seconds/coach notes kept, sets take planned `reps`/`seconds`/`weight` only with `added` sets dropped,
