@@ -81,6 +81,7 @@ internal fun LaunchpadContent(
                 onConfirm = { viewModel.confirm() },
                 onLaunch = { viewModel.launch(onOpenInFlight) },
                 onRequestScrub = { viewModel.requestScrub() },
+                onRefly = { viewModel.refly() },
             )
         },
     )
@@ -180,6 +181,7 @@ private fun ActionButtons(
     onConfirm: () -> Unit,
     onLaunch: () -> Unit,
     onRequestScrub: () -> Unit,
+    onRefly: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -190,7 +192,7 @@ private fun ActionButtons(
         when (state) {
             is LaunchpadState.Draft -> DraftActions(state, onToggleChip, onAddChip, onRemoveChip, onConfirm)
             is LaunchpadState.Planned -> PlannedActions(onLaunch, onRequestScrub)
-            is LaunchpadState.Pending -> PendingActions(onRequestScrub)
+            is LaunchpadState.Pending -> PendingActions(state, onRequestScrub, onRefly)
             is LaunchpadState.InFlight -> InFlightActions(onLaunch)
             is LaunchpadState.Closed -> Unit
             is LaunchpadState.Loading -> Unit
@@ -284,7 +286,22 @@ private fun PlannedActions(onLaunch: () -> Unit, onRequestScrub: () -> Unit) {
 }
 
 @Composable
-private fun PendingActions(onRequestScrub: () -> Unit) {
+private fun PendingActions(
+    pending: LaunchpadState.Pending,
+    onRequestScrub: () -> Unit,
+    onRefly: () -> Unit,
+) {
+    // Decision 5: no source plan is a line of text, not a disabled control.
+    if (pending.reFlyAvailable) {
+        UnderlinedTextButton(text = "Re-fly", onClick = onRefly)
+        Spacer(Modifier.height(12.dp))
+    } else {
+        Text(
+            text = "No earlier plan to re-fly.",
+            style = LiftoffType.textButton().copy(color = Muted),
+        )
+        Spacer(Modifier.height(12.dp))
+    }
     UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub)
 }
 

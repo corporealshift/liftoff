@@ -134,4 +134,22 @@ class LaunchpadViewModel(
     fun cancelScrub() {
         scrubbing = false
     }
+
+    // ── Re-fly ─────────────────────────────────────────────────────────
+
+    /**
+     * One tap, no confirmation: the source plan stays in history and this sortie had no plan of its own,
+     * so there is nothing to ask about. manager.refly refuses anything but the current PENDING sortie.
+     */
+    fun refly() {
+        val s = state.value
+        if (s !is LaunchpadState.Pending) return
+        scope.launch {
+            try {
+                manager.refly(s.sortieId)
+            } catch (_: IllegalStateException) {
+                runCatching { manager.onAppOpen() }
+            }
+        }
+    }
 }
