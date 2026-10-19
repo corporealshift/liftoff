@@ -22,7 +22,7 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
-@Config(qualifiers = "w411dp-h2000dp")  // tall window so all content is on-screen
+@Config(qualifiers = "w411dp-h2800dp")  // tall window so all content, BACKUP card included, is on-screen
 class MissionControlScreenTest {
 
     @get:Rule
@@ -203,7 +203,7 @@ class MissionControlScreenTest {
             // Verify all section heads appear and are displayed.
             val heads = listOf(
                 "CONNECTION", "COACH", "MISSION", "UNITS", "RUNS",
-                "OBJECTIVES AND CONSTRAINTS", "EQUIPMENT"
+                "OBJECTIVES AND CONSTRAINTS", "EQUIPMENT", "BACKUP"
             )
             for (head in heads) {
                 composeRule.onNodeWithText(head).assertIsDisplayed()
@@ -212,7 +212,7 @@ class MissionControlScreenTest {
     }
 
     // =========================================================================
-    // showsNoUnbuiltPlaceholders — Robolectric: no Test connection or export/import.
+    // showsNoUnbuiltPlaceholders — Robolectric: no unbuilt Test connection placeholder.
     // =========================================================================
 
     @Test
@@ -225,7 +225,6 @@ class MissionControlScreenTest {
 
             // These texts should NOT appear on screen.
             assertDoesNotExist("Test connection", ignoreCase = true)
-            assertDoesNotExist("Export", ignoreCase = false)
         }
     }
 
@@ -423,7 +422,9 @@ class MissionControlScreenTest {
                 com.liftoff.app.data.LiftoffDatabase::class.java,
             ).build()
         }
-        val equipmentDao = database!!.equipmentDao()
+        val db = database!!
+        val equipmentDao = db.equipmentDao()
+        val missionManager = com.liftoff.app.data.MissionManager(db, store)
 
         composeRule.setContent {
             val shellScope = rememberCoroutineScope()
@@ -432,6 +433,8 @@ class MissionControlScreenTest {
                     settingsStore = store,
                     scope = shellScope,
                     equipmentDao = equipmentDao,
+                    database = db,
+                    missionManager = missionManager,
                     onBack = {},
                 )
             }
