@@ -14,7 +14,7 @@ Compile with `bash gradlew.sh :app:compileDebugKotlin`; gate one or two classes 
 `app/build/test-results/testDebugUnitTest/TEST-*.xml`, not out of `BUILD SUCCESSFUL`. Scratch for a detached
 run goes under `app/build/` (`mkdir -p app/build` first).
 
-- [ ] 1. The backup view model and its plain tests
+- [x] 1. The backup view model and its plain tests
   Plan Order step 1. New `app/src/main/java/com/liftoff/app/ui/control/BackupViewModel.kt`: Idle / Busy (naming
   which action runs) / Succeeded / Failed, each carrying the message to show; the export and import actions
   taking a nullable stream opener (null = the picker was cancelled: return without touching state); refusal to
