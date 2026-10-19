@@ -102,7 +102,7 @@ run goes under `app/build/` (`mkdir -p app/build` first).
   Done when: `MissionControlScreenTest` runs whole and green with `--no-build-cache`, its XML showing 0
   failures and 0 errors and both names above listed as passing.
 
-- [ ] 6. ARCHITECTURE.md, then the whole gate once
+- [x] 6. ARCHITECTURE.md, then the whole gate once
   Plan Order steps 6 and 7. `ARCHITECTURE.md`: M1's status cell (:80) becomes
   `Done — test connection comes later; export and import are built`; M5's cell (:84) drops its last two
   clauses (`the export and import data layer is built; its Mission Control actions come next`) and ends with
