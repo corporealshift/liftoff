@@ -85,7 +85,7 @@ run goes under `app/build/` (`mkdir -p app/build` first).
   com.liftoff.app.ui.control.MissionControlScreenTest --tests com.liftoff.app.ui.LiftoffShellTest` is green
   and the XML lists `showsEverySectionHeadInOrder` as passing.
 
-- [ ] 5. The BACKUP card's screen tests
+- [x] 5. The BACKUP card's screen tests
   Plan Order step 5, and the brief's Robolectric Done-when bullet. Add to the existing
   `app/src/test/java/com/liftoff/app/ui/control/MissionControlScreenTest.kt`. No test clicks Export or Import:
   a click opens a system picker that never arrives, so the work is driven by handing the screen's injected
