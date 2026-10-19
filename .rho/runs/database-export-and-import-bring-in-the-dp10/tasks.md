@@ -20,7 +20,7 @@ re-derive.
   `bash gradlew.sh :app:testDebugUnitTest --no-build-cache --tests '*DatabaseExportTest*'` reports 2 tests,
   0 failures, 0 errors in `app/build/test-results/testDebugUnitTest/TEST-*.xml`.
 
-- [ ] Cherry-pick the import commit `2ff4bd9`
+- [x] Cherry-pick the import commit `2ff4bd9`
   Brings `data/DatabaseImport.kt`, the bulk insert / count methods and `MissionDao.deleteDraft` on the six DAOs,
   `DatabaseImportTest`, and the edit to `MissionDaoTest`'s no-wipe guard (its MissionDao half becomes
   `setOf("deleteDraft")`; its SortieDao half is unchanged) — 9 files, all under `app/`.
