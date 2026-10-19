@@ -35,7 +35,7 @@ run goes under `app/build/` (`mkdir -p app/build` first).
   Done when: `:app:compileDebugKotlin` passes and `BackupViewModelTest` runs green with `--no-build-cache`,
   its XML listing all seven names above as passing with 0 failures and 0 errors.
 
-- [ ] 2. Prove the import action writes through Room
+- [x] 2. Prove the import action writes through Room
   The brief's "After a successful import, the other tabs show the restored data … make sure the import goes
   through Room, not around it", which verify.sh puts in its own section. Export from a seeded in-memory
   `LiftoffDatabase`, then run task 1's import action against a fresh in-memory database with the real
