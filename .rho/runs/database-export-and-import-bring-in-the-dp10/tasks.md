@@ -31,7 +31,7 @@ re-derive.
   Done when: `git show --stat HEAD` lists exactly those 9 files and nothing under `.rho/runs/`; a cold run with
   `--tests '*DatabaseImportTest*' --tests '*MissionDaoTest*'` reports 4 tests and 5 tests, 0 failures, 0 errors.
 
-- [ ] Cherry-pick the refusals commit `f0d1720`
+- [x] Cherry-pick the refusals commit `f0d1720`
   Brings the refusal half of `data/DatabaseImport.kt` and the three new `DatabaseImportTest` methods, and rewrites
   the four methods the previous pick added to `runBlocking<Unit> { withTimeout(…) { … } }` — 2 files. This is the
   pick that makes `DatabaseImportTest` complete at 7 tests.
