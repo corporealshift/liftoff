@@ -95,11 +95,15 @@ same `LiftoffDatabase` instance they observe.
 
 ## Risks
 
-- **`PrimaryButton`, `InkButton` and `UnderlinedTextButton` have no `enabled` parameter, and `ui.theme` is out
-  of this brief's scope.** The work builds one file-private button in `ui.control` from the public theme pieces
-  (`OffsetShadowBox`, `Ink` / `Muted`, `ButtonShape`, `Rule`, `Cream`) with `clickable(..., enabled = ..., role =
-  Role.Button)`, which really sets `Enabled = false`. Wrapping `InkButton` and adding `semantics { disabled() }`
-  does not work and must not be tried.
+- **No button in `ui.theme` can be disabled, and `ui.theme` is out of this brief's scope** — `UnderlinedTextButton`
+  (:155), `InkButton` (:92) and `PrimaryButton` (:28) all take `onClick` only. The work builds one file-private
+  underlined text button in `ui.control` mirroring `UnderlinedTextButton`: a `Box` whose `clickable` carries
+  `interactionSource`, `indication = null`, `role = Role.Button` and the `enabled` flag, around a
+  `LiftoffType.textButton()` label whose underline is drawn in `drawBehind` from the text baseline, `Ink` normally
+  and `Muted` when disabled. `clickable(..., enabled = false, role = Role.Button)` really sets `Enabled = false`.
+  Wrapping `InkButton` and adding `semantics { disabled() }` does not work — its inner `clickable` is its own
+  merged node — and building the button from `OffsetShadowBox` / `ButtonShape` would give it the big red
+  Launch/Land look the Decisions reject.
 - **Theme buttons uppercase their labels**, so on-screen text is `EXPORT` / `IMPORT`; assertions must match the
   uppercased form, and the `showsNoUnbuiltPlaceholders` helper's `ignoreCase = false` is why its Export line has
   to go rather than be reworded.
