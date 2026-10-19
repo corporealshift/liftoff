@@ -40,7 +40,7 @@ re-derive.
   Done when: `git show --stat HEAD` lists exactly those 2 files; a cold `--tests '*DatabaseImportTest*'` run
   reports 7 tests, 0 failures, 0 errors.
 
-- [ ] Cherry-pick the round-trip commit `c89dd1d`
+- [x] Cherry-pick the round-trip commit `c89dd1d`
   Brings `app/src/test/java/com/liftoff/app/data/BackupRoundTripTest.kt` and nothing else — 1 file, no main-code
   change. If it does not apply cleanly, resolve by hand keeping both sides' intent and record what happened in
   `plan.md`'s Decisions (plan Risk 1); never merge the source branch and never rewrite a picked file from memory.
