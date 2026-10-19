@@ -49,7 +49,7 @@ run goes under `app/build/` (`mkdir -p app/build` first).
   Test it writes: `anImportThroughTheBackupActionReachesRoomsFlows`.
   Done when: that class runs green with `--no-build-cache` and its XML lists the test as passing.
 
-- [ ] 3. The BACKUP card's content
+- [x] 3. The BACKUP card's content
   Plan Order step 2. New `app/src/main/java/com/liftoff/app/ui/control/BackupSection.kt`: the Export and Import
   rows drawn from the view model's state, the line saying settings and the daemon token are not in the file,
   the busy/result row, and the one disabled-capable underlined text button this screen needs — built from
