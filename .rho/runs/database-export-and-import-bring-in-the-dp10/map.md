@@ -1,8 +1,11 @@
 # Map — bring in the export/import data layer
 
 Run `database-export-and-import-bring-in-the-dp10`. Branch `rho/database-export-and-import-bring-in-the-dp10`,
-2 ahead of merge-base `e691908` (Re-fly #26): `52f363d run: brief`, `a047079 run: plan outline`. Tree clean.
-This run adds no UI: it cherry-picks finished code and edits two ARCHITECTURE.md cells.
+5 ahead of merge-base `e691908` (Re-fly #26): `52f363d run: brief`, `a047079 run: plan outline`, `3659980 run: plan`,
+`ba2fdc5 run: verify`, `7e829a7 run: verify.sh rewritten by claude review`. Tree clean; **no pick has been made
+yet** as of 2026-10-19. This run adds no UI: it cherry-picks finished code and edits three ARCHITECTURE.md cells.
+The work is split into five tasks in `tasks.md` — one per pick, then the whole-suite measurement plus the docs
+commit that carries its numbers.
 
 ## The source branch and the four picks (checked 2026-10-19)
 
@@ -115,34 +118,66 @@ This run adds no UI: it cherry-picks finished code and edits two ARCHITECTURE.md
 - Known flake: `doneBodyweightSetStepperShowsBW` (In-Flight) sometimes fails with a closed Room connection pool
   and passes on a re-run of the same tree.
 
-## This run's verify.sh (written 2026-10-19)
+## Which pick brings which test method (checked 2026-10-19 from each commit's own diff)
 
-- Gate call, copied from `.github/workflows/ci.yml` (the `gate` job runs `./gradlew :app:assembleDebug` then
-  `:app:testDebugUnitTest`): `timeout 2400 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
-  --no-build-cache`, after `--stop`, `mkdir -p app/build` and deleting `app/build/test-results/testDebugUnitTest`
-  so a restored FROM-CACHE report cannot stand in for tests that never ran. `BUILD SUCCESSFUL` carries no counts,
-  so every named test is looked up in this run's own JUnit XML.
-- One `index_reports` awk pass indexes every `TEST-*.xml` into `app/build/verify-reports.tsv` as
-  `name<TAB>status<TAB>report` plus `C:<classname>` rows, ranking pass < failure < error < skipped, so a method
-  that fails in one report still fails the run even if another report has it passing. `t`/`c` then look a name or
-  a class up there and fail on "did not run at all".
-- The 10 new test methods above are named individually; `MissionDaoTest` and the three picked classes are also
-  required to have run at all. `MissionDaoTest.noWipeForMissionsAndOnlyTheByIdDeleteForSorties` is named because
-  `2ff4bd9` edits it.
-- Existing tests named as "must not break": `exportedV1SchemaMatchesDatabase` + `hasNoDeleteOperation` +
-  `hasNoCascadeDeleteOfMissionHistory` (Room schema and the no-wipe guard), the four `onAppOpen*` tests,
-  `neverSaysSession`, `outlinePromptMatchesGoldenFile`, `generationRunWritesCoachReplyToTheSortie`,
-  `showsNoUnbuiltPlaceholders` (this run adds no UI, so Mission Control must still offer no Export action), and
-  `landedMissionHistoryIsVisibleFromMissionControlAndSurvivesReopenAndColdStart`.
-- Doc cells are read clause by clause (`sed 's/[;,.—–-]/\n/g'`). A clause counts as not-built when it names
-  export+import with a flat negation, or with a deferral (`later`, `to come`) that the same clause does not also
-  call built; a separate clause deferring something else is not held against it — so
-  `…data layer is built; its Mission Control export and import actions come next` reads as built. A deferral with
-  no built word anywhere (`export and import come next`) still fails, because the built half is required too.
-  All three cells must read as built, and the data row must name export and import.
-- `OTHER_RUN=".rho/runs/database-export-and-import-in-mission-fqp3"`: that directory must not exist in the tree,
-  and no commit reachable only through this run's picks may touch it — that is the brief's "its run records stay
-  out of this repository".
+- `c3e1dbe` → `DatabaseExportTest`: `exportWritesEveryRowOfEveryTableWithIdsAndBothVersions`,
+  `exportFileUsesSnakeCaseKeysAndCarriesNoSettingsOrToken` (2 tests).
+- `2ff4bd9` → `DatabaseImportTest`: `importRefusesANonEmptyDatabaseAndChangesNothing`,
+  `importAcceptsADatabaseHoldingOnlyAFreshDraftAndReplacesIt`, `importRunsOnAppOpenSoTheCurrentWeekIsSettled`,
+  `importReportsHowMuchWasRestored` (4 tests) — plus the `MissionDaoTest` guard edit, whose MissionDao half
+  becomes `assertEquals("MissionDao's only delete is import's draft delete", setOf("deleteDraft"), missionDeletes)`
+  and whose SortieDao half is untouched. `MissionDaoTest` holds 5 tests before and after.
+- `f0d1720` → `DatabaseImportTest`: adds `importRefusesAFileThatIsNotALiftoffExportAndChangesNothing`,
+  `importRefusesAVersionItCannotReadAndChangesNothing`, `importWritesNothingWhenAFileHasADanglingReference`, and
+  rewrites the four methods `2ff4bd9` added from `= runBlocking {` to `= runBlocking<Unit> { withTimeout(…) { … } }`
+  (that is the `+219 −32`). Class total after this pick: 7 tests.
+- `c89dd1d` → `BackupRoundTripTest`: `exportThenImportIntoAFreshDatabaseGivesAnIdenticalDatabase` (1 test).
+- Every "must not break" name verify.sh lists already exists on this branch, in: `AppContainerTest`
+  (`databaseRefusesVersionMismatchInsteadOfWiping`), `CoachPromptGoldenFileTest`
+  (`outlinePromptMatchesGoldenFile`), `EquipmentDaoTest` (`hasNoDeleteOperation`), `FlightPlanDaoTest`
+  (`writePlanThenGetPlanKeepsStoredOrder`, `checkSetCopiesPlannedValuesIntoActuals`), `MissionDaoTest`
+  (`noWipeForMissionsAndOnlyTheByIdDeleteForSorties`), `MissionManagerTest` (the three `onAppOpen*`),
+  `SchemaExportTest` (`exportedV1SchemaMatchesDatabase`), `LiftoffShellTest`
+  (`missionControlSurvivesRecreation`, `missionControlShowsSettingsEyebrowAndTitle`), `MissionControlScreenTest`
+  (`opensShowingStoredValues`, `tappingUnitSegmentsSavesUnits`, `showsNoUnbuiltPlaceholders`, `neverSaysSession`).
+  So this run writes no test at all; the picks supply the ten.
+
+## This run's verify.sh (rewritten by `7e829a7` on 2026-10-19; the earlier `ba2fdc5` version is superseded)
+
+- Gate call, copied from `.github/workflows/ci.yml`: `timeout 2400 bash gradlew.sh :app:assembleDebug
+  :app:testDebugUnitTest --no-build-cache`, after deleting `app/build/test-results/testDebugUnitTest` so a
+  restored FROM-CACHE report cannot stand in for tests that never ran; a second gate only for the known flake or
+  a killed daemon / OOM build (`transient_failure`). `BUILD SUCCESSFUL` carries no counts, so every named test is
+  looked up in this run's own JUnit XML.
+- `index_reports` is one awk pass over every `TEST-*.xml` into `$WORK/methods` and `$WORK/classes` (mktemp dir,
+  not a file in the repo) as `<name> <pass|fail|skipped>` plus `C:<classname>` rows, at each name's worst outcome
+  across reports. `t <method>` fails on "did not run"; `c <Class>` requires the class to have run with every test
+  in it passing.
+- Named tests: the 10 picked methods individually; `noWipeForMissionsAndOnlyTheByIdDeleteForSorties`; the four
+  Done-when classes as classes (`MissionDaoTest`, `DatabaseExportTest`, `DatabaseImportTest`,
+  `BackupRoundTripTest`); and 14 existing "must not break" names — `showsNoUnbuiltPlaceholders`,
+  `exportedV1SchemaMatchesDatabase`, `databaseRefusesVersionMismatchInsteadOfWiping`, `hasNoDeleteOperation`,
+  `writePlanThenGetPlanKeepsStoredOrder`, `checkSetCopiesPlannedValuesIntoActuals`, the three `onAppOpen*`,
+  `opensShowingStoredValues`, `tappingUnitSegmentsSavesUnits`, `missionControlShowsSettingsEyebrowAndTitle`,
+  `missionControlSurvivesRecreation`, `neverSaysSession`, `outlinePromptMatchesGoldenFile`. (The earlier version
+  also named `hasNoCascadeDeleteOfMissionHistory`, `generationRunWritesCoachReplyToTheSortie` and
+  `landedMissionHistoryIsVisible…`; the rewrite dropped all three.)
+- Doc cells: only two are read — `| \`com.liftoff.app.data\` |` field 4 and `| M5 |` field 4. **M1 is not read by
+  this verify.sh at all** (the rewrite dropped that check), so editing M1 is the plan's Decision 1, not a gate
+  requirement.
+- Cell wording that passes, for both cells: the whole cell must name export and import (or backup and restore)
+  somewhere, and no clause may name the feature with a not-built word. Clauses are split on `[;,.—–]` — **not on
+  the hyphen**, so `export/import not started` is one clause and fails. A clause is bad when it matches
+  `not started|not built|not yet built|unbuilt|missing|come later|comes later` and matches none of
+  `built|exists|existing|in place|shipped|complete|implemented|done|added|landed`. So:
+  - data row cell `✅ (Room entities, DAOs, LiftoffDatabase, the export and import data layer)` passes;
+  - M5's `…; export/import not started` fails, and `…; the export and import data layer is built; its Mission
+    Control actions come next` passes (the deferral clause does not name the feature, so it is not held against
+    the built clause);
+  - M1's `Done — test connection and export/import come later` fails the same rule; `Done — test connection comes
+    later; the export and import data layer is built` passes.
+- `OTHER_RUN=".rho/runs/database-export-and-import-in-mission-fqp3"`: no commit on the branch may touch it and
+  nothing under it may be in the tree.
 
 ## Running the gate on this machine
 
