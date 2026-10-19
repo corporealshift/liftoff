@@ -31,6 +31,14 @@ abstract class EquipmentDao {
     @Query("SELECT * FROM equipment ORDER BY id")
     abstract suspend fun getAll(): List<Equipment>
 
+    // Import restores rows whose key was already validated when it was first added, so this is the raw
+    // bulk insert rather than add().
+    @Insert
+    abstract suspend fun insertAll(equipment: List<Equipment>)
+
+    @Query("SELECT COUNT(*) FROM equipment")
+    abstract suspend fun countAll(): Long
+
     @Query("UPDATE equipment SET active = 0 WHERE id = :id")
     abstract suspend fun deactivate(id: Long)
 

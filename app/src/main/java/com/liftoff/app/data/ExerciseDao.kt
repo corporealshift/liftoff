@@ -15,6 +15,14 @@ abstract class ExerciseDao {
     @Query("SELECT * FROM exercise ORDER BY normalizedName")
     abstract suspend fun getAll(): List<Exercise>
 
+    // Import's bulk insert and emptiness read. plannedExercise points here with no cascade, so these rows
+    // have to be present before the plan rows that reference them.
+    @Insert
+    abstract suspend fun insertAll(exercises: List<Exercise>)
+
+    @Query("SELECT COUNT(*) FROM exercise")
+    abstract suspend fun countAll(): Long
+
     @Transaction
     open suspend fun resolve(name: String): Exercise {
         val normalized = ExerciseNames.normalize(name).trim()

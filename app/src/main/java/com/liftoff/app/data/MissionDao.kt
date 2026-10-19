@@ -30,6 +30,18 @@ abstract class MissionDao {
     @Query("SELECT * FROM mission ORDER BY id")
     abstract suspend fun getAll(): List<Mission>
 
+    // Import's bulk insert. Room only assigns an id when the incoming one is 0, so a file's ids survive.
+    @Insert
+    abstract suspend fun insertAll(missions: List<Mission>)
+
+    @Query("SELECT COUNT(*) FROM mission")
+    abstract suspend fun countAll(): Long
+
+    // The one Mission delete there is, and the only row it can remove is the DRAFT onAppOpen() makes on a
+    // cold start. The status guard is what stops it wiping a week's sortie history through the cascade.
+    @Query("DELETE FROM mission WHERE id = :id AND status = 'DRAFT'")
+    abstract suspend fun deleteDraft(id: Long)
+
     @Query("SELECT * FROM mission WHERE weekStart = :weekStart")
     protected abstract fun observeRaw(weekStart: java.time.LocalDate): Flow<MissionWithSorties?>
 

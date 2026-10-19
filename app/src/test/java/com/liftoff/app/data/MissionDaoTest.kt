@@ -82,13 +82,14 @@ class MissionDaoTest {
         }
     }
 
-    // Nothing wipes missions or sortie history. SortieDao's one by-id delete is the In-Flight
-    // "no longer exists" case, and it must be a @Query so Room's invalidation tracker re-emits.
+    // Nothing wipes missions or sortie history. MissionDao's only delete is import's, and it is guarded to
+    // one DRAFT row; SortieDao's one by-id delete is the In-Flight "no longer exists" case. Both must be a
+    // @Query so Room's invalidation tracker re-emits.
     @Test
     fun noWipeForMissionsAndOnlyTheByIdDeleteForSorties() {
         val missionDeletes = MissionDao::class.java.methods.map { it.name }.filter { it.contains("delete", ignoreCase = true) }.toSet()
         val sortieDeletes = SortieDao::class.java.methods.map { it.name }.filter { it.contains("delete", ignoreCase = true) }.toSet()
-        assertEquals("MissionDao should not have a delete method", emptySet<String>(), missionDeletes)
+        assertEquals("MissionDao's only delete is import's draft delete", setOf("deleteDraft"), missionDeletes)
         assertEquals("SortieDao's only delete is the by-id one", setOf("deleteById"), sortieDeletes)
     }
 }

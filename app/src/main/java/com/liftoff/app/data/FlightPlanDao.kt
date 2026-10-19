@@ -34,6 +34,31 @@ abstract class FlightPlanDao(private val db: LiftoffDatabase) {
     @Query("SELECT * FROM runSegment ORDER BY id")
     abstract suspend fun getAllRunSegments(): List<RunSegment>
 
+    // Import's bulk inserts and emptiness reads, one pair per table this DAO owns.
+    @Insert
+    abstract suspend fun insertAllPlans(plans: List<FlightPlan>)
+
+    @Insert
+    abstract suspend fun insertAllPlannedExercises(exercises: List<PlannedExercise>)
+
+    @Insert
+    abstract suspend fun insertAllPlannedSets(sets: List<PlannedSet>)
+
+    @Insert
+    abstract suspend fun insertAllRunSegments(segments: List<RunSegment>)
+
+    @Query("SELECT COUNT(*) FROM flightPlan")
+    abstract suspend fun countPlans(): Long
+
+    @Query("SELECT COUNT(*) FROM plannedExercise")
+    abstract suspend fun countPlannedExercises(): Long
+
+    @Query("SELECT COUNT(*) FROM plannedSet")
+    abstract suspend fun countPlannedSets(): Long
+
+    @Query("SELECT COUNT(*) FROM runSegment")
+    abstract suspend fun countRunSegments(): Long
+
     @Transaction
     open suspend fun writePlan(sortieId: Long, draft: FlightPlanDraft): Long {
         deleteForSortie(sortieId)
