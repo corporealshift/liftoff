@@ -7,7 +7,7 @@ with the pick that owns it. Read `brief.md`, `plan.md` and `map.md` before start
 and the four picks" and "Running the gate on this machine" sections hold the facts a session would otherwise
 re-derive.
 
-- [ ] Cherry-pick the export commit `c3e1dbe`
+- [x] Cherry-pick the export commit `c3e1dbe`
   Brings `data/BackupDocument.kt`, `data/DatabaseExport.kt`, the bulk read / count methods on `MissionDao`,
   `SortieDao`, `EquipmentDao`, `GenerationDao` and `FlightPlanDao`, and `DatabaseExportTest` — 8 files, all under
   `app/`. `git cherry-pick c3e1dbe`, keeping the original message; no edits, no other commit from
