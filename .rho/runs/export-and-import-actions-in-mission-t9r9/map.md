@@ -62,6 +62,22 @@ already merged** — this run is UI + wiring only.
   `verify.sh` scripts here grep these cells clause-by-clause (split on `;` and `,` and dashes), so the
   clause that names export/import must carry a built word and no deferral word.
 
+## verify.sh (committed definition of done)
+
+`.rho/runs/export-and-import-actions-in-mission-t9r9/verify.sh` runs the CI gate
+(`bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, stale
+`app/build/test-results/testDebugUnitTest` cleared first, one retry only for the known
+`doneBodyweightSetStepperShowsBW` Room-pool flake or a build/daemon failure), then indexes every
+`TEST-*.xml` in one awk pass and checks 44 names: 12 tests this run must write (8 plain view-model
+names under "the backup work", 4 Robolectric names under "Mission Control's BACKUP section", plus the
+existing `showsEverySectionHeadInOrder` which must gain `BACKUP`), the two ARCHITECTURE.md rows, and the
+brief's "must not break" classes and methods.
+
+Verified against the tree before committing: all 8 named classes and all 24 pre-named existing tests
+resolve under `app/src/test`; all 12 new names are absent, so the script fails today; the M1/M5 cells are
+at `ARCHITECTURE.md:80` and `:84` and both fail the clause check today, pass with the plan's wording, and
+still fail a wording that defers the actions.
+
 ## Known hazards recorded from earlier runs
 
 - Never `performClick()` a button whose handler launches SAF (`CreateDocument` / `OpenDocument`); assert
