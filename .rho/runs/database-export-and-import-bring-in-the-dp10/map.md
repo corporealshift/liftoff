@@ -115,6 +115,35 @@ This run adds no UI: it cherry-picks finished code and edits two ARCHITECTURE.md
 - Known flake: `doneBodyweightSetStepperShowsBW` (In-Flight) sometimes fails with a closed Room connection pool
   and passes on a re-run of the same tree.
 
+## This run's verify.sh (written 2026-10-19)
+
+- Gate call, copied from `.github/workflows/ci.yml` (the `gate` job runs `./gradlew :app:assembleDebug` then
+  `:app:testDebugUnitTest`): `timeout 2400 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
+  --no-build-cache`, after `--stop`, `mkdir -p app/build` and deleting `app/build/test-results/testDebugUnitTest`
+  so a restored FROM-CACHE report cannot stand in for tests that never ran. `BUILD SUCCESSFUL` carries no counts,
+  so every named test is looked up in this run's own JUnit XML.
+- One `index_reports` awk pass indexes every `TEST-*.xml` into `app/build/verify-reports.tsv` as
+  `name<TAB>status<TAB>report` plus `C:<classname>` rows, ranking pass < failure < error < skipped, so a method
+  that fails in one report still fails the run even if another report has it passing. `t`/`c` then look a name or
+  a class up there and fail on "did not run at all".
+- The 10 new test methods above are named individually; `MissionDaoTest` and the three picked classes are also
+  required to have run at all. `MissionDaoTest.noWipeForMissionsAndOnlyTheByIdDeleteForSorties` is named because
+  `2ff4bd9` edits it.
+- Existing tests named as "must not break": `exportedV1SchemaMatchesDatabase` + `hasNoDeleteOperation` +
+  `hasNoCascadeDeleteOfMissionHistory` (Room schema and the no-wipe guard), the four `onAppOpen*` tests,
+  `neverSaysSession`, `outlinePromptMatchesGoldenFile`, `generationRunWritesCoachReplyToTheSortie`,
+  `showsNoUnbuiltPlaceholders` (this run adds no UI, so Mission Control must still offer no Export action), and
+  `landedMissionHistoryIsVisibleFromMissionControlAndSurvivesReopenAndColdStart`.
+- Doc cells are read clause by clause (`sed 's/[;,.—–-]/\n/g'`). A clause counts as not-built when it names
+  export+import with a flat negation, or with a deferral (`later`, `to come`) that the same clause does not also
+  call built; a separate clause deferring something else is not held against it — so
+  `…data layer is built; its Mission Control export and import actions come next` reads as built. A deferral with
+  no built word anywhere (`export and import come next`) still fails, because the built half is required too.
+  All three cells must read as built, and the data row must name export and import.
+- `OTHER_RUN=".rho/runs/database-export-and-import-in-mission-fqp3"`: that directory must not exist in the tree,
+  and no commit reachable only through this run's picks may touch it — that is the brief's "its run records stay
+  out of this repository".
+
 ## Running the gate on this machine
 
 `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` from the repo root (`gradlew.sh` pins
