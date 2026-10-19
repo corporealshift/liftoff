@@ -6197,3 +6197,370 @@ Done when:
 - ARCHITECTURE.md's package table and milestones reflect what is built. M2, M3, M5 and M6 are done. M0 says the template, schemas, validator and prompt builder exist, and that the live measurement (LiveCoachTest) hasn't been run.
 - `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
 
+**Check:** not met. Most of the app is built and merged: the Space Age design and theme, the navigation shell, Mission Control (settings and equipment), the Room data layer, the Mission/sortie domain logic with rollover, the Launchpad and Mission screens, In-Flight for lifts and runs (including notes, Land, Scrub and reopening after a kill), Landed history with its detail view, Re-fly, and the pure-Kotlin coach work (coach/ template, schemas, schema checker, validator and fixtures, prompt builder and golden files). Still missing: (1) Export/import. The round-13 run paused at its fifth of six tasks. Its first four tasks are finished and committed on the unmerged branch rho/database-export-and-import-in-mission-fqp3: c3e1dbe (export), 2ff4bd9 (import into an empty database), f0d1720 (refusing unreadable files) and c89dd1d (the round-trip test). The Mission Control UI and the ARCHITECTURE.md update were never written. (2) There is no copied rho client and no Test connection. (3) There is no GenerationWorker, so there is no outline or Flight Plan generation, no repairs, no resilience, no cancel or supersede, and no queueing from Missions and sorties. Lift sorties stay PENDING. (4) There is no Regenerate and no 'Coach is planning' or 'Mission Control offline' status on the Launchpad. The 'Generate run plans' toggle has no generated path. (5) ARCHITECTURE.md marks M1 (test connection, export/import), M3, M5 and M6 incomplete and still names the `nabu` package. This round brings in the finished export/import work by cherry-pick, the same way round 12 did, and puts its UI in a separate run. It splits the client copy from Test connection, and splits result storing from the worker, so that no run has to plan two separate parts. The worker resilience, queueing and Launchpad-status briefs keep their scope.
+
+## Round 14
+
+### 1. Database export and import: bring in the finished data layer
+
+Bring the finished export/import data layer into this branch. An earlier run wrote it and tested it, then stopped before its UI. This run adds no UI.
+
+The work is on the local branch `rho/database-export-and-import-in-mission-fqp3`. Cherry-pick these four commits, in this order and with their original messages:
+- `c3e1dbe` (data: export the whole database to a JSON stream)
+- `2ff4bd9` (data: import a Liftoff export into an empty database)
+- `f0d1720` (data: refuse an export this app cannot read)
+- `c89dd1d` (data: prove export then import gives an identical database)
+
+These commits add:
+- `data/BackupDocument.kt`, `data/DatabaseExport.kt` and `data/DatabaseImport.kt`
+- bulk read, insert and emptiness methods on the DAOs
+- one draft-Mission delete on `MissionDao`, with the matching edit to `MissionDaoTest`
+- `DatabaseExportTest`, `DatabaseImportTest` and `BackupRoundTripTest`
+
+Don't bring over any `.rho/runs/` files from that branch, and don't cherry-pick its `run:` commits. If a cherry-pick conflicts, resolve it by keeping both sides' intent. Record what you did in the plan's decisions.
+
+The behaviour these commits already give, which must still hold:
+- Export writes every row of every table, ids included, with a format version and the Room schema version. Keys are snake_case. Settings and the daemon token are never included.
+- Import works only into an empty database. A database holding only one DRAFT Mission with no sorties counts as empty, and that draft is replaced.
+- A non-empty database, a malformed file, a file that isn't a Liftoff export, and an unknown or newer version are each refused with a clear message, and nothing changes.
+- Import runs in one transaction, keeps ids, then runs `MissionManager.onAppOpen()` and reports how many Missions and sorties it restored.
+
+After the cherry-picks:
+- Run the gate.
+- Fix only what the gate shows is broken.
+- Update ARCHITECTURE.md: the `com.liftoff.app.data` row's 'Exists yet?' cell names export and import, and M5's status no longer says export/import is not started (say the data layer is built and its Mission Control actions come next).
+
+If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask.
+
+Don't change the Room schema. Robolectric with Room can hang here, so every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status. One In-Flight screen test (`doneBodyweightSetStepperShowsBW`) sometimes fails with a closed connection pool and passes when run again; re-run it before treating it as broken.
+
+Must not break: every existing test, Mission Control, the other screens, the coach package, and the build gate. Follow CLAUDE.md conventions: LF endings, `area: lowercase summary` commit messages, and staging named files only.
+
+Done when:
+- the four commits are on the branch, and `DatabaseExportTest`, `DatabaseImportTest`, `BackupRoundTripTest` and `MissionDaoTest` all pass
+- the ARCHITECTURE.md cells above are updated
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine)
+
+### 2. Export and Import actions in Mission Control
+
+Give the owner Export and Import buttons in Mission Control. The phone holds the only copy of the training history, so this is the backup story. Read DESIGN.md §8 ('Export and import') and §10 ('Lost or reset phone'), and `design/README.md`.
+
+The data layer already exists in `com.liftoff.app.data`, with tests:
+- `DatabaseExport` writes the whole database to an OutputStream.
+- `DatabaseImport` reads one from an InputStream. It refuses a non-empty database or an unreadable file with a message, and it runs `onAppOpen()` and reports how many Missions and sorties it restored.
+
+This run adds only the UI and the wiring. Don't change how export or import behave. Mission Control lives in `com.liftoff.app.ui.control` (`MissionControlScreen.kt` and its view models). `LiftoffShell.kt` passes it pieces from `AppContainer`.
+
+What to build:
+- A BACKUP section in Mission Control with an Export button and an Import button.
+- Next to them, a line saying settings and the daemon token are not in the file.
+- Export opens the system file picker to create a `.json` file. The default name carries today's local date, like `liftoff-2026-10-19.json`.
+- Import opens the system file picker to choose a file.
+- Both run off the main thread and show that they are working while they run. The result shows as a row that stays until the next action:
+  - after an import, how much was restored
+  - after a failure, the data layer's message
+  - after an export, that it was saved
+- Cancelling the picker does nothing.
+- Use the design's parts: a section head, ink-ruled rows, buttons from `ui.theme`, and no stock M3 tonal surfaces. Keep the busy/result logic in plain Kotlin outside Compose, so a test can drive it with fake work.
+- After a successful import, the other tabs show the restored data. They read Room through flows, so make sure the import goes through Room, not around it.
+
+If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask. Don't click a system picker in a test. In Compose tests, unmount the screen before closing its database. Every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status.
+
+Must not break: settings and equipment editing in Mission Control (`MissionControlScreenTest`, `MissionControlViewModelTest`, `EquipmentViewModelTest`), the shell (`LiftoffShellTest`), the export/import data tests, the other screens, and the build gate. Existing tests that assert there is no Export placeholder, or that list the section heads, may be updated to match. Say so in the PR. Follow CLAUDE.md conventions: LF endings, `area: lowercase summary` commit messages, staging named files only.
+
+Done when:
+- A plain test shows the backup work running off the calling thread and the state going from busy to success or failure, with the message kept.
+- A Robolectric Compose test shows the BACKUP head, Export and Import enabled, the exclusion line, and a success and a failure row drawn from the state.
+- ARCHITECTURE.md: M1's note no longer lists export/import as missing, and M5 says export/import is built.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 3. Copy the rho client into Liftoff
+
+Bring the harness's Android client code into Liftoff, so a later run can talk to the coach daemon. This run adds no UI. Read DESIGN.md §3, §7.3 step 1, §10 and §11 ('Reused from nabu'), and ARCHITECTURE.md invariants 3 and 4.
+
+**The harness was renamed.** DESIGN.md and ARCHITECTURE.md call it 'nabu'. It is now 'rho'. Its protocol methods are `rho.hello`, `rho.session.create`, `rho.session.send_prompt` and so on, and the checkout is at `C:/Users/corpo/Documents/projects/rho`. Use the rho names and paths in new code.
+- Add a short amendment at the end of DESIGN.md recording the rename.
+- In ARCHITECTURE.md, change the `com.liftoff.app.nabu` row to `com.liftoff.app.rho` and update the wording to match.
+- Don't rename the Room column `nabuSessionId`, because that would change the schema.
+
+**Copy.** rho's Android client is at `C:/Users/corpo/Documents/projects/rho/clients/android/app/src/main/java/com/rho/client/`, and the protocol spec is at `C:/Users/corpo/Documents/projects/rho/protocol/spec.md`.
+- Copy `net/DaemonClient.kt` and the protocol files it imports (such as `protocol/Events.kt` and `protocol/RpcCodes.kt`) into `app/src/main/java/com/liftoff/app/rho/`.
+- Change only the package and import lines, so the copy stays comparable with upstream.
+- Copy the smallest set of files that compiles. Leave out rho's UI, outbox, push and repository code. If DaemonClient needs a small type from a file you otherwise don't need (for example settings), copy only that file. Don't rewrite it.
+- Each copied file starts with a short header comment giving its source path and the rho commit it came from (the output of `git -C C:/Users/corpo/Documents/projects/rho rev-parse HEAD`).
+- Add a dependency only if the copied code needs one that isn't already declared, at rho's version (see rho's `clients/android` Gradle files).
+- Nothing in rho changes.
+- If the rho checkout can't be read, stop and report it. Don't write a client from scratch.
+
+**AppContainer.** Give `AppContainer` a way to build a client from the current settings (daemon host, port, token), connect it and run `rho.hello` with client `liftoff`. The result says one of:
+- connected, with the daemon version and protocol version
+- the host or token is empty
+- unreachable or timed out
+- authentication rejected
+- the protocol major version doesn't match the one the copied client expects
+
+Put this in plain Kotlin that a test can drive with any host and port. Keep `AppContainer` hand-built, with no DI framework. Test connection (a later run) and the generation worker will both use it.
+
+If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask, except in the missing-checkout case above. Every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status.
+
+Must not break: Mission Control, export/import, the coach package (which stays free of Android imports), the other screens, and the build gate. Follow CLAUDE.md conventions: LF endings, `area: lowercase summary` commit messages, staging named files only.
+
+Done when:
+- The copied files compile under `com.liftoff.app.rho`, each with its source header.
+- Tests against a fake daemon, an OkHttp MockWebServer WebSocket that scripts `rho.hello` in the style of rho's own client tests, cover:
+  - success with both versions
+  - a major-version mismatch
+  - a refused connection
+  - empty settings
+- ARCHITECTURE.md lists `com.liftoff.app.rho` as existing, with the source commit.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 4. Test connection in Mission Control
+
+Add a 'Test connection' action to Mission Control's Connection section, so the owner can check that the phone reaches the coach daemon on their PC. Read DESIGN.md §9 ('Mission Control') and §10, and `design/README.md`. The harness DESIGN.md calls 'nabu' is now 'rho'.
+
+Build on what's already in the repo:
+- the copied rho client in `com.liftoff.app.rho`
+- `AppContainer`'s helper that connects with the stored host, port and token, runs `rho.hello` and returns connected (with versions), empty settings, unreachable, auth rejected, or a version mismatch
+- the Mission Control screen and view models in `com.liftoff.app.ui.control`
+
+This run adds only the action and its display. Don't change the client copy.
+
+What to build:
+- A 'Test connection' button in the Connection section. It uses the settings as currently stored.
+- If the owner has unsaved edits in the connection fields, they are saved first. This is what a user expects, but if Mission Control already saves on every edit, there's nothing to add.
+- While the test runs, show that it's working and ignore a second tap. Give up after a reasonable timeout and always close the connection.
+- The result shows as an ink-ruled row:
+  - on success, the daemon version and the protocol version
+  - unreachable or timed out: 'Mission Control offline — check the PC and Tailscale'
+  - auth rejected: a clear message saying the token was refused
+  - empty host or token: a clear message saying which is missing
+  - major-version mismatch: 'Liftoff speaks rho protocol 1.x, the daemon speaks N.x', using the major version the copied client expects
+- Run it off the main thread. Use buttons from `ui.theme` and the design's rows, not stock M3 visuals. Keep the state logic in plain Kotlin outside Compose.
+
+If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask. In Compose tests, unmount the screen before closing its database. Every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status.
+
+Must not break: settings, equipment and export/import in Mission Control and their tests, the shell, the rho client tests, and the build gate. An existing test asserting there is no 'Test connection' placeholder may be updated. Say so in the PR. Follow CLAUDE.md conventions: LF endings, `area: lowercase summary` commit messages, staging named files only.
+
+Done when:
+- Tests drive the action against a fake daemon (OkHttp MockWebServer WebSocket) or a fake of the container helper, and show each message: success with both versions, mismatch, refused or offline, and missing settings. They also show that a second tap while busy does nothing.
+- A Robolectric Compose test shows the button in the Connection section and a result row drawn from the state.
+- ARCHITECTURE.md: M1's note no longer lists test connection as missing (M1 is done).
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 5. Store validated coach results in Room
+
+Add the data operations that store a validated coach reply. These are what the generation worker will call. This run has no worker and no network: only Room writes and their tests. Read DESIGN.md §4.2, §4.3, §5.3, §7.2, §7.5 and §7.6 first.
+
+Build on what's already in the repo:
+- the validator in `com.liftoff.app.coach` (`CoachReplyValidator.kt`, `CoachModels.kt`), which turns a reply into a typed outline, lift plan or run plan
+- `MissionManager` in `com.liftoff.app.data`, with `confirm`, `advance` and the `Preparation` decision in `domain/SortiePlanning.kt`. Its `AwaitGeneration` branch does nothing yet.
+- `FlightPlanDao.writePlan` with `FlightPlanDraft`
+- `Mission.outlineNotes`, `Sortie.focus`/`focusRationale`, the `Generation` entity and `GenerationDao`
+- the 'Generate run plans' setting
+
+**Outline result.** Given a DRAFT Mission and a validated outline, in one transaction:
+- activate the Mission with one sortie per pattern letter, each with the outline's focus and rationale
+- store the outline notes
+- make sortie 1 current through the existing advance-and-prepare step
+
+The result is the same shape the current 'confirm without outline' path produces, plus the outline's text. A run sortie still gets its simple 'Run' plan when run generation is off. If the Mission is no longer a DRAFT, the operation changes nothing and says so.
+
+**Flight Plan result.** Given a sortie and a validated lift plan or run plan, in one transaction:
+- write the plan with source GENERATED and `rawJson` set to the validated JSON
+- for a lift: title, estimated minutes, warmup, notes, and exercises with their resolved exercise ids, equipment ids, rest and sets
+- for a run: run kind, target distance and pace, and segments
+- set the sortie PLANNED if it was PENDING
+
+If the sortie is no longer current, or is IN_FLIGHT, LANDED or SCRUBBED, the operation changes nothing and says so. A later run uses that to drop stale results.
+
+**Generation row helpers.** Add what the worker will need on `GenerationDao` to:
+- mark a row RUNNING, SUCCEEDED (with `finishedAt`), FAILED (with its error) or CANCELLED
+- save the session id and `lastEventId`
+- bump `attempt`
+- find the newest non-cancelled generation for a sortie or a Mission
+
+If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask. Don't change the Room schema unless it's unavoidable. If it is, add a real migration (never a destructive one) and update the exported schema. `coach` and `domain` stay free of Android imports. Every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status.
+
+Must not break: `MissionManager`'s existing behaviour and tests (confirm, scrub, launch, land, Re-fly, rollover), the coach tests, export/import, every screen, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Robolectric tests with an in-memory database, fed from the existing valid reply fixtures in `app/src/test/resources/fixtures/coach/`, show:
+  - an outline activating the Mission with the right sorties, focuses and notes, and making sortie 1 current
+  - a lift plan stored with its exercises and sets, and the sortie PLANNED
+  - a run plan stored with its segments
+  - each refusal (Mission not a draft; sortie no longer current) changing nothing
+  - the generation row helpers working
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 6. GenerationWorker core flow
+
+Build the WorkManager worker that runs one coach generation through the rho daemon, covering the main path. Read DESIGN.md §7.2, §7.3, §7.6 and §10 first. DESIGN.md calls the harness 'nabu'; it was renamed 'rho', and its methods are `rho.*`. Also read the rho protocol spec at `C:/Users/corpo/Documents/projects/rho/protocol/spec.md` (session create, send_prompt with client_id, subscribe and events_after, state_change, ui.ask, permission.request, stop) and ARCHITECTURE.md invariants 3, 6, 7 and 8. Commit as soon as each part compiles and its tests pass. If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask.
+
+The next run adds resilience, cancel and supersede. A later run wires generations into the app. Build only what is listed here.
+
+Build on what's already in the repo:
+- the copied rho client in `com.liftoff.app.rho`, and `AppContainer`'s helper that connects from settings and runs hello
+- the prompt builder, repair prompt and validator in `com.liftoff.app.coach`, and `PromptInputLoader` in `data`
+- the result-storing operations: the outline result (activates the DRAFT Mission and makes sortie 1 current) and the Flight Plan result (lift or run, source GENERATED, sortie to PLANNED). Both refuse stale targets.
+- the `GenerationDao` helpers for status, session id, `lastEventId`, attempt and error. The rho session id lives in the `nabuSessionId` column.
+- `androidx.work` and `work-testing`, which are already dependencies
+
+**The worker (`com.liftoff.app.work`).** A `CoroutineWorker` that takes a generation id and follows §7.3:
+- The row is RUNNING while the worker runs.
+- Connect and send hello. A major-version mismatch is a permanent failure with the §10 message.
+- Create the rho session only if the row doesn't have one, and store its id before doing anything else. The session uses:
+  - workspace = the coach path from settings
+  - permission_mode 'auto'
+  - labels `[liftoff, liftoff:outline]` or `[liftoff, liftoff:flight-plan]`, never starting with `run:`
+  - a one-line description
+- Send the prompt with `client_id = <generationId>-<attempt>`.
+- Subscribe, and save `lastEventId` as events arrive. The turn ends at the first state_change after our message whose `to` is idle, completed, blocked, paused or error. The time limit is 20 minutes.
+- **idle or completed:** validate the last assistant message.
+  - Valid: store it with the result operations and mark the row SUCCEEDED.
+  - Invalid: send up to 2 repair prompts in the same session, incrementing attempt each time.
+  - Still invalid: FAILED with 'invalid output', keeping the error list in `error`.
+- **blocked:** FAILED with 'coach needed input'.
+- Answer a ui.ask with 'Decide yourself; there is nobody to ask.' and a permission.request with deny, then keep waiting.
+- **paused, error, or a connection failure:** return a retry for now.
+- Stop the rho session on SUCCEEDED or on a permanent failure.
+
+**Enqueue helper.** Unique work named `gen-<generationId>`, policy KEEP, a network-connected constraint, and exponential backoff starting at 1 minute. Expose it through `AppContainer`.
+
+The schema loader reads schema files through the classloader. Make sure that works in the app at runtime, not only on the test classpath. For example, check that the schema files are packaged in the debug APK. Don't change the Room schema unless it's unavoidable. If it is, add a real migration (never a destructive one). `coach` stays free of Android imports. Every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status.
+
+Must not break: the coach tests, the rho client and Test connection, the result-storing tests, `MissionManager` and the domain tests, every screen, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Robolectric tests run the worker against a fake rho daemon (an OkHttp MockWebServer WebSocket that scripts the protocol) for:
+  - the happy path for an outline, a lift Flight Plan and a run Flight Plan
+  - an invalid reply, then a repair, then success
+  - two failed repairs ending FAILED with the errors kept
+  - blocked
+  - a ui.ask being answered
+  - a major-version mismatch failing permanently
+  - the session being stopped at the end
+- ARCHITECTURE.md's `work` row is marked as existing, and M3 says the worker's core is built.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 7. GenerationWorker resilience, cancel and supersede
+
+Make the generation worker resumable and safe to cancel. First read DESIGN.md §7.3 (steps 4–6, 'Unreachable daemon', 'Retries before giving up', 'Superseded results'), §10 and §13 ('Integration tests'). DESIGN.md calls the harness 'nabu'; it was renamed 'rho', and its methods are `rho.*`. Then read the rho protocol spec at `C:/Users/corpo/Documents/projects/rho/protocol/spec.md` (events_after, resume, stop). Commit as soon as each part compiles and its tests pass. If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask.
+
+Build on what's already in the repo:
+- `GenerationWorker` and its enqueue helper in `com.liftoff.app.work`, with its fake-daemon tests. It already connects, creates the session once, sends prompts with `client_id = <generationId>-<attempt>`, saves `lastEventId`, validates and repairs, stores results and stops the session.
+- the copied rho client in `com.liftoff.app.rho`
+- `Generation` and `GenerationDao`. The session id lives in `nabuSessionId`.
+- the result-storing operations, which already refuse a stale sortie or a Mission that is no longer a draft
+- `AppContainer`
+
+**Resilience.**
+- **paused:** call `rho.session.resume` before returning a retry.
+- **error:** return a retry.
+- **Reconnecting after a dropped connection or a killed worker:** reuse the stored session id, never create a second session, and catch up with `events_after` from the stored `lastEventId`.
+- **A retried send:** reuse the same `client_id`, so the daemon doesn't take the prompt twice.
+- **Unreachable daemon** (connection refused or timed out):
+  - return a retry, and record on the row that the coach is offline, in a form a later run can read to show 'Mission Control offline'
+  - clear that mark once a connection succeeds
+  - after 8 attempts, mark the row FAILED with 'coach unreachable'
+
+**Cancel and supersede.**
+- A cancel helper cancels the work, stops the rho session if there is one, and marks the row CANCELLED. Expose it through `AppContainer`.
+- Results are stored only if the generation is still current: it isn't CANCELLED, and it's the newest non-cancelled generation for its sortie (Flight Plan) or Mission (outline). A late result for a superseded or cancelled generation is dropped, and its session is stopped.
+
+Don't change the Room schema unless it's unavoidable. If it is, add a real migration (never a destructive one) and update the exported schema. Every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status.
+
+Must not break: the worker's existing tests, the coach and domain tests, export/import, every screen, and the build gate. Follow CLAUDE.md conventions: LF endings, `area: lowercase summary` commit messages, staging named files only.
+
+Done when:
+- Robolectric fake-daemon tests cover:
+  - a paused session being resumed
+  - a connection drop mid-turn, resuming from the stored cursor without creating a second session
+  - send_prompt reusing the same client_id on retry
+  - an unreachable daemon being marked offline, retrying, and failing as 'coach unreachable' after 8 attempts
+  - cancel stopping the rho session and marking the row CANCELLED
+  - a result for a cancelled or superseded generation not being stored
+- ARCHITECTURE.md marks M3's worker as built, with app wiring still to come.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 8. Queue coach generations from Missions and sorties
+
+Turn on coach generation in the Mission and sortie flow. Confirm queues an outline. A Flight Plan is queued whenever a sortie becomes current and needs one. Read DESIGN.md §4.2, §4.3, §5.3, §7.2 and §7.3 ('Superseded results') first. DESIGN.md calls the harness 'nabu'; it was renamed 'rho'. The Launchpad's full status display and Regenerate button come in the next run. This run changes the flow and keeps the UI working. Commit as soon as each part compiles and its tests pass. If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask.
+
+Build on what's already in the repo:
+- `GenerationWorker` and its enqueue and cancel helpers in `com.liftoff.app.work`, reached through `AppContainer`. Storing an OUTLINE result activates the Mission and makes sortie 1 current.
+- `MissionManager` in `com.liftoff.app.data`. `confirm` currently takes the 'continue without outline' path. `advance` has an `AwaitGeneration` branch, decided in `domain/SortiePlanning.kt`, that does nothing yet.
+- Re-fly, scrub, land and the week-ended rollover in `MissionManager`
+- the 'Generate run plans' setting, and the daemon host and token settings
+
+**Outline.**
+- Confirm freezes the pattern and queues an OUTLINE generation. The Mission stays a DRAFT until the outline is stored.
+- A 'continue without outline' operation keeps today's confirm behaviour and cancels any outline generation that is still open.
+- 'Retry' queues a fresh outline generation after a failure.
+- If no daemon host or token is set, confirm doesn't queue a generation that can't succeed. It tells the caller, so the Launchpad can offer 'Continue without outline'.
+- Until the next run adds the status display, the Launchpad's draft state must at least show that the coach is planning and offer 'Continue without outline', so the app is never stuck.
+
+**Flight Plans.**
+- Whenever a sortie becomes current and needs generation (a lift, or a run with the toggle on), create a FLIGHT_PLAN Generation row and enqueue it after the transaction commits. That covers sortie 1 after the outline, and the next sortie after landing or a scrub.
+- With the toggle off, runs keep getting the simple 'Run' plan.
+- The toggle is read at that moment. Changing it never alters an existing plan.
+- Add a regenerate operation for a PLANNED or PENDING current sortie. It queues a new FLIGHT_PLAN generation, and the current plan stays until the new result replaces it.
+
+**Supersede and cleanup.** Starting a new generation for a sortie cancels any queued or running one for that sortie, including its rho session. Re-fly, scrub, landing and the week-ended rollover also cancel a sortie's open generation, so a late result can never overwrite them.
+
+Don't change the Room schema unless it's unavoidable. If it is, add a real migration (never a destructive one) and update the exported schema. Every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status.
+
+Must not break: the worker and its fake-daemon tests, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control and Test connection, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Robolectric tests with an in-memory database and WorkManager's test helpers show that:
+  - confirm queues an outline, and its result activates the Mission and queues sortie 1's Flight Plan
+  - continue-without-outline cancels the outline generation
+  - landing and scrubbing queue the next sortie's Flight Plan
+  - with the toggle on, a run sortie queues a generation, and with it off, the run gets a simple 'Run' plan
+  - regenerate supersedes an open generation, and that generation's late result is ignored
+  - Re-fly, scrub and rollover cancel an open generation
+  - with no host or token set, no generation is queued
+- ARCHITECTURE.md marks M6 done and M3's wiring as built.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
+### 9. Generation status, Regenerate and Re-fly rules on the Launchpad
+
+Show coach generation on the Launchpad, as DESIGN.md §9 ('Launchpad') and §10 describe, and finish the milestone records. Read DESIGN.md §4.2, §5.4, §7.3, §9 and §10, `design/README.md` and `design/screens/launchpad.html` first. DESIGN.md calls the harness 'nabu'; it was renamed 'rho'. Commit as soon as each part compiles and its tests pass. If something is unclear, make the choice a user would expect, record it in the plan's decisions, and carry on. Don't stop to ask.
+
+Build on what's already in the repo:
+- the Launchpad (`LaunchpadState`, `LaunchpadViewModel`, `LaunchpadScreen` in `com.liftoff.app.ui.launchpad`), with its Draft, Planned, Pending, InFlight and Closed states, and Re-fly on PENDING
+- `MissionManager`'s generation operations: confirm (which queues an outline), continue without outline, retry, regenerate, Re-fly and scrub
+- the Generation rows: status, the error with the validator's error list, the offline mark the worker records, and the session id in `nabuSessionId`
+- the theme composables (`UnderlinedTextButton`, `PrimaryButton`, ink-ruled rows)
+
+**Draft while the outline runs.**
+- Show 'Coach is planning the week…', or 'Mission Control offline — retrying' when the worker has marked the coach offline.
+- On failure, show the reason, with Retry and 'Continue without outline'.
+- With no daemon host or token set, say so and offer 'Continue without outline'.
+
+**PLANNED.**
+- An underlined Regenerate text button next to Scrub, as in `design/screens/launchpad.html`.
+- While a regeneration runs, the current plan stays visible and launchable, with a short 'Coach is re-planning…' line.
+
+**PENDING.** Show the generation status and its actions:
+- 'Coach is planning…'
+- 'Mission Control offline — retrying'
+- a failure with its reason, and the validator's error list when there is one
+- Retry, Re-fly and Scrub. Re-fly is now offered only when the generation failed, the coach is offline, or no connection is configured (§5.4).
+- 'View in rho', which shows the rho session id so the owner can open it in rho's app
+
+The status updates live from Room. Use the design's parts, with no stock M3 visuals. Put the state derivation in plain Kotlin that a Robolectric test can drive. Every wait in a test needs a timeout. A full Gradle gate can outlast a shell command's time limit on this machine. If it does, run it detached and wait for its exit status.
+
+Must not break: the generation flow and worker tests, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control, the domain tests, and the build gate. Existing Launchpad tests that assume Re-fly is always offered on PENDING may be updated to the §5.4 rule. Say so in the PR. Follow CLAUDE.md conventions and the §2 vocabulary.
+
+Done when:
+- Robolectric tests show each Launchpad status derived correctly from the database:
+  - the outline planning, offline and failed
+  - no connection configured
+  - PENDING planning, offline, and failed with errors
+  - PLANNED re-planning, with Regenerate present
+  - Re-fly shown only when §5.4 allows
+- ARCHITECTURE.md's package table and milestones reflect what is built: M1–M6 are done, and M0 says the template, schemas, validator and prompt builder exist and that the live measurement (LiveCoachTest) hasn't been run.
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
+
