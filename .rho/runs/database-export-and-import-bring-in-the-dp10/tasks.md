@@ -48,7 +48,7 @@ re-derive.
   Done when: `git show --stat HEAD` lists only that file; a cold `--tests '*BackupRoundTripTest*'` run reports
   1 test, 0 failures, 0 errors.
 
-- [ ] Measure the whole suite once, then record export and import as built
+- [x] Measure the whole suite once, then record export and import as built
   Plan steps 2–4, in that order, and the run's only whole-suite run. First the cold detached gate:
   `bash gradlew.sh --stop`; `mkdir -p app/build`; `rm -rf app/build/test-results/testDebugUnitTest`; then
   `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache` detached with an `EXIT=$?`
