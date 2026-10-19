@@ -24,6 +24,13 @@ interface SortieDao {
     @Query("SELECT * FROM sortie WHERE state = 'IN_FLIGHT'")
     suspend fun getInFlight(): List<Sortie>
 
+    // The export's whole-table read.
+    @Query("SELECT * FROM sortie ORDER BY id")
+    suspend fun getAll(): List<Sortie>
+
+    @Query("SELECT COUNT(*) FROM sortie")
+    suspend fun countAll(): Long
+
     @Query(
         "SELECT s.* FROM sortie s " +
         "JOIN mission m ON m.id = s.missionId " +
