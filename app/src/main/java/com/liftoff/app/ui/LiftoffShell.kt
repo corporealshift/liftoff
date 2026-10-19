@@ -112,6 +112,9 @@ fun LiftoffShell() {
                 settingsStore = container.settingsStore,
                 scope = shellScope,
                 equipmentDao = container.database.equipmentDao(),
+                // The container's own database, so an import lands in the one the other tabs observe.
+                database = container.database,
+                missionManager = container.missionManager,
                 onBack = {
                     navigated = true
                     nav = nav.back() ?: nav

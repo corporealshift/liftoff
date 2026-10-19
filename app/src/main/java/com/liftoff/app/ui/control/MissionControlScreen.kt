@@ -1,5 +1,9 @@
 package com.liftoff.app.ui.control
 
+import android.content.ContentResolver
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
@@ -50,6 +55,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.liftoff.app.data.EquipmentDao
+import com.liftoff.app.data.LiftoffDatabase
+import com.liftoff.app.data.MissionManager
 import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.settings.SettingsStore
 import com.liftoff.app.settings.WeightUnit
@@ -65,19 +72,40 @@ import com.liftoff.app.ui.theme.TitleBlock
 import com.liftoff.app.ui.theme.White
 import com.liftoff.app.ui.theme.LiftoffType
 import kotlinx.coroutines.CoroutineScope
+import java.io.InputStream
+import java.io.OutputStream
 
 @Composable
 fun MissionControlScreen(
     settingsStore: SettingsStore,
     scope: CoroutineScope,
     equipmentDao: EquipmentDao,
+    database: LiftoffDatabase,
+    missionManager: MissionManager,
     onBack: () -> Unit,
+    backupViewModel: BackupViewModel? = null,
 ) {
     val vm = remember(settingsStore) { MissionControlViewModel(settingsStore, scope) }
     val state by vm.state.collectAsState()
 
     val eqVm = remember(equipmentDao) { EquipmentViewModel(equipmentDao, scope) }
     val eqState by eqVm.state.collectAsState()
+
+    // The seam is only for tests. The app gets the real data layer, on the screen's own scope, so an
+    // action that has started still finishes after the screen is gone.
+    val backupVm = backupViewModel ?: remember(database, missionManager) {
+        BackupViewModel(database, missionManager, scope)
+    }
+    val backupState by backupVm.state.collectAsState()
+
+    val resolver = LocalContext.current.contentResolver
+    // A cancelled picker hands back no Uri, which the view model reads as "no action".
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> backupVm.runExport(exportOpener(resolver, uri)) }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> backupVm.runImport(importOpener(resolver, uri)) }
 
     Column(
         modifier = Modifier
@@ -112,7 +140,33 @@ fun MissionControlScreen(
         SectionCard(title = "EQUIPMENT") {
             EquipmentSection(state = eqState, vm = eqVm)
         }
+        SectionCard(title = "BACKUP") {
+            BackupSection(
+                state = backupState,
+                // CreateDocument takes the suggested file name as its input; the contract's own argument
+                // is the MIME type it puts on the intent.
+                onExport = { exportLauncher.launch(BackupViewModel.defaultExportFileName()) },
+                // Any file type: a backup copied onto the phone arrives as whatever the sender called
+                // it, and the data layer already refuses one that isn't a Liftoff backup.
+                onImport = { importLauncher.launch(arrayOf("*/*")) },
+            )
+        }
     }
+}
+
+/**
+ * The picked file, resolved when the work runs: the view model calls this on its own dispatcher, so
+ * the blocking open is off the main thread. "wt" truncates an existing backup instead of leaving the
+ * old file's tail after the new bytes.
+ */
+private fun exportOpener(resolver: ContentResolver, uri: Uri?): BackupStreamOpener<OutputStream>? {
+    if (uri == null) return null
+    return { resolver.openOutputStream(uri, "wt") }
+}
+
+private fun importOpener(resolver: ContentResolver, uri: Uri?): BackupStreamOpener<InputStream>? {
+    if (uri == null) return null
+    return { resolver.openInputStream(uri) }
 }
 
 @Composable
