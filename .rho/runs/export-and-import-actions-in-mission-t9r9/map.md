@@ -2,7 +2,9 @@
 
 Run `export-and-import-actions-in-mission-t9r9`. Branch base `1099fed` (plan outline) on top of
 `c183c1c Database export and import: bring in the finished data layer (#27)`. **The data layer is
-already merged** — this run is UI + wiring only.
+already merged** — this run is UI + wiring only. Plan HEAD is `8376717 run: plan revised by claude review`;
+verify.sh is committed at `cb49a9c`; the work is split into six tasks in
+`.rho/runs/export-and-import-actions-in-mission-t9r9/tasks.md`.
 
 ## Gate / build facts
 
@@ -39,7 +41,7 @@ already merged** — this run is UI + wiring only.
 | `app/src/test/java/com/liftoff/app/ui/control/MissionControlScreenTest.kt` (440) | Robolectric `AndroidJUnit4`, `@Config(qualifiers = "w411dp-h2000dp")` (tall window so everything is on-screen). Field `database: LiftoffDatabase?` :38 built in-memory by `launchScreen(store)` :417-439, which calls `MissionControlScreen(settingsStore, scope, equipmentDao, onBack = {})` inside `LiftoffTheme` with `rememberCoroutineScope()`. `tearDown` :49-54 cancels the store job then `database?.close()` **while the content is still mounted** — the known flake. `showsEverySectionHeadInOrder` :198 lists the 7 heads. `showsNoUnbuiltPlaceholders` :219 asserts `assertDoesNotExist("Export", ignoreCase = false)` :228 — written to prove Export was unimplemented, so it now fails on purpose-built UI. Helper `assertDoesNotExist(text, ignoreCase)` :232. `neverSaysSession` :378 scans a fixed list of on-screen texts against `\bsession\b`. |
 | `MissionControlViewModelTest.kt`, `EquipmentViewModelTest.kt` | Settings validation and equipment CRUD. Must not break. |
 | `app/src/test/java/com/liftoff/app/ui/LiftoffShellTest.kt` | Composes the real shell through `LiftoffApplication`'s container (:47). Mission Control nav tests at :120 (opens without bottom bar), :161 (system back returns to the tab), :175 (nav-bar icon tint). |
-| `data/DatabaseExportTest.kt`, `data/DatabaseImportTest.kt`, `data/BackupRoundTripTest.kt`, `data/SchemaExportTest.kt` | The merged data layer's tests (PR #27). Must not break. |
+| `data/DatabaseExportTest.kt`, `data/DatabaseImportTest.kt`, `data/BackupRoundTripTest.kt`, `data/SchemaExportTest.kt` | The merged data layer's tests (PR #27). Must not break. `DatabaseImportTest` is the fixture to copy for anything needing two databases: `@RunWith(RobolectricTestRunner::class)` + `@Config(sdk = [34])`, `TemporaryFolder` rule, `newDatabase()` = `Room.inMemoryDatabaseBuilder(context, LiftoffDatabase::class.java)` (:71-73, `context` from `ApplicationProvider`), a fixed `Clock` (`Clock.fixed(Instant.parse("2026-01-12T00:00:00Z"), ZoneOffset.UTC)` — a Monday, so the current week matches the seeded Missions), `ByteArrayOutputStream`/`ByteArrayInputStream` as the file. |
 | — | No view-model test exists for backup work yet. |
 
 ## Docs that set rules
@@ -62,21 +64,72 @@ already merged** — this run is UI + wiring only.
   `verify.sh` scripts here grep these cells clause-by-clause (split on `;` and `,` and dashes), so the
   clause that names export/import must carry a built word and no deferral word.
 
+## Gaps between the plan and verify.sh (found at the tasks step)
+
+- **The dated default file name has no plain-Kotlin home in the plan.** verify.sh's
+  `theDefaultExportFileNameCarriesTodaysLocalDate` must show the name Export suggests ends in `.json` and
+  carries the device's local date, not UTC, and it forbids opening a picker to show it. plan.md puts the dated
+  name only inside the screen's `CreateDocument` call, which no plain test can reach. So the function that
+  produces the name lives in `BackupViewModel.kt` (plain Kotlin, task 1) and `MissionControlScreen.kt` reads it
+  for the launcher's default name (task 4). The data layer already takes a `java.time.Clock`
+  (`exportDatabase(db, out, clock = Clock.systemUTC())`), and `DatabaseImportTest` shows the fixed-Clock
+  fixture, so a clock parameter is the natural seam.
+- **`anImportThroughTheBackupActionReachesRoomsFlows` is in verify.sh but in no plan.md Order step.** It is the
+  brief's "make sure the import goes through Room, not around it" clause. tasks.md gives it its own task (2),
+  after the view model exists and before any Compose: export from a seeded in-memory database, import through
+  the backup action into a fresh one while a Room `Flow` is collected, assert the flow emits.
+- **Two tests the plan asks for are not named by the rewritten verify.sh**: the busy-guard test
+  (`aSecondActionWhileWorkIsRunningChangesNothing`) and the disabled-buttons test
+  (`bothBackupButtonsAreDisabledWhileWorkIsRunning`). They are still written, because the plan's Testing and
+  Order steps 1 and 5 ask for them, but nothing in the gate depends on them.
+- **Adding required parameters to `MissionControlScreen` cannot break its previews**: the `@Preview` at :471
+  calls `MissionControlContentPreview(state)`, never `MissionControlScreen(...)`, so `compileDebugKotlin` is
+  safe. The shell's call site is `MissionControlScreen(settingsStore = container.settingsStore, scope =
+  shellScope, equipmentDao = container.database.equipmentDao(), onBack = { navigated = true; … })` at
+  `LiftoffShell.kt:111`, inside `if (nav.missionControlOpen)`, with `container` bound on the line above — so
+  `database` and `missionManager` are two more arguments there, and `container.database` is the same instance
+  the tabs observe.
+
 ## verify.sh (committed definition of done)
 
-`.rho/runs/export-and-import-actions-in-mission-t9r9/verify.sh` runs the CI gate
-(`bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, stale
-`app/build/test-results/testDebugUnitTest` cleared first, one retry only for the known
+`.rho/runs/export-and-import-actions-in-mission-t9r9/verify.sh`, committed at `cb49a9c run: verify.sh
+rewritten by claude review` (after `ccdaa83 run: verify`). Only the runner may change it now. It runs the CI
+gate (`bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, stale
+`app/build/test-results/testDebugUnitTest` cleared first, `timeout 2400`, one retry only for the known
 `doneBodyweightSetStepperShowsBW` Room-pool flake or a build/daemon failure), then indexes every
-`TEST-*.xml` in one awk pass and checks 44 names: 12 tests this run must write (8 plain view-model
-names under "the backup work", 4 Robolectric names under "Mission Control's BACKUP section", plus the
-existing `showsEverySectionHeadInOrder` which must gain `BACKUP`), the two ARCHITECTURE.md rows, and the
-brief's "must not break" classes and methods.
+`TEST-*.xml` in one awk pass (`index_reports` → `$WORK/methods`, `$WORK/classes`) and checks 44 names.
 
-Verified against the tree before committing: all 8 named classes and all 24 pre-named existing tests
-resolve under `app/src/test`; all 12 new names are absent, so the script fails today; the M1/M5 cells are
-at `ARCHITECTURE.md:80` and `:84` and both fail the clause check today, pass with the plan's wording, and
-still fail a wording that defers the actions.
+**The 10 test names it looks for that do not exist yet** (re-confirmed against `app/src/test` at the tasks
+step: all absent, so the script fails today). Names are matched by method across every report, so class and
+package are the implementer's call:
+- "the backup work" (7, plain JUnit, no Compose, no Android): `backupWorkRunsOffTheCallingThread`,
+  `exportShowsBusyThenThatItWasSaved`, `importShowsBusyThenHowMuchWasRestored`,
+  `refusedImportShowsTheDataLayersMessageUnchanged`, `workThatThrowsBecomesAFailureRowNotACrash`,
+  `aCancelledPickerChangesNothing`, `theDefaultExportFileNameCarriesTodaysLocalDate`.
+- "the import reaches Room" (1, Room but no Compose): `anImportThroughTheBackupActionReachesRoomsFlows`.
+- "Mission Control's BACKUP section" (2, Robolectric Compose):
+  `backupShowsExportAndImportEnabledAndTheExclusionLine`, `successAndFailureRowsAreDrawnFromTheState`.
+
+Plus the existing `showsEverySectionHeadInOrder`, which must gain `BACKUP`, and the "must not break" 8
+classes / 24 methods (all confirmed present). The two ARCHITECTURE.md rows are checked clause by clause.
+
+The review rewrite **dropped** two names the earlier version had — `aSecondActionWhileWorkIsRunningChangesNothing`
+and `bothBackupButtonsAreDisabledWhileWorkIsRunning` — and **added** `anImportThroughTheBackupActionReachesRoomsFlows`.
+The two dropped ones are still what the plan's Testing/Order steps 1 and 5 ask for, so tasks.md keeps them as
+unpinned extras; nothing in the gate depends on them.
+
+What verify.sh deliberately does NOT check (its header says why): that Export/Import open a system picker
+(the brief rules a picker out of tests), the visual parts, `"wt"` truncate mode, and the exact wording of the
+three result rows — the owner reviews those in the PR. Its evidence for the wiring is `LiftoffShellTest`,
+which composes the real shell against `AppContainer`'s own database.
+
+Verified earlier: the M1/M5 cells are at `ARCHITECTURE.md:80` and `:84`, both fail the clause check today,
+pass with the plan's wording, and still fail a wording that defers the actions. Re-checked at the tasks step
+against the real cells: `has_deferral` does **not** list "partial", so M5's leading `Partial:` is not a
+deferral; M1 becomes `Done — test connection comes later; export and import are built` (its "comes later"
+clause names neither export/import nor the actions, so it is not a deferral); M5 becomes
+`Partial: … ; export and import are built` with its last two clauses
+(`the export and import data layer is built; its Mission Control actions come next`) removed.
 
 ## Known hazards recorded from earlier runs
 
