@@ -65,7 +65,7 @@ run goes under `app/build/` (`mkdir -p app/build` first).
   Done when: `:app:compileDebugKotlin` passes and `MissionControlScreenTest` is still green (nothing composes
   the new card yet).
 
-- [ ] 4. Put the card on Mission Control and hand it the app's own database
+- [x] 4. Put the card on Mission Control and hand it the app's own database
   Plan Order steps 3 and 4 together, because the screen's new parameters and the shell that supplies them have
   to land in one commit for the app to assemble. `MissionControlScreen.kt`: `database` and `missionManager`
   parameters, the defaulted seam that lets a test supply its own `BackupViewModel`, built on the `scope` the
