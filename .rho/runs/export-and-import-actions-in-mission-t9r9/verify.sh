@@ -10,9 +10,9 @@
 # Gradle exits 0 when a named test never existed, so each test below is looked for by name in this run's
 # reports; a test that was not written cannot pass on its own. Names are matched across every report, so
 # which class and package each one sits in is the implementer's call; what it must show is written above
-# it. The twelve names under "the backup work" and "Mission Control's BACKUP section" are tests this run
-# has to write; the head test named there already exists and has to be updated to include BACKUP. The names
-# under "must not break" already exist and this run has to keep them passing.
+# it. The ten names under "the backup work", "the import reaches Room" and "Mission Control's BACKUP
+# section" are tests this run has to write. The names under "must not break" already exist and this run has
+# to keep them passing; showsEverySectionHeadInOrder is among them and may be updated to list BACKUP.
 #
 # The brief's own shape is what the names follow: "Keep the busy/result logic in plain Kotlin outside
 # Compose, so a test can drive it with fake work", so the busy/result tests are driven with fake work and
@@ -29,9 +29,10 @@
 # can supply for the wiring is LiftoffShellTest, which composes the real shell against AppContainer's own
 # database and so runs the real Mission Control with the pieces the shell hands it.
 #
-# The plan's "## Decisions" are not pinned here: BACKUP sitting last rather than first, Import staying
-# enabled with no confirmation dialog, a failed export leaving a partial file, settings not being restored.
-# Where a named test also shows a decision, the comment above it names it.
+# The plan's "## Decisions" are not pinned here: BACKUP sitting last rather than first, both buttons going
+# quiet while work runs (and refusing a second action), Import staying enabled with no confirmation dialog,
+# a failed export leaving a partial file, settings not being restored. Where a named test also shows a
+# decision, the comment above it names it.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -204,8 +205,8 @@ t backupWorkRunsOffTheCallingThread
 
 # Brief: "show that they are working while they run" and "after an export, that it was saved". Hold the fake
 # export on a latch so the state can be read while it is still going: the state must first say work is
-# running and which action it is, and after the latch is released it must say the export was saved. Every
-# latch wait has a timeout, and the latch is released whatever the outcome.
+# running, and after the latch is released it must say the export was saved. Every latch wait has a
+# timeout, and the latch is released whatever the outcome.
 t exportShowsBusyThenThatItWasSaved
 
 # Brief: "after an import, how much was restored". Same shape for the import action: busy while the fake
@@ -224,12 +225,6 @@ t refusedImportShowsTheDataLayersMessageUnchanged
 # data layer does not word itself gets this app's own short message rather than the raw exception text.
 t workThatThrowsBecomesAFailureRowNotACrash
 
-# Brief: "show that they are working while they run". Hold the worker thread with a latch so a second action
-# started from the test thread must meet the guard rather than run alongside the first: the second call
-# changes nothing, the work that is running still finishes, and its result is the one left in the state.
-# Decision: both buttons go quiet while a backup action runs, which is what this guard is for.
-t aSecondActionWhileWorkIsRunningChangesNothing
-
 # Brief: "Cancelling the picker does nothing." Hand the action no picked file at all and show the state
 # exactly as it was — no busy state, no new row, and an earlier result still there. Decision: a cancel is
 # not an action, so it must not wipe a message the owner may still be reading.
@@ -240,22 +235,30 @@ t aCancelledPickerChangesNothing
 # device, not today's date in UTC. No test may open a picker to show this.
 t theDefaultExportFileNameCarriesTodaysLocalDate
 
-# ─── 3. Mission Control's BACKUP section ───────────────────────────────────────
+# ─── 3. The import reaches Room ────────────────────────────────────────────────
+# Brief: "After a successful import, the other tabs show the restored data. They read Room through flows, so
+# make sure the import goes through Room, not around it." Export from a seeded in-memory database, then run
+# the backup import action with the real data-layer import into a fresh in-memory database while a Room
+# flow of the kind the other tabs observe is being collected, and show that flow emits the restored rows.
+# An import that wrote around Room leaves the flow silent. This needs Room, not Compose: no screen is
+# composed, and every wait has a timeout.
+echo ""
+echo "=== the import reaches Room ==="
+
+t anImportThroughTheBackupActionReachesRoomsFlows
+
+# ─── 4. Mission Control's BACKUP section ───────────────────────────────────────
 # Brief Done-when: "A Robolectric Compose test shows the BACKUP head, Export and Import enabled, the
 # exclusion line, and a success and a failure row drawn from the state." These are the brief's own UI
 # requirement, so they are driven through the screen. No test clicks Export or Import: the brief forbids
-# clicking a system picker, so the rows are reached by handing the screen's view model a stream.
+# clicking a system picker, so the rows are reached by handing the screen's view model a stream or a state.
 echo ""
 echo "=== Mission Control's BACKUP section ==="
 
-# Brief: "A BACKUP section in Mission Control". The section head joins the heads the screen already lists,
-# and every head that was there before is still there.
-t showsEverySectionHeadInOrder
-
-# Brief: "an Export button and an Import button" and "a line saying settings and the daemon token are not in
-# the file". Show both buttons on screen and enabled — present alone is not enough, since a button that
-# cannot be pressed is not an action — and the line that says settings and the daemon token are not in the
-# backup file.
+# Brief: "A BACKUP section in Mission Control with an Export button and an Import button" and "a line saying
+# settings and the daemon token are not in the file". Show the BACKUP head on screen, both buttons on screen
+# and enabled — present alone is not enough, since a button that cannot be pressed is not an action — and
+# the line that says settings and the daemon token are not in the backup file.
 t backupShowsExportAndImportEnabledAndTheExclusionLine
 
 # Brief: "The result shows as a row". Hand the screen's backup state a success and then a failure and show
@@ -264,22 +267,7 @@ t backupShowsExportAndImportEnabledAndTheExclusionLine
 # recomposition.
 t successAndFailureRowsAreDrawnFromTheState
 
-# Brief: "show that they are working while they run". Park the work the screen was given on a latch, and
-# show Export and Import no longer enabled while it is parked, with a row naming which action is running —
-# and show the same two buttons still enabled in the same test before the work starts, so neither direction
-# passes by accident. Release the parked work before the test ends. Decision: both buttons go quiet while a
-# backup action runs, and the row says which one.
-t bothBackupButtonsAreDisabledWhileWorkIsRunning
-
-# Brief: "After a successful import, the other tabs show the restored data … make sure the import goes
-# through Room, not around it." Export from a seeded database, then drive an import through the screen's own
-# backup action with that file, and show the data the file carried is now in the database the screen itself
-# reads — Mission Control's equipment rows are the cheapest place to see it, on the screen or through the
-# same Room read the screen observes. An import that wrote around Room, or into a second database, leaves
-# the screen showing nothing new.
-t theScreenShowsTheRestoredDataAfterAnImport
-
-# ─── 4. ARCHITECTURE.md ────────────────────────────────────────────────────────
+# ─── 5. ARCHITECTURE.md ────────────────────────────────────────────────────────
 # Brief Done-when: "M1's note no longer lists export/import as missing, and M5 says export/import is built."
 # Read off the two milestone rows the brief names, clause by clause (split on the clause punctuation this
 # document uses, including the em dash). A clause counts as recording export/import as built when it names
@@ -354,7 +342,7 @@ else
     bad "ARCHITECTURE.md's M5 status records export and import as built, with no clause deferring its Mission Control actions (its status cell reads: $m5status)"
 fi
 
-# ─── 5. must not break ─────────────────────────────────────────────────────────
+# ─── 6. must not break ─────────────────────────────────────────────────────────
 # The whole existing suite runs in the gate above. These name the brief's own "must not" clauses that this
 # work is the one touching, so a regression reads as a named failure rather than a line in a log.
 echo ""
@@ -366,6 +354,10 @@ echo "=== must not break ==="
 c MissionControlScreenTest
 c MissionControlViewModelTest
 c EquipmentViewModelTest
+
+# The existing heads test, which the brief allows to be updated to list BACKUP; every head that was there
+# before is still there.
+t showsEverySectionHeadInOrder
 
 # The settings and equipment behaviour the brief names, by name rather than only as a class.
 t opensShowingStoredValues
