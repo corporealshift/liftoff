@@ -15,7 +15,7 @@
 #
 # The brief's Done-when names three test classes, so each is also checked as a class: it ran, and nothing in it
 # failed or was skipped. The same is done for the classes the brief's "must not break" list names, because the
-# gate alone cannot tell a passing suite from a suite that had a class deleted out of it.
+# gate alone cannot tell a passing suite from a suite that had a class deleted out of it, or a test in it ignored.
 #
 # What is NOT checked here, and why:
 # - The pull request's CI run itself. It is outside this repository and this script runs before the pull request
@@ -47,14 +47,15 @@ ok()  { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 bad() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
 # index_reports: one awk pass over every report this run wrote, into $WORK/methods and $WORK/classes as
-# "<name> <pass|fail|skipped>" lines, one line per name, at its worst outcome across every report.
+# "<name> <pass|fail|skipped>" lines, one line per name, at its worst outcome across every report
+# (fail is worse than skipped, skipped is worse than pass — so one ignored test marks its class).
 index_reports() {
     local file
     : > "$WORK/raw"
     for file in "$RESULTS"/TEST-*.xml; do
         [ -f "$file" ] || continue
         awk '
-            function rank(s) { return (s == "fail") ? 3 : (s == "pass") ? 2 : 1 }
+            function rank(s) { return (s == "fail") ? 3 : (s == "skipped") ? 2 : 1 }
             function rec(n, s) { if (!(n in best) || rank(s) > best[n]) best[n] = rank(s) }
             /<testcase[ \t]/ {
                 head = index($0, "<testcase")
@@ -85,13 +86,13 @@ index_reports() {
             pend && /<(failure|error)[ \t\r\n>\/]/ { st = "fail" }
             pend && /<skipped/ { if (st == "pass") st = "skipped" }
             pend && /<\/testcase>/ { rec(cur, st); if (cn != "") rec("C:" cn, st); pend = 0; cur = "" }
-            END { for (n in best) print n, (best[n] == 3 ? "fail" : best[n] == 2 ? "pass" : "skipped") }
+            END { for (n in best) print n, (best[n] == 3 ? "fail" : best[n] == 2 ? "skipped" : "pass") }
         ' "$file" >> "$WORK/raw"
     done
     awk '
-        function rank(s) { return (s == "fail") ? 3 : (s == "pass") ? 2 : 1 }
+        function rank(s) { return (s == "fail") ? 3 : (s == "skipped") ? 2 : 1 }
         { if (!($1 in best) || rank($2) > best[$1]) best[$1] = rank($2) }
-        END { for (n in best) print n, (best[n] == 3 ? "fail" : best[n] == 2 ? "pass" : "skipped") }
+        END { for (n in best) print n, (best[n] == 3 ? "fail" : best[n] == 2 ? "skipped" : "pass") }
     ' "$WORK/raw" > "$WORK/all"
     grep '^C:' "$WORK/all" > "$WORK/classes" || true
     grep -v '^C:' "$WORK/all" > "$WORK/methods" || true
