@@ -74,7 +74,7 @@ the machine's Gradle recipe, so do not re-derive them.
   which `theContainerBuildsTheConnectionCheckFromTheStoredSettings` passed and no test in
   `AppContainerTest` failed or was skipped. Commit `rho: build the connection check from the settings`.
 
-- [ ] Record the nabu → rho rename in the two documents
+- [x] Record the nabu → rho rename in the two documents
   `DESIGN.md`: one dated amendment bullet in the newest-first position directly after the
   "## Amendments after approval" intro (the newest today is 2026-10-06), naming both `nabu` and
   `rho`, the `rho.` method prefix and the new checkout path; leave the approved body text as
