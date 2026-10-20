@@ -33,7 +33,7 @@ named files only; never touch `verify.sh`.
   `:app:testDebugUnitTest --tests '*BackupViewModelTest*' --no-build-cache` reports 8 tests, 0 failures, 0 errors in
   the JUnit XML, with all eight names above present.
 
-- [ ] 2. Bring in the proof that an import reaches room's flows (`265e5bf`)
+- [x] 2. Bring in the proof that an import reaches room's flows (`265e5bf`)
   Cherry-pick `265e5bf` ("test: prove the backup import action writes through room's flows") with its original
   message. It adds only `app/src/test/java/com/liftoff/app/ui/control/BackupImportRoomTest.kt` (+267): Robolectric
   over in-memory Room, a worker thread the test owns, the Flow subscription started before the action. It builds on
