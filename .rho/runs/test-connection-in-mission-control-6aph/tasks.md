@@ -79,7 +79,7 @@ and every class under `com.liftoff.app.rho`: those must keep running and passing
   Done when: a cold `--no-build-cache` run of `--tests '*MissionControlScreenTest*'` reports that name present and
   the whole class green (`failures="0" errors="0"`), with every wait a `waitUntil` with a timeout.
 
-- [ ] 5. ARCHITECTURE.md's M1 row
+- [x] 5. ARCHITECTURE.md's M1 row
   Line 80's status cell reads "Done — test connection comes later; export and import are built"; it must stop
   holding the connection test back while still saying the milestone is done. The cell is read as the 4th `|`-split
   field and split on `;` and on em/en dashes only, so a clause that names the connection test may not carry a
