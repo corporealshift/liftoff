@@ -3,11 +3,13 @@ package com.liftoff.app.ui.control
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
 import com.liftoff.app.data.ImportResult
+import com.liftoff.app.rho.ConnectionOutcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -253,7 +255,9 @@ class MissionControlScreenTest {
     }
 
     // =========================================================================
-    // showsNoUnbuiltPlaceholders — Robolectric: no unbuilt Test connection placeholder.
+    // showsNoUnbuiltPlaceholders — Robolectric: "Test connection" is built now, so this reads the button
+    // as present instead of asserting its absence. The theme uppercases button labels, so the node is
+    // "TEST CONNECTION"; the lookup stays ignoreCase so the assertion is about the action, not the casing.
     // =========================================================================
 
     @Test
@@ -264,8 +268,49 @@ class MissionControlScreenTest {
 
             composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
 
-            // These texts should NOT appear on screen.
-            assertDoesNotExist("Test connection", ignoreCase = true)
+            // The one placeholder this test used to hold back is now on the card.
+            composeRule.onNodeWithText("Test connection", ignoreCase = true).assertIsDisplayed()
+        }
+    }
+
+    // =========================================================================
+    // testConnectionButtonIsShownInTheConnectionSection — the brief's "'Test connection' button in the
+    // Connection section". Present is not enough: a button that cannot be pressed is not an action. And
+    // the card it belongs to is read off the screen, not off the composable that drew it — the button sits
+    // below the CONNECTION head and above the COACH head, which is where the CONNECTION card ends.
+    // =========================================================================
+
+    @Test
+    fun testConnectionButtonIsShownInTheConnectionSection() {
+        runBlocking {
+            val store = newStore("connection1.preferences_pb")
+            store.setDaemonHost("100.64.0.5")
+            launchScreen(store)
+
+            val connectionTop = composeRule.onNodeWithText("CONNECTION")
+                .assertIsDisplayed()
+                .getBoundsInRoot()
+                .top
+            val coachTop = composeRule.onNodeWithText("COACH")
+                .assertIsDisplayed()
+                .getBoundsInRoot()
+                .top
+
+            val button = composeRule.onNodeWithText("TEST CONNECTION")
+                .assertIsDisplayed()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+                .assertHasClickAction()
+                .assertIsEnabled()
+            val buttonBounds = button.getBoundsInRoot()
+
+            assertTrue(
+                "the button is below the CONNECTION head it belongs to",
+                buttonBounds.top > connectionTop,
+            )
+            assertTrue(
+                "the button is inside the CONNECTION card, above the COACH head that follows it",
+                buttonBounds.bottom < coachTop,
+            )
         }
     }
 
@@ -557,6 +602,7 @@ class MissionControlScreenTest {
     private fun launchScreen(
         store: com.liftoff.app.settings.SettingsStore,
         backupViewModel: BackupViewModel? = null,
+        checkDaemon: DaemonCheck = { ConnectionOutcome.Connected(daemonVersion = "1.4", protocolVersion = "1.0") },
     ) {
         if (database == null) {
             database = Room.inMemoryDatabaseBuilder(
@@ -580,6 +626,7 @@ class MissionControlScreenTest {
                         database = db,
                         missionManager = missionManager,
                         onBack = {},
+                        checkDaemon = checkDaemon,
                         backupViewModel = backupViewModel,
                     )
                 }

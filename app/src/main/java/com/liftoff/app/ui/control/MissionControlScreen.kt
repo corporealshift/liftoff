@@ -83,10 +83,17 @@ fun MissionControlScreen(
     database: LiftoffDatabase,
     missionManager: MissionManager,
     onBack: () -> Unit,
+    // The handshake the action runs, handed in rather than built here: DaemonConnectionCheck is concrete.
+    checkDaemon: DaemonCheck,
     backupViewModel: BackupViewModel? = null,
 ) {
     val vm = remember(settingsStore) { MissionControlViewModel(settingsStore, scope) }
     val state by vm.state.collectAsState()
+
+    // Keyed on the store, not on the seam: a caller hands in a fresh lambda at every recomposition, and
+    // the result row has to survive one.
+    val connectionVm = remember(settingsStore) { ConnectionViewModel(settingsStore, scope, checkDaemon) }
+    val connectionState by connectionVm.state.collectAsState()
 
     val eqVm = remember(equipmentDao) { EquipmentViewModel(equipmentDao, scope) }
     val eqState by eqVm.state.collectAsState()
@@ -136,7 +143,12 @@ fun MissionControlScreen(
             TitleBlock(eyebrow = "Settings", title = "Mission Control")
         }
         Spacer(Modifier.height(20.dp))
-        MissionControlContent(vm = vm, state = state)
+        MissionControlContent(
+            vm = vm,
+            state = state,
+            connectionVm = connectionVm,
+            connectionState = connectionState,
+        )
         SectionCard(title = "EQUIPMENT") {
             EquipmentSection(state = eqState, vm = eqVm)
         }
@@ -173,6 +185,8 @@ private fun importOpener(resolver: ContentResolver, uri: Uri?): BackupStreamOpen
 private fun MissionControlContent(
     vm: MissionControlViewModel,
     state: MissionControlState,
+    connectionVm: ConnectionViewModel,
+    connectionState: ConnectionState,
 ) {
     SectionCard(title = "CONNECTION") {
         LabeledTextField(label = "Daemon host", value = state.host, onChange = vm::setHost)
@@ -196,6 +210,13 @@ private fun MissionControlContent(
                         tint = Ink,
                     )
                 }
+            },
+        )
+        // The action takes the fields as they read right now, not whatever the store held when the card opened.
+        ConnectionSection(
+            state = connectionState,
+            onTestConnection = {
+                connectionVm.testConnection(state.host, state.portText, state.portError, state.token)
             },
         )
     }
@@ -554,6 +575,8 @@ private fun MissionControlContentPreview(state: MissionControlState) {
         Text("Host: ${state.host}", style = LiftoffType.note())
         Text("Port: ${state.portText}", style = LiftoffType.note())
         Text("Token: ${if (state.tokenVisible) state.token else "••••••"}", style = LiftoffType.note())
+        // The same action the card really carries, in the state it opens in.
+        ConnectionSection(state = ConnectionState.Idle, onTestConnection = {})
     }
 
     SectionCard(title = "COACH") {
