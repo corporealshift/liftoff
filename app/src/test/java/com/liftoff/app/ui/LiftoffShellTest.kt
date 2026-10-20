@@ -33,8 +33,10 @@ class LiftoffShellTest {
     // so onNodeWithText throws "expected exactly 1 node". Exclude the selectable (bottom bar) item.
     private val missionTitle = hasText("MISSION") and !isSelectable()
 
+    // CI's runner expired this wait on a tree that passed locally, so the shell's waits get headroom
+    // instead of the five seconds every other Compose wait in the repo uses.
     private fun waitFor(matcher: SemanticsMatcher) {
-        composeRule.waitUntil(5_000) {
+        composeRule.waitUntil(WAIT_MS) {
             composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
         }
     }
@@ -197,5 +199,9 @@ class LiftoffShellTest {
         composeRule.onNodeWithContentDescription("Landed").performClick()
         waitFor(hasText("HISTORY"))
         waitFor(hasText("No history yet."))
+    }
+
+    private companion object {
+        private const val WAIT_MS = 20_000L
     }
 }

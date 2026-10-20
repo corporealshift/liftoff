@@ -1,17 +1,26 @@
 package com.liftoff.app.ui.control
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
+import com.liftoff.app.data.ImportResult
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -19,10 +28,19 @@ import org.junit.runner.RunWith
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.core.app.ApplicationProvider
 import org.robolectric.annotation.Config
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
-@Config(qualifiers = "w411dp-h2000dp")  // tall window so all content is on-screen
+@Config(qualifiers = "w411dp-h2800dp")  // tall window so all content, BACKUP card included, is on-screen
+@OptIn(ExperimentalCoroutinesApi::class)
 class MissionControlScreenTest {
 
     @get:Rule
@@ -37,6 +55,19 @@ class MissionControlScreenTest {
     private var scopeJob = Job()
     private var database: com.liftoff.app.data.LiftoffDatabase? = null
 
+    // The BACKUP tests drive the screen's own view model, so they own its scope and its worker thread:
+    // the work has to leave the thread that calls the action, like it does in the app.
+    private val backupScopeJob = Job()
+    private val backupScope = CoroutineScope(backupScopeJob + Dispatchers.Unconfined)
+    private val backupWorkerPool: ExecutorService =
+        Executors.newSingleThreadExecutor { runnable -> Thread(runnable, BACKUP_WORKER_THREAD) }
+    private val backupWorker: ExecutorCoroutineDispatcher = backupWorkerPool.asCoroutineDispatcher()
+
+    // The screen observes Room through flows, so the content leaves the composition before tearDown
+    // closes the database it is reading.
+    private val mounted = MutableStateFlow(true)
+    private var contentMounted = false
+
     private fun newStore(fileName: String): com.liftoff.app.settings.SettingsStore {
         dataStore = PreferenceDataStoreFactory.create(
             scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined + scopeJob)
@@ -48,9 +79,19 @@ class MissionControlScreenTest {
 
     @After
     fun tearDown() {
-        scopeJob.cancel()
-        database?.close()
-        database = null
+        try {
+            if (contentMounted) {
+                mounted.value = false
+                composeRule.waitForIdle()
+                contentMounted = false
+            }
+        } finally {
+            backupScopeJob.cancel()
+            backupWorker.close()
+            scopeJob.cancel()
+            database?.close()
+            database = null
+        }
     }
 
     // =========================================================================
@@ -203,7 +244,7 @@ class MissionControlScreenTest {
             // Verify all section heads appear and are displayed.
             val heads = listOf(
                 "CONNECTION", "COACH", "MISSION", "UNITS", "RUNS",
-                "OBJECTIVES AND CONSTRAINTS", "EQUIPMENT"
+                "OBJECTIVES AND CONSTRAINTS", "EQUIPMENT", "BACKUP"
             )
             for (head in heads) {
                 composeRule.onNodeWithText(head).assertIsDisplayed()
@@ -212,7 +253,7 @@ class MissionControlScreenTest {
     }
 
     // =========================================================================
-    // showsNoUnbuiltPlaceholders — Robolectric: no Test connection or export/import.
+    // showsNoUnbuiltPlaceholders — Robolectric: no unbuilt Test connection placeholder.
     // =========================================================================
 
     @Test
@@ -225,7 +266,6 @@ class MissionControlScreenTest {
 
             // These texts should NOT appear on screen.
             assertDoesNotExist("Test connection", ignoreCase = true)
-            assertDoesNotExist("Export", ignoreCase = false)
         }
     }
 
@@ -411,11 +451,112 @@ class MissionControlScreenTest {
     }
 
     // =========================================================================
+    // backupShowsExportAndImportEnabledAndTheExclusionLine — the brief's "A BACKUP section in Mission
+    // Control with an Export button and an Import button" plus "a line saying settings and the daemon
+    // token are not in the file". Present is not enough: a button that cannot be pressed is not an
+    // action. Neither button is clicked, because a click opens a system picker that never arrives.
+    // =========================================================================
+
+    @Test
+    fun backupShowsExportAndImportEnabledAndTheExclusionLine() {
+        runBlocking {
+            val store = newStore("backup1.preferences_pb")
+            launchScreen(store)
+
+            backupNode("BACKUP")
+            backupNode("EXPORT").assertIsEnabled()
+            backupNode("IMPORT").assertIsEnabled()
+            backupNode("Settings and the daemon token are not in this file.")
+        }
+    }
+
+    // =========================================================================
+    // successAndFailureRowsAreDrawnFromTheState — the brief's "The result shows as a row ... stays until
+    // the next action". The screen's injected view model is handed an in-memory stream; the work runs on
+    // the injected dispatcher, which waitForIdle() does not wait for, so the row is waited for, then the
+    // screen is idled and the row read again: a row that survives the idle stays until the next action
+    // replaces it.
+    // =========================================================================
+
+    @Test
+    fun successAndFailureRowsAreDrawnFromTheState() {
+        runBlocking {
+            val store = newStore("backup2.preferences_pb")
+            val fileBytes = """{"header":{},"missions":[],"sorties":[]}""".toByteArray()
+            val written = ByteArrayOutputStream()
+            val viewModel = backupVm(
+                exportWork = { out -> out.write(fileBytes) },
+                importWork = { ImportResult.Refused(REFUSAL_MESSAGE) },
+            )
+            launchScreen(store, backupViewModel = viewModel)
+
+            backupNode("BACKUP")
+            // Idle draws no result row.
+            composeRule.onNodeWithText(EXPORTED_ROW).assertDoesNotExist()
+
+            viewModel.runExport { written }
+            waitForRow(EXPORTED_ROW)
+            composeRule.waitForIdle()
+            backupNode(EXPORTED_ROW)
+            assertArrayEquals(
+                "the export wrote to the stream the screen was handed",
+                fileBytes,
+                written.toByteArray(),
+            )
+
+            // The data layer's own sentence, drawn unchanged, and it replaces the row above it.
+            viewModel.runImport { ByteArrayInputStream(fileBytes) }
+            waitForRow(REFUSAL_MESSAGE)
+            composeRule.waitForIdle()
+            backupNode(REFUSAL_MESSAGE)
+            composeRule.onNodeWithText(EXPORTED_ROW).assertDoesNotExist()
+        }
+    }
+
+    // =========================================================================
+    // bothBackupButtonsAreDisabledWhileWorkIsRunning — the plan's decision that both buttons go quiet
+    // while a backup action runs, and the row says which one. The fake export is parked on a latch so
+    // Busy is observable on screen; the parked fake is released before the test ends and the buttons are
+    // read enabled again, so neither direction of the assertion passes vacuously.
+    // =========================================================================
+
+    @Test
+    fun bothBackupButtonsAreDisabledWhileWorkIsRunning() {
+        runBlocking {
+            val store = newStore("backup3.preferences_pb")
+            val started = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val viewModel = backupVm(exportWork = {
+                started.countDown()
+                assertTrue("the parked export was never released", release.await(WAIT_MS, TimeUnit.MILLISECONDS))
+            })
+            try {
+                launchScreen(store, backupViewModel = viewModel)
+                viewModel.runExport { ByteArrayOutputStream() }
+                assertTrue("the parked export never started", started.await(WAIT_MS, TimeUnit.MILLISECONDS))
+
+                waitForRow("Exporting…")
+                backupNode("EXPORT").assertIsNotEnabled()
+                backupNode("IMPORT").assertIsNotEnabled()
+                // The mirror: a button outside the card is still pressable while the backup row works.
+                composeRule.onNodeWithText("ADD EQUIPMENT").performScrollTo().assertIsEnabled()
+            } finally {
+                release.countDown()
+            }
+
+            waitForRow(EXPORTED_ROW)
+            backupNode("EXPORT").assertIsEnabled()
+            backupNode("IMPORT").assertIsEnabled()
+        }
+    }
+
+    // =========================================================================
     // Helper: launch the screen in the test activity
     // =========================================================================
 
     private fun launchScreen(
         store: com.liftoff.app.settings.SettingsStore,
+        backupViewModel: BackupViewModel? = null,
     ) {
         if (database == null) {
             database = Room.inMemoryDatabaseBuilder(
@@ -423,18 +564,56 @@ class MissionControlScreenTest {
                 com.liftoff.app.data.LiftoffDatabase::class.java,
             ).build()
         }
-        val equipmentDao = database!!.equipmentDao()
+        val db = database!!
+        val equipmentDao = db.equipmentDao()
+        val missionManager = com.liftoff.app.data.MissionManager(db, store)
 
+        contentMounted = true
         composeRule.setContent {
-            val shellScope = rememberCoroutineScope()
-            com.liftoff.app.ui.theme.LiftoffTheme {
-                com.liftoff.app.ui.control.MissionControlScreen(
-                    settingsStore = store,
-                    scope = shellScope,
-                    equipmentDao = equipmentDao,
-                    onBack = {},
-                )
+            if (mounted.collectAsState().value) {
+                val shellScope = rememberCoroutineScope()
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    com.liftoff.app.ui.control.MissionControlScreen(
+                        settingsStore = store,
+                        scope = shellScope,
+                        equipmentDao = equipmentDao,
+                        database = db,
+                        missionManager = missionManager,
+                        onBack = {},
+                        backupViewModel = backupViewModel,
+                    )
+                }
             }
         }
+    }
+
+    /** The screen's backup view model, with fake work on a worker thread this test owns. */
+    private fun backupVm(
+        exportWork: suspend (OutputStream) -> Unit = {},
+        importWork: suspend (InputStream) -> ImportResult = { ImportResult.Restored(0, 0) },
+    ): BackupViewModel = BackupViewModel(
+        scope = backupScope,
+        dispatcher = backupWorker,
+        exportWork = exportWork,
+        importWork = importWork,
+    )
+
+    /** The BACKUP card sits last, so it is scrolled into view before anything on it is read. */
+    private fun backupNode(text: String): SemanticsNodeInteraction =
+        composeRule.onNodeWithText(text, ignoreCase = false).performScrollTo().assertIsDisplayed()
+
+    /** waitForIdle() does not wait for the injected dispatcher, so the row is waited for by name. */
+    private fun waitForRow(text: String) {
+        composeRule.waitUntil(timeoutMillis = WAIT_MS) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private companion object {
+        private const val BACKUP_WORKER_THREAD = "backup-worker-under-test"
+        private const val WAIT_MS = 5_000L
+        private const val EXPORTED_ROW = "Exported the whole database."
+        private const val REFUSAL_MESSAGE =
+            "Import needs an empty database. This phone already has training data."
     }
 }
