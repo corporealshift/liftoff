@@ -48,7 +48,7 @@ and every class under `com.liftoff.app.rho`: those must keep running and passing
   Done when: a cold run of `--tests '*ConnectionViewModelTest*'` shows all eight names in that class's XML with
   `failures="0" errors="0"`, and every wait in the class has a timeout.
 
-- [ ] 3. The button, the CONNECTION card, and the wiring that makes it compile
+- [x] 3. The button, the CONNECTION card, and the wiring that makes it compile
   The Compose half of the action and every call site it changes, so `assembleDebug` and the existing screen tests
   pass with the button present. Files: new `ui/control/ConnectionSection.kt` (the "Test connection" button and the
   ink-ruled busy/result row, drawn the way `BackupSection` draws its row, with the muted note under the row holding
