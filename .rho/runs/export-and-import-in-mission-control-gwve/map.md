@@ -85,7 +85,34 @@ Its own history also has `run: task N done` commits (`cf75d89`, `c81dcdf`, `d2f7
 - The `index_reports` / `t` / `c` helpers are byte-identical to the ones in `.rho/runs/database-export-and-import-bring-in-the-dp10/verify.sh`, which has passed as a gate before, so the XML parsing is not new. `mktemp -d` for `$WORK` is likewise what every earlier run's script does.
 - The doc-check helpers were re-run as a doctest against the functions **extracted out of verify.sh itself** (`sed -n '/^names_the_feature() {/,/^for row in/p'` → source → 12 cases): HEAD's two cells rejected, `578d3b5`'s two accepted, "export and import are built in Mission Control" / "…(the data layer and its Mission Control actions) are built" / "backup and restore are in place" accepted, "export and import come next" and "the export and import data layer is built; its Mission Control actions come next" rejected, and a deferral of a *different* feature ("export and import are built; the coach comes later") accepted. Scratch files for this live under `app/build/` and are not committed.
 - No separate test is named for "the card is on Mission Control": the three new `MissionControlScreenTest` cases call `launchScreen`, which composes the whole `MissionControlScreen` with `database = db`, `missionManager = MissionManager(db, store)` and `backupViewModel` (null → the screen builds its own over the real database). `showsEverySectionHeadInOrder` is *not* named because it passes today with the shorter head list.
-- Fact a later step needs: the pick deletes `assertDoesNotExist("Export", ignoreCase = false)` from `showsNoUnbuiltPlaceholders`, and raises that file's `@Config` window from `w411dp-h2000dp` to `w411dp-h2800dp`. Its `tearDown` now unmounts the composition (`mounted` StateFlow + `waitForIdle`) before `database?.close()`, and closes the backup worker dispatcher.
+- Fact a later step needs: **`75e7490`** is the pick that deletes `assertDoesNotExist("Export", ignoreCase = false)`
+  from `showsNoUnbuiltPlaceholders` (that helper matches case sensitively, so it cannot be reworded to spare the new
+  EXPORT button) and raises `MissionControlScreenTest`'s `@Config` window from `w411dp-h2000dp` to
+  `w411dp-h2800dp`; it also adds BACKUP to `showsEverySectionHeadInOrder`'s heads list and passes
+  `database`/`missionManager` in `launchScreen`. `601e8d8` then adds only the three BACKUP cases and their helpers:
+  `backupVm(...)` over a `backupWorkerPool: ExecutorService` → `backupWorker: ExecutorCoroutineDispatcher`
+  (closed in `tearDown`), `backupNode(text)`, `waitForRow(text)` = `waitUntil(timeoutMillis = WAIT_MS)` with
+  `WAIT_MS = 5_000L`, and a `CountDownLatch` pair parking the fake export in the busy-guard case. Its
+  `tearDown` unmounts the composition (`mounted` StateFlow + `waitForIdle`) before `database?.close()`.
+
+## Tasks (written at the tasks step)
+
+`.rho/runs/export-and-import-in-mission-control-gwve/tasks.md`: 7 tasks. 1 = `1375e11`, 2 = `265e5bf`, 3 =
+`7f855ad` + `75e7490`, 4 = `601e8d8` (blocked by 3), 5 = `578d3b5`, 6 = the audit + the `LiftoffShellTest` wait
+budget, 7 = two consecutive cold gate runs. Plan step 9 (reading the pull request's CI run) is deliberately not a
+task: this run neither pushes nor opens the pull request, so no session here can reach that run.
+
+## Facts the tasks step confirmed
+
+- `git show --name-only` on each of the six commits confirms the map's file table and that **no pick touches any
+  `.rho/runs/` path**, so nothing has to be stripped from them.
+- `git branch -a --list '*t9r9*'` shows `+ rho/export-and-import-actions-in-mission-t9r9`: that branch is checked
+  out in another worktree, so **do not `git checkout` it here** — cherry-pick by sha, which works because all six
+  shas are reachable from this worktree.
+- `ARCHITECTURE.md`: the M1 row is line 80, M5 is line 84, and HEAD's cells are byte-for-byte the pre-image of
+  `578d3b5`. `578d3b5`'s own commit body records that its two cells pass the doc check and HEAD's two do not.
+- `LiftoffShellTest.kt`: the shared helper is lines **36-40** (`private fun waitFor` at 36, the
+  `waitUntil(5_000)` literal at 37), `missionTitle` at 35, `@Before` at 42.
 
 ## Project rules that bind this run
 
