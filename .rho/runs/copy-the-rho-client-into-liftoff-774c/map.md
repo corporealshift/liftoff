@@ -113,7 +113,14 @@ in Liftoff's `app/build.gradle.kts`** → no new dependency for this run.
 
 ## The gate this run is held to (`.rho/runs/copy-the-rho-client-into-liftoff-774c/verify.sh`)
 
-Read the committed file; this is its name list as of `run: verify`. Method names are fixed — a work step may move a
+**Read the committed file every step: it was rewritten after this section was first written.** `648f30e
+run: verify.sh rewritten by claude review` replaced `a916d17 run: verify` and **dropped every
+non-test check**: there is no longer a fidelity diff of the copied files against upstream, no
+ARCHITECTURE.md check and no DESIGN.md amendment check. What the script now runs is: the CI gate
+(3 attempts, retried only on the known flake / a build or hang failure), then `t`/`c` lookups in the
+XML it just produced. The copy's header and diff-against-upstream, and both documents, are now
+**review-only** — the brief still demands them, so the tasks keep them, but nothing fails if they are
+sloppy. Method names are fixed — a work step may move a
 method between classes but may not rename it. Class names are checked as a whole class ("ran, and nothing in it was
 skipped or failed"); method names are matched across every `TEST-*.xml`, so which class each sits in is the
 implementer's call.
@@ -133,18 +140,15 @@ classes `AppContainerTest`, `MissionControlScreenTest`, `MissionControlViewModel
 `CoachReplySemanticTest`, `CoachPromptGoldenFileTest`, `CoachSchemaLoadTest`, `InFlightScreenTest`,
 `LiftoffShellTest`, `MainActivityTest`.
 
-Non-test checks the script runs: the CI gate (`:app:assembleDebug :app:testDebugUnitTest`, `--no-build-cache`,
-retried only on the known flake or a build/hang); each copied file diffed against upstream rho at the commit its own
-header names, with package/import lines stripped from both sides; `ARCHITECTURE.md` has no `com.liftoff.app.nabu`
-mention left and its `com.liftoff.app.rho` **table row** (looked up with `grep -m1 -E '^\|[^|]*com\.liftoff\.app\.rho'`,
-so a renamed prose line elsewhere cannot be mistaken for the row) has a status cell that is not the `—` marker and
-carries a 40-hex commit that exists in rho; a DESIGN.md amendment bullet naming both `nabu` and `rho`.
+Non-test checks the script runs (as of `648f30e`): the CI gate only — `:app:assembleDebug :app:testDebugUnitTest`,
+`--no-build-cache`, results dir cleared first, retried only on the known flake or a build/hang; plus two guards on
+that run, that `:app:testDebugUnitTest` was neither `FROM-CACHE` nor `UP-TO-DATE` and that some `TEST-*.xml` exists.
+Nothing else. In particular **no** copied-file fidelity diff, **no** `com.liftoff.app.nabu` absence check, **no**
+`com.liftoff.app.rho` table-row check, **no** DESIGN.md check.
 
-Deliberately **not** checked (see the script's header): any UI test; that the fake is a MockWebServer WebSocket or
-that the tests match rho's style; rho's UI/outbox/push being absent (a file-existence check); line endings
-(`.gitattributes eol=lf` makes a worktree check unable to fail); the plan's second mismatch case and the check
-closing its socket (plan decisions the owner reviews); "no DI framework"; the wording of the renamed
-ARCHITECTURE.md row beyond the package name itself; the Room column — see the schema note below.
+Deliberately **not** checked at all now (the script's header still lists the older list): any UI test; that the fake is a MockWebServer WebSocket or
+that the tests match rho's style; rho's UI/outbox/push being absent; line endings; the plan's second mismatch case and the check
+closing its socket; "no DI framework"; the wording of the renamed ARCHITECTURE.md row; the Room column — see the schema note below.
 
 ## Facts verified while writing the gate (2026-10-20)
 
@@ -154,14 +158,17 @@ ARCHITECTURE.md row beyond the package name itself; the Room column — see the 
 - rho's client tree at `ffce07d3…`: `MainActivity.kt`, `net/DaemonClient.kt`, `data/{Mirror,Outbox,OutboxWorker,
   SessionRepository}.kt`, `notify/{Push,PushService}.kt`, `protocol/{Events,Projection,RpcCodes,Stats,Status}.kt`,
   `settings/Settings.kt`, `ui/` (14 files). Only `net/DaemonClient.kt` + `protocol/{Events,RpcCodes}.kt` are wanted.
-- **The fidelity diff works**: header comment + `sed 's/^package com\.rho\.client/package com.liftoff.app.rho/'` +
+- **The fidelity diff works** (the recipe the *old* verify.sh used; the current one does not run it, but the owner
+  reviews the copy in the pull request, so keep the copy to this standard): header comment +
+  `sed 's/^package com\.rho\.client/package com.liftoff.app.rho/'` +
   the same for `^import com\.rho\.client`, then strip every `package`/`import` line from both sides and `diff`.
   Verified on all three files: 335 / 208 / 43 body lines, byte-identical.
 - **ARCHITECTURE.md's package table**: `awk -F'|'` on a row gives `$4` = the "Exists yet?" cell. The nabu row today
   reads `| \`com.liftoff.app.nabu\` | Copied nabu \`DaemonClient\` and protocol types. No changes to upstream nabu. | — |`
-  — its cell is the em-dash not-yet marker, which is what the gate rejects.
+  — its cell is the em-dash not-yet marker, which the brief's Done-when replaces with the source commit (the current
+  gate no longer looks at this row at all).
 - **DESIGN.md's amendments section holds 2 bullets today** (newest 2026-10-06, `design/`); neither mentions `rho`
-  or a rename, so the gate's DESIGN.md check fails on the untouched tree.
+  or a rename. No gate check now, but the brief demands the amendment.
 - **`app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json` is tracked** and Room regenerates it on every compile
   (`room.schemaLocation = "$projectDir/schemas"`, `app/build.gradle.kts:12`). It contains `nabuSessionId` 3×.
   **The gate does not grep it** — grepping a generated file for a column name dictates how the data layer is written.
@@ -178,7 +185,8 @@ ARCHITECTURE.md row beyond the package name itself; the Room column — see the 
 - **The gate as verify.sh runs it works on this machine**: `bash gradlew.sh --stop`, `rm -rf` the results dir, then
   `timeout 1800 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache` — `:app:testDebugUnitTest`
   executed (55 s warm, 2 m 18 s cold), reports written, `gate attempt 1 passed`.
-- **verify.sh run against the untouched tree** (detached, `app/build/verify-probe2.log`): gate passed, 18 checks
+- **verify.sh run against the untouched tree** (detached, `app/build/verify-probe2.log`) — **that probe was against
+  the old script**: gate passed, 18 checks
   passed, **13 failed, `EXIT=1`** — the 7 named tests that do not exist yet, the 3 copied files, 2 ARCHITECTURE.md
   checks and the DESIGN.md amendment. Its positive paths were checked against scratch fixtures under `app/build/vf/`
   (a faithful copy of the three upstream files passes the fidelity loop; a body edit or a bogus 40-hex commit fails
@@ -192,3 +200,18 @@ ARCHITECTURE.md row beyond the package name itself; the Room column — see the 
 - Detached Gradle runs: `bash gradlew.sh --stop`, `mkdir -p app/build`, `rm -rf
   app/build/test-results/testDebugUnitTest`, then the run with `--no-build-cache`, waited on an
   `EXIT=` sentinel; read counts from the XML.
+
+## Tasks (as of `run: tasks`)
+
+`tasks.md` splits the plan into 6 tasks: (1) copy the three files, (2) the connection check, (3)
+`FakeDaemon.kt` + the six check tests, (4) `AppContainer` wiring + `theContainerBuilds…` in
+`AppContainerTest`, (5) the two documents, (6) the cold whole-suite gate. Tasks 1–4 each leave
+`:app:assembleDebug` green on their own; task 5 changes no code and is now review-only because the
+rewritten verify.sh dropped its document checks.
+
+Two things a work session would otherwise re-verify: `AppContainerTest` today has 6 tests
+(`applicationIsLiftoffApplication`, `applicationOwnsOneContainer`, `containerReturnsSameSettingsStore`,
+`settingsArePersistedToSettingsPreferencesFile`, `containerReturnsSameDatabase`,
+`databaseRefusesVersionMismatchInsteadOfWiping`), all Robolectric `@Config(sdk = [34])`; and
+`coachPackageHasNoAndroidImports` lives in `coach/ExerciseNamesTest.kt:59` and only walks
+`src/main/java/com/liftoff/app/coach`, so a new `rho` package cannot trip it.
