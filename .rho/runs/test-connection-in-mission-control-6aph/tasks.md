@@ -88,7 +88,7 @@ and every class under `com.liftoff.app.rho`: those must keep running and passing
   Done when: `bash -n` is clean and this prints the new cell with no deferral word in a clause naming the connection
   test: `awk -F'|' 'index($0,"| M1 |")==1{print $4; exit}' ARCHITECTURE.md`.
 
-- [ ] 6. The whole gate, run once
+- [x] 6. The whole gate, run once
   Nothing new to write: the cross-cutting check no per-class gate covers — the shell, the settings tests, the
   placeholder test whatever it is now called, and every class under `com.liftoff.app.rho`.
   Run `bash .rho/runs/test-connection-in-mission-control-6aph/verify.sh` detached (`mkdir -p app/build` first,
