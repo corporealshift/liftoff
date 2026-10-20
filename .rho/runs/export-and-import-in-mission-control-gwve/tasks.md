@@ -19,7 +19,7 @@ For any Gradle run longer than a single compile: `mkdir -p app/build` first, run
 than re-launching a build that is still going. Scratch logs stay under `app/build/` and are never committed. Stage
 named files only; never touch `verify.sh`.
 
-- [ ] 1. Bring in the backup view model and its plain-Kotlin tests (`1375e11`)
+- [x] 1. Bring in the backup view model and its plain-Kotlin tests (`1375e11`)
   Cherry-pick `1375e11` ("ui: add the backup view model with busy, result rows and the dated export name") with its
   original message. It adds `app/src/main/java/com/liftoff/app/ui/control/BackupViewModel.kt` (+129) and
   `app/src/test/java/com/liftoff/app/ui/control/BackupViewModelTest.kt` (+332). Nothing composes the view model yet;
