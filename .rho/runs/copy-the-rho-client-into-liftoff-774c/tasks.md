@@ -88,7 +88,7 @@ the machine's Gradle recipe, so do not re-derive them.
   `ffce07d38c0eba572f1b751701293ba0cf8b0fb6`, and DESIGN.md has a new amendment bullet naming both
   names. Commit `docs: record the nabu to rho rename`.
 
-- [ ] Run the whole gate cold and fix anything it turns up
+- [x] Run the whole gate cold and fix anything it turns up
   Run `bash .rho/runs/copy-the-rho-client-into-liftoff-774c/verify.sh` detached with the map's
   recipe (stop daemons, `mkdir -p app/build`, clear the results dir, `timeout 1800 … --no-build-cache`,
   wait on an `EXIT=` sentinel) and read the counts out of the JUnit XML, not stdout. Check the log
