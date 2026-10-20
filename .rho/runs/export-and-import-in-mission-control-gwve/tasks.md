@@ -87,7 +87,7 @@ named files only; never touch `verify.sh`.
   Done when the pick is committed and both cells read as above — check them against those rules before committing,
   and confirm HEAD's pre-pick wording is what the check rejects.
 
-- [ ] 6. Fix the wait budget CI failed on, after auditing the three new test classes
+- [x] 6. Fix the wait budget CI failed on, after auditing the three new test classes
   This run's only new code, and it is test-only. First audit the three classes the picks brought
   (`BackupViewModelTest`, `BackupImportRoomTest`, `MissionControlScreenTest`) against the brief's five hazards:
   every wait bounded; no assertion depending on the time zone (CI runs in UTC); the worker thread and every database
