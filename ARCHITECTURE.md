@@ -77,7 +77,7 @@ Each milestone ends with the project gate (`./gradlew :app:assembleDebug :app:te
 | Milestone | Title | Status |
 |---|---|---|
 | M0 | Coach reliability spike — coach workspace, validator, schemas, prompt builder, `LiveCoachTest` | Partial: the coach workspace template (`coach/README.md`, `coach/COACH.md`), the three schemas and the validator (`CoachReplyValidator.kt`) exist; the prompt builder (`CoachPromptBuilder.kt`, `PromptInputs.kt`) and its golden-file prompts exist; live measurement (`LiveCoachTest`) has not been run |
-| M1 | Skeleton and data — Room schema, settings, `AppContainer`, theme, navigation shell, Mission Control including the equipment list | Done — test connection comes later; export and import are built |
+| M1 | Skeleton and data — Room schema, settings, `AppContainer`, theme, navigation shell, Mission Control including the equipment list | Done — test connection, export and import are built |
 | M2 | Missions and sorties — domain state machines, draft/confirm UI, Launchpad, Scrub | Done — Regenerate comes with generation (M3); In-Flight is a placeholder until M4 |
 | M3 | Generation — rho client copy, `GenerationWorker`, outline + lift plan end to end | Not started — the copied rho client and its connection check exist; the worker does not |
 | M4 | In flight — In-Flight screen, Launch, Land, resume after process kill | Done; the In-Flight screen is a real screen; the shell reopens into the in-flight sortie on a cold start; the screen leaves when its sortie is no longer in flight |

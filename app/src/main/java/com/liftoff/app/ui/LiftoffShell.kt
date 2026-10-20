@@ -115,6 +115,8 @@ fun LiftoffShell() {
                 // The container's own database, so an import lands in the one the other tabs observe.
                 database = container.database,
                 missionManager = container.missionManager,
+                // The container builds the check from the settings as they are stored at the moment of the tap.
+                checkDaemon = { container.daemonConnectionCheck().check() },
                 onBack = {
                     navigated = true
                     nav = nav.back() ?: nav

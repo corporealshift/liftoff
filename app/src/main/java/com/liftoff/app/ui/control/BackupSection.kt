@@ -114,7 +114,7 @@ private fun BackupStatusRow(message: String, color: Color) {
  * label style, same underline drawn from the text baseline — Ink normally, Muted when disabled.
  */
 @Composable
-private fun BackupTextButton(
+internal fun BackupTextButton(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean,
