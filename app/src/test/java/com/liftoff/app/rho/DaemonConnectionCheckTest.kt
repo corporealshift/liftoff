@@ -132,6 +132,35 @@ class DaemonConnectionCheckTest {
         )
     }
 
+    /**
+     * Settings that can't make a request to the daemon they name: a host written as a URL, a host
+     * holding a space, a host carrying its own port, and a token holding a character a header
+     * doesn't allow. Each answers unreachable naming the host it was given, and the fake records
+     * no request.
+     */
+    @Test
+    fun aHostOrTokenThatCannotBuildARequestIsReportedAsUnreachableAndOpensNoConnection(): Unit = runBlocking {
+        val port = daemon.port()
+        for (host in listOf("http://${daemon.host()}", "bad host", "100.64.0.5:8737")) {
+            val outcome = withTimeout(answerWindow) { checkAt(host = host, port = port).check() }
+            assertTrue("expected Unreachable for host \"$host\", got $outcome", outcome is ConnectionOutcome.Unreachable)
+            val reason = (outcome as ConnectionOutcome.Unreachable).reason
+            assertTrue("the reason doesn't name the host it was given: $reason", reason.contains(host))
+            assertTrue("the check went looking for a daemon the settings didn't name: $reason", reason.contains("build a request"))
+        }
+
+        val badToken = withTimeout(answerWindow) { checkAt(token = "sekrit\u0001not a header value").check() }
+        assertTrue("expected Unreachable for a token with a control character, got $badToken", badToken is ConnectionOutcome.Unreachable)
+        val tokenReason = (badToken as ConnectionOutcome.Unreachable).reason
+        assertTrue("the reason doesn't name the setting at fault: $tokenReason", tokenReason.contains("token"))
+
+        assertEquals(
+            "a connection was opened for settings that can't make a request: ${daemon.requests}",
+            0,
+            daemon.requestCount(),
+        )
+    }
+
     /** "authentication rejected": the daemon answers the upgrade with 401, before any JSON-RPC. */
     @Test
     fun aRejectedTokenIsReportedAsAuthenticationRejectedNotUnreachable(): Unit = runBlocking {

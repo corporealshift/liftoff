@@ -56,7 +56,7 @@ sealed interface ConnectionOutcome {
  */
 class DaemonConnectionCheck(
     daemonHost: String,
-    port: Int,
+    private val port: Int,
     daemonToken: String,
     private val clientVersion: String = CLIENT_VERSION,
     private val http: OkHttpClient = checkHttp(),
@@ -87,17 +87,40 @@ class DaemonConnectionCheck(
     /** rho's URL form, so the check and the copied client aim at the same daemon. */
     val baseUrl: String = "http://$host:$port/"
 
+    /** The same swap of http for ws the copied client makes in connect(). */
+    private val websocketUrl: String = baseUrl.replace(Regex("^http"), "ws")
+
+    /** A host the settings can't point a request at: written as a URL, holding a space, or carrying its own port. */
+    private val badHostReason: String = "host \"$host\" port $port is not a daemon this client can build a request to"
+
     suspend fun check(): ConnectionOutcome {
         // A blank token would still be let through by a daemon on the same machine, so it means
         // setup is unfinished rather than "try without a token".
         if (host.isEmpty() || token.isEmpty()) return ConnectionOutcome.NotConfigured
 
+        // OkHttp throws rather than refusing: a URL it can't parse, and a header value holding a
+        // character a header doesn't allow. Mission Control stores the host as typed, so a host
+        // written as a URL, holding a space, or carrying its own port reaches the caller as an
+        // outcome naming that host, never as an exception. Two tries, so the reason says which
+        // setting is at fault.
+        val request = try {
+            Request.Builder().url(websocketUrl).build()
+        } catch (_: IllegalArgumentException) {
+            return ConnectionOutcome.Unreachable(badHostReason)
+        }
+        // "ws://http://100.64.0.5:8737/" does parse, as host "http" on the default port. A request
+        // naming a host or port the settings didn't give isn't a request to that daemon.
+        if (!request.url.host.equals(host, ignoreCase = true) || request.url.port != port) {
+            return ConnectionOutcome.Unreachable(badHostReason)
+        }
+        val authorized = try {
+            request.newBuilder().header("Authorization", "Bearer $token").build()
+        } catch (_: IllegalArgumentException) {
+            return ConnectionOutcome.Unreachable("the token for host \"$host\" has characters a header can't carry")
+        }
+
         val done = CompletableDeferred<ConnectionOutcome>()
-        val request = Request.Builder()
-            .url(baseUrl.replace(Regex("^http"), "ws"))
-            .header("Authorization", "Bearer $token")
-            .build()
-        val socket = http.newWebSocket(request, Listener(done))
+        val socket = http.newWebSocket(authorized, Listener(done))
 
         var timedOut = false
         return try {
