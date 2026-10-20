@@ -42,7 +42,7 @@ named files only; never touch `verify.sh`.
   Done when the pick is committed and `:app:testDebugUnitTest --tests '*BackupImportRoomTest*' --no-build-cache`
   reports 1 test, 0 failures, 0 errors in the XML, with that name present.
 
-- [ ] 3. Bring in the BACKUP card and put it on the app's own database (`7f855ad`, then `75e7490`)
+- [x] 3. Bring in the BACKUP card and put it on the app's own database (`7f855ad`, then `75e7490`)
   Two cherry-picks, in this order, each its own commit with its original message. `7f855ad` ("ui: draw the backup
   card's rows, result line and export/import buttons") adds `ui/control/BackupSection.kt` (+168) and nothing else.
   `75e7490` ("ui: put the backup card on mission control on the app's own database") edits
