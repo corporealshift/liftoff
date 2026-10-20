@@ -1,8 +1,11 @@
 package com.liftoff.app.ui.control
 
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
 import com.liftoff.app.rho.ConnectionOutcome
 import com.liftoff.app.rho.protocol.PROTOCOL_VERSION
+import com.liftoff.app.settings.Settings
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,22 +13,30 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
- * The action's rows driven with a fake handshake and a real SettingsStore on a temp file. No Compose,
- * no Robolectric: the check arrives as a suspend call, so a test can hand in any outcome it likes.
+ * The action driven with a fake handshake and a real SettingsStore on a temp file: its rows, and what it
+ * does before and while the handshake runs. No Compose, no Robolectric: the check arrives as a suspend
+ * call, so a test can hand in any outcome it likes, park it on a latch, or read the store from inside it.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConnectionViewModelTest {
@@ -46,13 +57,22 @@ class ConnectionViewModelTest {
         worker.close()
     }
 
-    private fun newStore(fileName: String): SettingsStore {
+    private fun newStore(fileName: String): SettingsStore = createStore(fileName) { it }
+
+    /** The same store, wrapped so every settings write records the thread it ran on. */
+    private fun newStoreRecordingItsWrites(fileName: String, writes: CopyOnWriteArrayList<String>): SettingsStore =
+        createStore(fileName) { WriteRecordingStore(it, writes) }
+
+    private fun createStore(
+        fileName: String,
+        wrap: (DataStore<Preferences>) -> DataStore<Preferences>
+    ): SettingsStore {
         val dataStore = PreferenceDataStoreFactory.create(
             scope = CoroutineScope(Dispatchers.Unconfined + scopeJob)
         ) {
             File(tmp.root, fileName)
         }
-        store = SettingsStore(dataStore)
+        store = SettingsStore(wrap(dataStore))
         return store
     }
 
@@ -70,7 +90,21 @@ class ConnectionViewModelTest {
         settled as ConnectionState.Result
     }
 
-    private fun stored(): com.liftoff.app.settings.Settings = runBlocking { store.settings.first() }
+    private fun stored(): Settings = runBlocking { withTimeout(WAIT_MS) { store.settings.first() } }
+
+    /** Records the thread each settings write is asked for, so a test can see it is not the caller's. */
+    private class WriteRecordingStore(
+        private val delegate: DataStore<Preferences>,
+        val writeThreads: CopyOnWriteArrayList<String>
+    ) : DataStore<Preferences> {
+
+        override val data: Flow<Preferences> get() = delegate.data
+
+        override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
+            writeThreads.add(Thread.currentThread().name)
+            return delegate.updateData(transform)
+        }
+    }
 
     // Brief: "on success, the daemon version and the protocol version". Both are the versions the
     // handshake answered: the fake answers a MINOR this client doesn't speak, and a daemon version
@@ -225,6 +259,126 @@ class ConnectionViewModelTest {
         assertEquals("a blank setting reached the daemon", 0, checks.get())
         assertEquals("a blank setting was stored as the host", "", stored().daemonHost)
         assertEquals("a blank setting was stored as the token", "", stored().daemonToken)
+    }
+
+    // Brief: "While the test runs, show that it's working and ignore a second tap." The fake handshake is
+    // parked on a latch, so the worker is still inside the check when the second tap arrives and only the
+    // guard can stop it: the state stays the busy one, the handshake runs once, and the first answer survives.
+    @Test
+    fun aSecondTapWhileTheTestIsRunningChangesNothing() {
+        store = newStore("second-tap.preferences_pb")
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val checks = AtomicInteger()
+        val vm = newVm {
+            checks.incrementAndGet()
+            started.countDown()
+            assertTrue("the parked handshake was never released", release.await(WAIT_MS, TimeUnit.MILLISECONDS))
+            ConnectionOutcome.Connected(daemonVersion = "1.4", protocolVersion = "1.0")
+        }
+        try {
+            vm.testConnection("100.64.0.5", "9911", null, "sekrit")
+            assertTrue("the parked handshake never started", started.await(WAIT_MS, TimeUnit.MILLISECONDS))
+            assertEquals("Testing the daemon…", vm.state.value.message)
+
+            vm.testConnection("100.64.0.9", "9912", null, "a-different-token")
+
+            assertEquals("a second tap moved the state off the busy row", ConnectionState.Testing, vm.state.value)
+        } finally {
+            release.countDown()
+        }
+
+        val row = awaitRow(vm, "the first test's row")
+        assertEquals("Mission Control answered — daemon 1.4, protocol 1.0", row.message)
+        assertEquals("a second tap ran a second handshake", 1, checks.get())
+        // The guard returned before any write, so the second tap's fields never reached the store either.
+        assertEquals("100.64.0.5", stored().daemonHost)
+        assertEquals(9911, stored().daemonPort)
+        assertEquals("sekrit", stored().daemonToken)
+    }
+
+    // Brief: "Run it off the main thread." Both halves of the action — the settings write and the handshake
+    // that waits for it — ran on the injected worker dispatcher, and the thread that asked for the test
+    // appears in neither.
+    @Test
+    fun theConnectionTestRunsOffTheCallingThread() {
+        val writes = CopyOnWriteArrayList<String>()
+        store = newStoreRecordingItsWrites("off-thread.preferences_pb", writes)
+        val callingThread = Thread.currentThread().name
+        val checkThread = AtomicReference<String>()
+        val vm = newVm {
+            checkThread.set(Thread.currentThread().name)
+            ConnectionOutcome.Connected(daemonVersion = "1.4", protocolVersion = "1.0")
+        }
+
+        vm.testConnection("100.64.0.5", "9911", null, "sekrit")
+
+        awaitRow(vm, "the row the worker produced")
+        assertTrue("the thread that ran this test is named like the worker", !callingThread.startsWith(WORKER_THREAD))
+        val ran = checkThread.get() ?: throw AssertionError("the fake handshake never ran")
+        assertTrue("the handshake ran on $ran, not on the worker", ran.startsWith(WORKER_THREAD))
+        assertTrue("the handshake ran on the thread that asked for it ($ran)", ran != callingThread)
+        assertEquals("the action wrote host, port and token", 3, writes.size)
+        for ((index, thread) in writes.withIndex()) {
+            assertTrue("settings write $index ran on $thread, not the worker", thread.startsWith(WORKER_THREAD))
+            assertTrue("settings write $index ran on the caller ($thread)", thread != callingThread)
+        }
+    }
+
+    // Brief: "If the owner has unsaved edits in the connection fields, they are saved first." The fields hold
+    // a host, port and token the store has never seen; the fake handshake reads the store back, so what it
+    // finds is what the action had already written and finished waiting for.
+    @Test
+    fun theSettingsInTheFieldsAreSavedBeforeTheCheckRuns() {
+        store = newStore("saved-first.preferences_pb")
+        runBlocking {
+            store.setDaemonHost("10.0.0.1")
+            store.setDaemonPort(8737)
+            store.setDaemonToken("the-old-token")
+        }
+
+        val seen = AtomicReference<Settings>()
+        val vm = newVm {
+            seen.set(withTimeout(WAIT_MS) { store.settings.first() })
+            ConnectionOutcome.Connected(daemonVersion = "1.4", protocolVersion = "1.0")
+        }
+
+        vm.testConnection("100.64.0.9", "9912", null, "the-new-token")
+
+        awaitRow(vm, "the row the handshake produced")
+        val atCheckTime = seen.get() ?: throw AssertionError("the fake handshake never read the store")
+        assertEquals(
+            "the handshake aimed at the host in the fields, not the stored one",
+            "100.64.0.9",
+            atCheckTime.daemonHost
+        )
+        assertEquals("the handshake aimed at the port in the fields", 9912, atCheckTime.daemonPort)
+        assertEquals("the handshake aimed at the token in the fields", "the-new-token", atCheckTime.daemonToken)
+
+        // What the action does not save: an invalid port is never stored, so it reports the field's own error
+        // instead of checking against the last port that was good.
+        val checks = AtomicInteger()
+        val check: DaemonCheck = {
+            checks.incrementAndGet()
+            ConnectionOutcome.Connected(daemonVersion = "1.4", protocolVersion = "1.0")
+        }
+        val badPort = newVm(check)
+        badPort.testConnection("100.64.0.77", "not-a-port", "Port must be a number from 1 to 65535", "the-new-token")
+        val row = awaitRow(badPort, "the port row")
+        assertEquals("Port must be a number from 1 to 65535", row.message)
+        assertEquals("an invalid port opened a socket", 0, checks.get())
+        assertEquals("the garbage port reached the store", 9912, stored().daemonPort)
+        assertEquals("the host behind an invalid port reached the store", "100.64.0.9", stored().daemonHost)
+
+        // A blank field is the same: it names the setting, reaches no seam, and does not wipe the store.
+        val blankHost = newVm(check)
+        blankHost.testConnection("", "9912", null, "the-new-token")
+        assertEquals(
+            "No daemon host — set the PC's address",
+            awaitRow(blankHost, "the missing-host row").message
+        )
+        assertEquals("a blank field reached the seam", 0, checks.get())
+        assertEquals("a blank field wiped the stored host", "100.64.0.9", stored().daemonHost)
     }
 
     private companion object {
