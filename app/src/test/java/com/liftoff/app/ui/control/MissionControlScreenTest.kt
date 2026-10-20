@@ -1,11 +1,19 @@
 package com.liftoff.app.ui.control
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
 import com.liftoff.app.data.ImportResult
@@ -312,6 +320,75 @@ class MissionControlScreenTest {
                 buttonBounds.bottom < coachTop,
             )
         }
+    }
+
+    // =========================================================================
+    // aConnectionResultRowIsDrawnFromTheState — the brief's "a result row drawn from the state", plus the
+    // decision "What the button looks like while the test runs". Render-only: the section is handed each
+    // state in turn, so no field is typed and no daemon is asked. Idle carries no message and draws no row;
+    // Testing keeps the label, leaves the button unpressable, and puts the busy words in the ruled row under
+    // it; the answer the test chose takes that same row, with the client's reason muted beneath it. The dim
+    // and the unpressable look are the one `enabled` flag the button's own label colour reads.
+    // =========================================================================
+
+    @Test
+    fun aConnectionResultRowIsDrawnFromTheState() {
+        var shown by mutableStateOf<ConnectionState>(ConnectionState.Idle)
+        // The Column is the card's own container. The root content stacks its children at the origin, so
+        // without it the row is measured on top of the button instead of under it.
+        composeRule.setContent {
+            com.liftoff.app.ui.theme.LiftoffTheme {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    key(shown) {
+                        ConnectionSection(state = shown, onTestConnection = {})
+                    }
+                }
+            }
+        }
+
+        val button = composeRule.onNodeWithText("TEST CONNECTION")
+
+        // Idle hands the section no message, so it draws no row.
+        button.assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText(BUSY_ROW).assertDoesNotExist()
+        composeRule.onNodeWithText(OFFLINE_ROW).assertDoesNotExist()
+
+        composeRule.runOnIdle { shown = ConnectionState.Testing }
+        waitForRow(BUSY_ROW)
+
+        // The busy look: the label is still there and the button cannot be pressed.
+        val busyButton = button.assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithText(OFFLINE_ROW).assertDoesNotExist()
+        val busyBounds = composeRule.onNodeWithText(BUSY_ROW).assertIsDisplayed().getBoundsInRoot()
+        assertTrue(
+            "the busy words sit in the ruled row under the button",
+            busyBounds.top > busyButton.getBoundsInRoot().bottom,
+        )
+
+        composeRule.runOnIdle {
+            shown = ConnectionState.Result(message = OFFLINE_ROW, note = UNREACHABLE_REASON)
+        }
+        waitForRow(OFFLINE_ROW)
+        composeRule.onNodeWithText(BUSY_ROW).assertDoesNotExist()
+
+        // The answer took the busy row's place instead of adding a second row, and its reason rides under
+        // the rule rather than inside the row.
+        val resultBounds = composeRule.onNodeWithText(OFFLINE_ROW).assertIsDisplayed().getBoundsInRoot()
+        val drift = resultBounds.top - busyBounds.top
+        assertTrue(
+            "the result row is drawn where the busy row was",
+            drift > (-1).dp && drift < 1.dp,
+        )
+        val noteBounds = composeRule.onNodeWithText(UNREACHABLE_REASON)
+            .assertIsDisplayed()
+            .getBoundsInRoot()
+        assertTrue(
+            "the client's reason is drawn under the row it explains",
+            noteBounds.top > resultBounds.bottom,
+        )
+
+        // An answer is not a test in progress, so the card's action is pressable again.
+        button.assertIsDisplayed().assertIsEnabled()
     }
 
     private fun assertDoesNotExist(text: String, ignoreCase: Boolean = false) {
@@ -662,5 +739,9 @@ class MissionControlScreenTest {
         private const val EXPORTED_ROW = "Exported the whole database."
         private const val REFUSAL_MESSAGE =
             "Import needs an empty database. This phone already has training data."
+        // The busy words are read off the state the section is handed, not retyped here.
+        private val BUSY_ROW = ConnectionState.Testing.message
+        private const val OFFLINE_ROW = "Mission Control offline — check the PC and Tailscale"
+        private const val UNREACHABLE_REASON = "Failed to connect to /100.64.0.5:9911"
     }
 }
