@@ -111,6 +111,79 @@ in Liftoff's `app/build.gradle.kts`** → no new dependency for this run.
   `./gradlew :app:assembleDebug :app:testDebugUnitTest`. No env vars set, so `LiveCoachTest`
   skips itself there.
 
+## The gate this run is held to (`.rho/runs/copy-the-rho-client-into-liftoff-774c/verify.sh`)
+
+Read the committed file; this is its name list as of `run: verify`. Method names are fixed — a work step may move a
+method between classes but may not rename it. Class names are checked as a whole class ("ran, and nothing in it was
+skipped or failed"); method names are matched across every `TEST-*.xml`, so which class each sits in is the
+implementer's call.
+
+New methods that do not exist yet (7 — these are what make the script fail today):
+- `helloSuccessReportsTheDaemonsVersionAndProtocolVersion`
+- `theHelloNamesTheClientLiftoffAndCarriesTheStoredToken`
+- `aProtocolMajorMismatchIsReportedAsAMismatchAndNamesBothVersions`
+- `aConnectionNobodyAcceptsIsReportedAsUnreachableWithinTheChecksTimeout`
+- `emptySettingsAreReportedAsNotConfiguredAndOpenNoConnection`
+- `aRejectedTokenIsReportedAsAuthenticationRejectedNotUnreachable`
+- `theContainerBuildsTheConnectionCheckFromTheStoredSettings`
+
+Already green, named only as guards: `exportedV1SchemaMatchesDatabase`, `coachPackageHasNoAndroidImports`, and the
+classes `AppContainerTest`, `MissionControlScreenTest`, `MissionControlViewModelTest`, `EquipmentViewModelTest`,
+`DatabaseExportTest`, `DatabaseImportTest`, `BackupRoundTripTest`, `BackupImportRoomTest`, `BackupViewModelTest`,
+`CoachReplySemanticTest`, `CoachPromptGoldenFileTest`, `CoachSchemaLoadTest`, `InFlightScreenTest`,
+`LiftoffShellTest`, `MainActivityTest`.
+
+Non-test checks the script runs: the CI gate (`:app:assembleDebug :app:testDebugUnitTest`, `--no-build-cache`,
+retried only on the known flake or a build/hang); each copied file diffed against upstream rho at the commit its own
+header names, with package/import lines stripped from both sides; `ARCHITECTURE.md` has no `com.liftoff.app.nabu`
+mention left and its `com.liftoff.app.rho` **table row** (looked up with `grep -m1 -E '^\|[^|]*com\.liftoff\.app\.rho'`,
+so a renamed prose line elsewhere cannot be mistaken for the row) has a status cell that is not the `—` marker and
+carries a 40-hex commit that exists in rho; a DESIGN.md amendment bullet naming both `nabu` and `rho`.
+
+Deliberately **not** checked (see the script's header): any UI test; that the fake is a MockWebServer WebSocket or
+that the tests match rho's style; rho's UI/outbox/push being absent (a file-existence check); line endings
+(`.gitattributes eol=lf` makes a worktree check unable to fail); the plan's second mismatch case and the check
+closing its socket (plan decisions the owner reviews); "no DI framework"; the wording of the renamed
+ARCHITECTURE.md row beyond the package name itself; the Room column — see the schema note below.
+
+## Facts verified while writing the gate (2026-10-20)
+
+- **`git -C C:/Users/corpo/Documents/projects/rho show "<sha>:<path>"` works** in Git Bash, and so does
+  `ls-tree -r --name-only <sha> -- <dir>` and `cat-file -e "<sha>^{commit}"`. The known Windows problem is
+  `git show branch:path` *inside this repo*; a different repo addressed with `-C` is fine.
+- rho's client tree at `ffce07d3…`: `MainActivity.kt`, `net/DaemonClient.kt`, `data/{Mirror,Outbox,OutboxWorker,
+  SessionRepository}.kt`, `notify/{Push,PushService}.kt`, `protocol/{Events,Projection,RpcCodes,Stats,Status}.kt`,
+  `settings/Settings.kt`, `ui/` (14 files). Only `net/DaemonClient.kt` + `protocol/{Events,RpcCodes}.kt` are wanted.
+- **The fidelity diff works**: header comment + `sed 's/^package com\.rho\.client/package com.liftoff.app.rho/'` +
+  the same for `^import com\.rho\.client`, then strip every `package`/`import` line from both sides and `diff`.
+  Verified on all three files: 335 / 208 / 43 body lines, byte-identical.
+- **ARCHITECTURE.md's package table**: `awk -F'|'` on a row gives `$4` = the "Exists yet?" cell. The nabu row today
+  reads `| \`com.liftoff.app.nabu\` | Copied nabu \`DaemonClient\` and protocol types. No changes to upstream nabu. | — |`
+  — its cell is the em-dash not-yet marker, which is what the gate rejects.
+- **DESIGN.md's amendments section holds 2 bullets today** (newest 2026-10-06, `design/`); neither mentions `rho`
+  or a rename, so the gate's DESIGN.md check fails on the untouched tree.
+- **`app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json` is tracked** and Room regenerates it on every compile
+  (`room.schemaLocation = "$projectDir/schemas"`, `app/build.gradle.kts:12`). It contains `nabuSessionId` 3×.
+  **The gate does not grep it** — grepping a generated file for a column name dictates how the data layer is written.
+  What catches the rename the brief forbids is the gate's compile: `GenerationDaoTest.kt:46,59`,
+  `DatabaseExportTest.kt:126` and `BackupRoundTripTest.kt:279,287,295` all build a `Generation` with the
+  `nabuSessionId` property by name and one reads it back, so renaming it stops `:app:compileDebugUnitTestKotlin` and
+  the gate fails. A rename that keeps the Kotlin property and changes only `@ColumnInfo(name = …)` is invisible to
+  every test (`exportedV1SchemaMatchesDatabase` only asserts table and key names are present in that JSON, not
+  columns) and is caught only by review.
+
+- **`set -euo pipefail` + a plain assignment `x="$(cmd | head -1)"` aborts the whole script when the pipeline fails**
+  (verified: `grep` finding nothing, or `find` on a missing directory, under `pipefail`). `local x="$(…)"` does *not*
+  abort. Every assignment in verify.sh whose pipeline may legitimately find nothing therefore ends in `|| true`.
+- **The gate as verify.sh runs it works on this machine**: `bash gradlew.sh --stop`, `rm -rf` the results dir, then
+  `timeout 1800 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache` — `:app:testDebugUnitTest`
+  executed (55 s warm, 2 m 18 s cold), reports written, `gate attempt 1 passed`.
+- **verify.sh run against the untouched tree** (detached, `app/build/verify-probe2.log`): gate passed, 18 checks
+  passed, **13 failed, `EXIT=1`** — the 7 named tests that do not exist yet, the 3 copied files, 2 ARCHITECTURE.md
+  checks and the DESIGN.md amendment. Its positive paths were checked against scratch fixtures under `app/build/vf/`
+  (a faithful copy of the three upstream files passes the fidelity loop; a body edit or a bogus 40-hex commit fails
+  it; a `✅` row with a real commit and a rename bullet naming both names pass the two doc checks).
+
 ## Hazards already known on this machine
 
 - MockWebServer: use a `Dispatcher`, never one enqueued response for two connections.
