@@ -4,7 +4,7 @@ Six tasks, in the plan's order. Each ends in a commit. Read `brief.md`, `plan.md
 before starting; the map already records the rho paths, the compile set, the daemon's behaviour and
 the machine's Gradle recipe, so do not re-derive them.
 
-- [ ] Copy rho's daemon client and protocol files into `com.liftoff.app.rho`
+- [x] Copy rho's daemon client and protocol files into `com.liftoff.app.rho`
   Copy exactly three files from the rho checkout at commit
   `ffce07d38c0eba572f1b751701293ba0cf8b0fb6` into `app/src/main/java/com/liftoff/app/rho/`:
   `net/DaemonClient.kt`, `protocol/Events.kt`, `protocol/RpcCodes.kt`. Change only the `package`
