@@ -75,7 +75,7 @@ named files only; never touch `verify.sh`.
   --no-build-cache` reports 0 failures and 0 errors with all three names present in the XML. If a case cannot see
   the card in the taller window, use `performScrollTo` in that case rather than making the window taller.
 
-- [ ] 5. Record export and import as built in ARCHITECTURE.md (`578d3b5`)
+- [x] 5. Record export and import as built in ARCHITECTURE.md (`578d3b5`)
   Cherry-pick `578d3b5` ("docs: record export and import as built in M1 and M5") with its original message. It
   rewrites two status cells in `ARCHITECTURE.md`'s milestone table and nothing else: M1 becomes `Done — test
   connection comes later; export and import are built`, M5 drops "its Mission Control actions come next" and ends
