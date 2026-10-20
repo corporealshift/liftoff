@@ -67,7 +67,7 @@ and every class under `com.liftoff.app.rho`: those must keep running and passing
   '*LiftoffShellTest*'` (all in one invocation) reports 0 failures, that name present, and every existing
   section-head `assertIsDisplayed` still passing at the `w411dp-h2800dp` qualifiers.
 
-- [ ] 4. The row drawn from the state, and the busy look
+- [x] 4. The row drawn from the state, and the busy look
   The brief's second Robolectric requirement, on the section task 3 added: a result row and the busy row drawn from
   the state the section is given, with no typing and no daemon. Files: `MissionControlScreenTest.kt` and, if the
   section needs one, a seam that lets the test hand it a chosen state (the plan's render-only shape: the state in
