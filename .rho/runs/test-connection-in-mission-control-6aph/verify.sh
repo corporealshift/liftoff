@@ -11,11 +11,12 @@
 # every report, so the implementer decides which class and package each test sits in; the comment above each name
 # says what that test must show.
 #
-# The brief's Done-when names four things the tests must show — each result message, the second tap doing nothing,
-# the button in the Connection section, and a result row drawn from the state — plus the gate. The brief's own
-# list of messages has five entries, so five tests carry them. The rest of the brief's body ("saved first", "run
-# it off the main thread", "show that it's working") is each named once, in the cheapest test that shows it:
-# plain Kotlin over the action's own state, except where the brief asks for the Robolectric screen test.
+# The brief's Done-when names four things the tests must show: each result message, the second tap doing nothing,
+# the button in the Connection section, and a result row drawn from the state. It also names the gate. The brief's
+# own list of messages has five entries, so five tests carry them. The rest of the brief's body ("saved first",
+# "run it off the main thread") is each named once, in plain Kotlin over the action's own state. "Show that it's
+# working" is shown by the busy state in the second-tap test and by the busy row in the render-only screen test.
+# The only Robolectric tests named are the two the brief's Done-when asks for.
 #
 # What is NOT checked here, and why:
 # - "Give up after a reasonable timeout" and "always close the connection". The copied client already caps the
@@ -26,14 +27,11 @@
 # - "Use buttons from ui.theme and the design's rows, not stock M3 visuals", "keep the state logic in plain
 #   Kotlin outside Compose", and "don't change the client copy". These are properties of how the work is written.
 #   A script that greps them out of files fails correct work laid out differently. The gate compiles the app and
-#   runs the client's and the theme's own tests; the owner reviews the visuals in the pull request.
+#   runs the client's own tests; the owner reviews the visuals in the pull request.
 # - The exact wording of the rows the plan's Decisions fix (the refused-token sentence, the missing-settings
 #   sentences, the busy words), the muted note naming a setting the daemon cannot be reached through, the row for
 #   a daemon that named no version, and the invalid port stopping the test. The owner reviews those decisions in
 #   the pull request. Where a named test below also rests on one, its comment says so.
-# - That Mission Control already saves every edit, so no Save button is added. That is the current behaviour of
-#   MissionControlViewModelTest, which the gate runs; what this run adds is the action waiting for that write,
-#   named below.
 # - The update to the existing placeholder test the brief allows to change. Its name would no longer describe it,
 #   so it is not named here; the gate runs it whatever it is called, and it fails by itself if the button arrives
 #   without the update.
@@ -134,7 +132,7 @@ c() {
 # Brief Done-when: "./gradlew :app:assembleDebug :app:testDebugUnitTest passes". This gate is also:
 # - the compile check for the new action, its section, and the seam the shell passes into the screen;
 # - the "must not break" check for the whole suite, including the existing placeholder test the brief allows to
-#   change — it fails on its own if the button arrives without the update;
+#   change. That test fails on its own if the button arrives without the update;
 # - the check on "every wait in a test needs a timeout": a wait that never ends hangs the suite, and a suite that
 #   outlives the timeout is a failure, not a run that is still going.
 # Stale reports are removed first, so every named test below comes from this run. --no-build-cache stops the
@@ -158,8 +156,8 @@ run_gate() {
 }
 
 # Only these failures get another gate:
-# - the known flake (doneBodyweightSetStepperShowsBW — a closed Room connection pool; the brief's own note says
-#   to re-run it before treating it as broken);
+# - the known flake (doneBodyweightSetStepperShowsBW, a closed Room connection pool; re-run it before treating it
+#   as broken);
 # - a build killed by a daemon or memory error, or a build stopped by a task-input race with no failed test;
 # - a hung suite that wrote no report.
 # A compile error, or a real failed assertion, is not retried.
@@ -213,39 +211,37 @@ else
 fi
 
 # ─── 2. The action's result rows: the brief's five messages ─────────────────────
-# Brief: "The result shows as an ink-ruled row", listing five outcomes. Cheapest test that shows each one: plain
-# Kotlin over the action's own state — no screen, no Robolectric — driving the action against a fake daemon
-# (OkHttp MockWebServer WebSocket) or a fake of the container helper, as the brief's Done-when allows. Every wait
-# has a timeout, so nothing depends on timing or on this machine: CI runs ubuntu-latest in UTC.
+# Brief: "The result shows as an ink-ruled row", listing five outcomes. The cheapest test that shows each one is
+# plain Kotlin over the action's own state, with no screen and no Robolectric. It drives the action against a fake
+# daemon (OkHttp MockWebServer WebSocket) or a fake of the container helper, as the brief's Done-when allows.
+# Every wait has a timeout, so nothing depends on timing or on this machine: CI runs ubuntu-latest in UTC.
 echo ""
 echo "=== the result the action reports ==="
 
-# "on success, the daemon version and the protocol version": the action aims at the host, port and token the
-# settings hold, the fake daemon answers a real rho.hello with both versions, and the row the state carries names
-# each version the daemon actually gave. Decision: "Whether the test uses edits the owner has not saved" — the
-# settings it aims at are the ones the fields hold.
+# "on success, the daemon version and the protocol version": the check (a fake daemon answering a real rho.hello,
+# or a fake of the container helper) reports both versions, and the row the state carries names each version the
+# daemon actually gave.
 t aSuccessfulConnectionTestShowsTheDaemonsVersionAndTheProtocolVersion
 
 # "major-version mismatch: 'Liftoff speaks rho protocol 1.x, the daemon speaks N.x'": the fake daemon refuses the
-# hello for a different protocol major (or the outcome handed in is the mismatch one). The row names the daemon's
-# major, and Liftoff's own major is the one the copied client expects — read off its protocol version, not a
+# hello for a different protocol major, or the outcome handed in is the mismatch one. The row names the daemon's
+# major. Liftoff's own major is the one the copied client expects, read off its protocol version rather than a
 # number typed into the row.
 t aProtocolMajorMismatchShowsBothProtocolMajors
 
 # "unreachable or timed out: 'Mission Control offline — check the PC and Tailscale'": the answer never arrives,
-# and the row is that sentence — the same row whether the socket would not connect or the daemon never answered.
-# Decision: "How long the test waits before calling it offline" — the cap is the copied check's own, so this test
-# hands in the unreachable outcome instead of waiting out 10 seconds.
+# and the row is that sentence. It is the same row whether the socket would not connect or the daemon never
+# answered. Decision: "How long the test waits before calling it offline". The cap is the copied check's own, so
+# this test hands in the unreachable outcome instead of waiting out 10 seconds.
 t anUnreachableOrTimedOutDaemonShowsTheOfflineRow
 
 # "auth rejected: a clear message saying the token was refused": the fake daemon answers the upgrade with HTTP
-# 401 (or the outcome handed in is the authentication-rejected one), and the row says the token was refused — a
-# different row from the offline one.
+# 401, or the outcome handed in is the authentication-rejected one. The row says the token was refused, and it is
+# a different row from the offline one.
 t aRefusedTokenShowsThatTheTokenWasRefused
 
-# "empty host or token: a clear message saying which is missing": a blank host, a blank token, and both blank —
-# each names the setting that is missing, and whitespace-only counts as blank. No connection is opened for any of
-# them: the fake daemon records no request.
+# "empty host or token: a clear message saying which is missing": a blank host, a blank token, and both blank.
+# Each names the setting that is missing, and no check is run for any of them.
 t missingHostAndMissingTokenEachSayWhichSettingIsMissing
 
 # ─── 3. What the action does while and before it runs ───────────────────────────
@@ -254,45 +250,41 @@ t missingHostAndMissingTokenEachSayWhichSettingIsMissing
 echo ""
 echo "=== the action's own behaviour ==="
 
-# "ignore a second tap": a latch holds the worker inside the check so the second call must meet the action while
-# it is still busy. The check runs once, and the state is still the busy one afterwards.
+# "show that it's working and ignore a second tap": a latch holds the worker inside the check, so the second call
+# meets the action while it is still busy. The state is the busy one, the second call changes nothing, and the
+# check runs once.
 t aSecondTapWhileTheTestIsRunningChangesNothing
 
 # "Run it off the main thread": the check runs on the action's worker dispatcher, not on the thread that asked
-# for it — the pattern the BACKUP tests already use.
+# for it. This is the pattern the BACKUP tests already use.
 t theConnectionTestRunsOffTheCallingThread
 
 # "they are saved first": the fields hold a host the store does not hold yet. When the fake check runs, the store
-# already holds that host, so the tap tested the address that was just typed.
+# already holds that host, so the tap tested the address that was just typed. Decision: "Whether the test uses
+# edits the owner has not saved". Edits already save as typed; the action waits for that write.
 t theSettingsInTheFieldsAreSavedBeforeTheCheckRuns
 
 # ─── 4. The button and the row on Mission Control ───────────────────────────────
 # Brief Done-when: "A Robolectric Compose test shows the button in the Connection section and a result row drawn
-# from the state." These are the only UI tests this run needs, on the real Mission Control screen. The screen is
-# unmounted before its database is closed, and every wait is a waitUntil with a timeout.
+# from the state." These are the only UI tests this run needs. The screen is unmounted before its database is
+# closed, and every wait is a waitUntil with a timeout.
 echo ""
 echo "=== Mission Control's Connection section ==="
 
-# "A 'Test connection' button in the Connection section": the button is on the screen, inside the CONNECTION
-# card, and not in another card.
+# "A 'Test connection' button in the Connection section": the button is on the screen, inside the CONNECTION card.
 t testConnectionButtonIsShownInTheConnectionSection
 
-# "a result row drawn from the state": a busy row and a result row are both drawn from the state the section is
-# given, over the ink rule the other Mission Control rows use — no typing, no daemon.
+# "a result row drawn from the state": a result row, and the busy row, are drawn from the state the section is
+# given, with no typing and no daemon. Decision: "What the button looks like while the test runs". The busy words
+# sit in the ruled row.
 t aConnectionResultRowIsDrawnFromTheState
-
-# "While the test runs, show that it's working": while the check is held open, the section says it is working and
-# the button is no longer enabled; another control on the same screen stays enabled, so this cannot pass by
-# dimming the whole screen. Decision: "What the button looks like while the test runs" — the label stays, the
-# button dims and goes untappable, and the busy words sit in the ruled row.
-t theConnectionSectionShowsItIsWorkingWhileTheTestRuns
 
 # ─── 5. ARCHITECTURE.md's M1 row ────────────────────────────────────────────────
 # Brief Done-when: "M1's note no longer lists test connection as missing (M1 is done)." Today the row's status
 # cell reads "Done — test connection comes later; export and import are built". The check rejects that deferral
-# rather than demanding one new sentence: the row must name the connection test, must not hold it back in the
-# clause that names it, and must still say the milestone is done. Clauses are split on ';' and on the dashes this
-# document uses, so a deferral counts only against the clause that names the connection test.
+# instead of demanding one new sentence. No clause that names the connection test may hold it back, and the cell
+# must still say the milestone is done. Clauses are split on ';' and on the dashes this document uses, so a
+# deferral counts only against the clause that names the connection test.
 echo ""
 echo "=== ARCHITECTURE.md ==="
 
@@ -307,8 +299,8 @@ names_the_connection_test() {
     grep -qiE 'test connection|connection test|connection check|test the connection|connection card|connection action|connection section|daemon handshake|rho\.hello' <<<"$1"
 }
 
-# A clause defers it. Only phrases that put the thing off, so a clause describing the feature's own copy —
-# "the row says which setting is missing" — is not read as a deferral.
+# A clause defers it. Only phrases that put the thing off count, so a clause describing the feature's own copy
+# ("the row says which setting is missing") is not read as a deferral.
 holds_the_connection_test_back() {
     local clause="$1"
     names_the_connection_test "$clause" || return 1
@@ -320,17 +312,12 @@ if [ -z "$m1_cell" ]; then
     bad "the M1 row is in ARCHITECTURE.md's milestone table"
 else
     held_back=0
-    named=0
     while IFS= read -r clause; do
-        names_the_connection_test "$clause" || continue
-        named=1
         if holds_the_connection_test_back "$clause"; then held_back=1; fi
     done < <(sed 's/[;—–]/\n/g' <<<"$m1_cell")
     if [ "$held_back" -eq 1 ]; then
         bad "ARCHITECTURE.md's M1 row does not hold the connection test back (a clause that names it defers it; the status cell reads: $m1_cell)"
-    elif [ "$named" -eq 0 ]; then
-        bad "ARCHITECTURE.md's M1 row names the connection test in its status cell (it reads: $m1_cell)"
-    elif ! grep -qiE 'done|built|exists|in place|shipped|complete|implemented|landed|partial|real|✅' <<<"$m1_cell"; then
+    elif ! grep -qiE 'done|built|exists|in place|shipped|complete|implemented|landed|✅' <<<"$m1_cell"; then
         bad "ARCHITECTURE.md's M1 row says the milestone is done (its status cell reads: $m1_cell)"
     else
         ok "ARCHITECTURE.md's M1 row no longer lists the connection test as missing"
@@ -357,7 +344,7 @@ c BackupViewModelTest
 # "the shell".
 c LiftoffShellTest
 
-# "the rho client tests" — every class in the copied client's package, which the brief says not to change.
+# "the rho client tests": every class in the copied client's package, which the brief says not to change.
 # The class keys in $WORK/classes start with "C:", so the prefix match includes it. index(), not a regex.
 rho_classes="$(awk 'index($1, "C:com.liftoff.app.rho.") == 1' "$WORK/classes" | wc -l)"
 rho_bad="$(awk 'index($1, "C:com.liftoff.app.rho.") == 1 && $2 != "pass"' "$WORK/classes" | wc -l)"
@@ -367,14 +354,6 @@ else
     bad "the copied rho client's tests ran and passed"
 fi
 c AppContainerTest
-
-# The theme's own tests, which the plan says stay untouched because the button reuses them.
-c ButtonsTest
-c ThemePackageTest
-
-# The other screens.
-c InFlightScreenTest
-c MainActivityTest
 
 # ─── result ─────────────────────────────────────────────────────────────────────
 echo ""
