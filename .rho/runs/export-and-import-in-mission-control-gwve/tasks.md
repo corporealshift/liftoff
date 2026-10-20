@@ -105,7 +105,7 @@ named files only; never touch `verify.sh`.
   Done when the fix commit is in and `:app:testDebugUnitTest --tests '*LiftoffShellTest*' --no-build-cache` reports
   0 failures and 0 errors with `systemBackFromATabGoesToLaunchpad` present.
 
-- [ ] 7. Run the full gate twice back to back, cold
+- [x] 7. Run the full gate twice back to back, cold
   Blocked by tasks 1–6. Run `bash gradlew.sh --stop`, `mkdir -p app/build`, delete
   `app/build/test-results/testDebugUnitTest`, then run
   `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache` detached
