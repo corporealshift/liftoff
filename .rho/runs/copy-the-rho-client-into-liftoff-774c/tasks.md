@@ -37,7 +37,7 @@ the machine's Gradle recipe, so do not re-derive them.
   Done when: `bash gradlew.sh :app:assembleDebug` still passes and the check's shape can express
   all six outcomes the next task tests. Commit `rho: add the connection check`.
 
-- [ ] Write the fake daemon and the check's tests
+- [x] Write the fake daemon and the check's tests
   `app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt`, modelled on rho's own
   (`app/build/rho-src/FakeDaemon.kt`): a `MockWebServer` whose `Dispatcher` answers **every**
   request with `withWebSocketUpgrade`, records every frame and the request headers, can answer an
