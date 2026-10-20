@@ -10,7 +10,7 @@ MissionControlScreenTest, MissionControlViewModelTest, SettingsStoreTest, Equipm
 DatabaseImportTest, BackupRoundTripTest, BackupImportRoomTest, BackupViewModelTest, LiftoffShellTest, AppContainerTest
 and every class under `com.liftoff.app.rho`: those must keep running and passing, none of them needs a task.
 
-- [ ] 1. `ConnectionViewModel` and the five result rows
+- [x] 1. `ConnectionViewModel` and the five result rows
   The plain-Kotlin state holder for the action, modelled on `BackupViewModel` (no Android imports, no ViewModel
   superclass): a sealed state with Idle / busy / result and the message the card draws; the busy guard; the action
   that takes the screen's current draft (host, port text, port error, token); the `ConnectionOutcome` → row mapping.
