@@ -57,7 +57,7 @@ the machine's Gradle recipe, so do not re-derive them.
   Done when: running just these classes writes `TEST-*.xml` with all six names present and passing,
   and the run finishes instead of hanging. Commit `rho: test the connection check against a fake daemon`.
 
-- [ ] Wire `AppContainer` to the settings it already stores
+- [x] Wire `AppContainer` to the settings it already stores
   `app/src/main/java/com/liftoff/app/AppContainer.kt` gains, still hand-built with no DI framework:
   a way to build the connection check from the current `settingsStore` settings (daemon host, port,
   token — host and token trimmed, rho's URL form `http://<host>:<port>/`), and a factory for an
