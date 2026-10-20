@@ -60,7 +60,7 @@ named files only; never touch `verify.sh`.
   `:app:testDebugUnitTest --tests '*MissionControlScreenTest*' --no-build-cache` reports 0 failures and 0 errors
   with `MissionControlScreenTest` present in the XML.
 
-- [ ] 4. Bring in the three BACKUP cases driven from the screen test (`601e8d8`)
+- [x] 4. Bring in the three BACKUP cases driven from the screen test (`601e8d8`)
   Blocked by task 3: this patch is written against `75e7490`'s version of `MissionControlScreenTest.kt` and does not
   apply on its own. Cherry-pick `601e8d8` ("test: drive the BACKUP card's rows, its buttons and its busy guard from
   the screen test") with its original message. It changes only
