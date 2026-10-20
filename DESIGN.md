@@ -785,6 +785,17 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
+- **2026-10-20 — the harness was renamed: `nabu` is now `rho`.** The daemon, its sessions and
+  its protocol methods are the same things under the new name, so every `nabu` in §1–§16 reads as
+  `rho`. Its methods carry the `rho.` prefix (`rho.hello`, `rho.session.create`,
+  `rho.session.send_prompt`, `rho.session.resume`, `rho.session.stop`, `rho.rpc.ui.ask`,
+  `rho.rpc.permission.request`), its config file is `~/.rho/config.json`, and its checkout is
+  `C:/Users/corpo/Documents/projects/rho`, whose Android client sits at
+  `clients/android/app/src/main/java/com/rho/client/`. Liftoff's copy of that client therefore
+  lives in `com.liftoff.app.rho` (ARCHITECTURE.md). The approved text above is left as it was
+  approved, under the old name, rather than restated. Two names stay as written: the Room column
+  `nabuSessionId` and the export key `nabu_session_id`, because renaming either changes a stored
+  schema.
 - **2026-10-06 — §9 and §12 point at `design/`.** The visual direction was chosen (B,
   "Space Age") and its tokens, mockups and launcher icon were added under `design/`, so the
   screens in §9 have a concrete look to build to.
