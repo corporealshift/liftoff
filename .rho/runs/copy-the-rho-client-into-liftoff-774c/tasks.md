@@ -19,7 +19,7 @@ the machine's Gradle recipe, so do not re-derive them.
   `app/src/main/java/com/liftoff/app/rho/` each with its header; the commit names only those three
   files. Commit `rho: copy the daemon client`.
 
-- [ ] Write the connection check in `com.liftoff.app.rho`
+- [x] Write the connection check in `com.liftoff.app.rho`
   One new plain-Kotlin file in the same package (the session names it; it is not part of the copied
   client and is not `DaemonClient.kt`). It owns its own handshake: its own `OkHttpClient` with the
   check's own timeouts and an overall 10-second cap, its own WebSocket, and the first `rho.hello`
