@@ -43,3 +43,40 @@ Run: test-connection-in-mission-control-6aph. Branch off `842f3b7` ("Copy the rh
 - `app/src/test/java/com/liftoff/app/rho/DaemonConnectionCheckTest.kt` — 7 tests, plain JUnit 4, already covering Connected / mismatch / NotConfigured / bad host / 401 against `FakeDaemon`.
 - `app/src/test/java/com/liftoff/app/AppContainerTest.kt` line 67 — `theContainerBuildsTheConnectionCheckFromTheStoredSettings` already drives `container.daemonConnectionCheck()` against `FakeDaemon` with padded stored host/token.
 - `MissionControlViewModelTest.kt`, `EquipmentViewModelTest.kt`, `BackupViewModelTest.kt`, `BackupImportRoomTest.kt`, `settings/SettingsStoreTest.kt` — must keep passing.
+
+## verify.sh — what the gate is (committed this step)
+
+`.rho/runs/test-connection-in-mission-control-6aph/verify.sh`. Machinery copied from
+`.rho/runs/copy-the-rho-client-into-liftoff-774c/verify.sh` (one `index_reports` awk pass over
+`app/build/test-results/testDebugUnitTest/TEST-*.xml` → `$WORK/methods` and `$WORK/classes` as
+`<name> <pass|fail|skipped>`; `t <method>` and `c <ClassName>` look names up there; scratch under
+`app/build/verify-work`). Gate = `timeout 2400 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`,
+one run, retried only for the `doneBodyweightSetStepperShowsBW` flake, a daemon/OOM/"could not clear"/
+"which doesn't exist" input race, or a hung suite that wrote no report.
+
+Class keys in `$WORK/classes` are `C:<fully.qualified.ClassName>`, so a package prefix match must be
+`index($1, "C:com.liftoff.app.rho.") == 1` — without the `C:` it matches nothing.
+
+Names it requires (all new; none exists in `app/src/test` today), each matched by method name across every report:
+`aSuccessfulConnectionTestShowsTheDaemonsVersionAndTheProtocolVersion`,
+`aProtocolMajorMismatchShowsBothProtocolMajors`, `anUnreachableOrTimedOutDaemonShowsTheOfflineRow`,
+`aRefusedTokenShowsThatTheTokenWasRefused`, `missingHostAndMissingTokenEachSayWhichSettingIsMissing`,
+`aSecondTapWhileTheTestIsRunningChangesNothing`, `theConnectionTestRunsOffTheCallingThread`,
+`theSettingsInTheFieldsAreSavedBeforeTheCheckRuns`, `testConnectionButtonIsShownInTheConnectionSection`,
+`aConnectionResultRowIsDrawnFromTheState`, `theConnectionSectionShowsItIsWorkingWhileTheTestRuns`.
+Class-checked: MissionControlScreenTest, MissionControlViewModelTest, SettingsStoreTest, EquipmentViewModelTest,
+DatabaseExportTest, DatabaseImportTest, BackupRoundTripTest, BackupImportRoomTest, BackupViewModelTest,
+LiftoffShellTest, AppContainerTest, ButtonsTest, ThemePackageTest, InFlightScreenTest, MainActivityTest, plus
+every class under `com.liftoff.app.rho`.
+
+ARCHITECTURE.md check (script lines 290-339): reads only the status cell (`awk -F'|' '{print $4}'`) of the line
+starting `| M1 |`, splits it on `;` and on the em/en dashes **only** (splitting on commas would break the plan's
+own wording "test connection, export and import are built"), and fails if a clause naming the connection test
+carries a deferral word (`later|to come|comes next|not built|not yet|…`), if no clause names it at all, or if the
+cell says nothing about the milestone being done. A deferral in a clause that does not name the connection test is
+ignored. Verified against candidate wordings in `app/build/m1words.sh`: today's row fails, the plan's row passes.
+
+Probe run against untouched code (2026-10-20, `app/build/verify-probe.log`): gate attempt 1 passed —
+`BUILD SUCCESSFUL in 2m 22s`, `46 actionable tasks: 46 executed`, 71 reports, 548 tests / 0 failures / 0 skipped —
+then **17 passed, 12 failed, EXIT=1**: all 11 new names "did not run" and the M1 row failing on its current
+wording. Every must-not-break check already passes, so none of them can block a later step.
