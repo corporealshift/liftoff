@@ -32,7 +32,7 @@ and every class under `com.liftoff.app.rho`: those must keep running and passing
   those five names in that class's XML with `failures="0" errors="0"`, and
   `--tests '*DaemonConnectionCheckTest*'` in the same invocation is still green (the client copy is untouched).
 
-- [ ] 2. What the action does before and while it runs
+- [x] 2. What the action does before and while it runs
   The three behaviours the brief asks for that are not a message, tested over the same state holder from task 1.
   Files: `ConnectionViewModel.kt` (only what these three need: the guard, the awaited write of the draft host/port/
   token through the store before the seam is called, the worker dispatcher) and `ConnectionViewModelTest.kt`.
