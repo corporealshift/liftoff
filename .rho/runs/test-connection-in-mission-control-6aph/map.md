@@ -29,14 +29,21 @@ Run: test-connection-in-mission-control-6aph. Branch off `842f3b7` ("Copy the rh
   - line 526 `MissionControlScreenPreview` / line 553 preview copy of the CONNECTION card — previews duplicate the section, so a new row belongs in both or the preview drifts.
 - `ui/control/MissionControlViewModel.kt` (211 lines) — plain Kotlin (no Android imports), `MissionControlState` data class with `host`, `portText`, `token`, `portError`. **Every setter writes the store immediately** (`setHost`, `setToken`, `setPortText` → `scope.launch { store.set… }`), so there are no unsaved edits; an *invalid* port is deliberately not stored, and the write is async.
 - `ui/control/BackupViewModel.kt` — the shape to copy: `sealed interface …State` with `Idle / Busy / Succeeded / Failed` and a `message` the card draws; a busy guard `if (_state.value is Busy) return`; work on `scope.launch(dispatcher)` with an injected `CoroutineDispatcher` (default `Dispatchers.IO`); the messages are file-private constants.
-- `ui/control/BackupSection.kt` — the shape to copy for the UI: `BackupStatusRow` (message + a 1 dp ink rule under it = the "ink-ruled row"), `statusColor` (Muted while busy, Red on failure), and `BackupTextButton` — `ui.theme`'s `UnderlinedTextButton` with the one thing it lacks: an `enabled` flag (Muted when disabled, `clickable(role = Role.Button, enabled = …)`). It is **file-private**, so it cannot be reused from another file.
+- `ui/control/BackupSection.kt` — the shape to copy for the UI: `BackupStatusRow` (line 95; message + a 1 dp ink rule
+  under it = the "ink-ruled row"), `statusColor` (line 86; Muted while busy, Red on failure), and `BackupTextButton`
+  (line 117) — `ui.theme`'s `UnderlinedTextButton` with the one thing it lacks: an `enabled` flag (Muted when
+  disabled, `clickable(role = Role.Button, enabled = …)`). It is **file-private**, so it cannot be reused from
+  another file. `BackupSection` itself is already `internal` (line 39).
 - `ui/theme/Buttons.kt` — `PrimaryButton`, `InkButton`, `UnderlinedTextButton`; **none takes `enabled`**. Labels are uppercased by the style. `ui/theme/InkRuledListRow.kt` is the ruled-row composable for lists.
 - `ui/LiftoffShell.kt` line 111 — the only app caller of `MissionControlScreen`; it already holds `container`, so it can pass the container's helper down.
 
 ## Tests that exist
 
 - `app/src/test/java/com/liftoff/app/ui/control/MissionControlScreenTest.kt` — Robolectric (`AndroidJUnit4`, `@Config(qualifiers = "w411dp-h2800dp")` so every card is on-screen), `createComposeRule`.
-  - `showsNoUnbuiltPlaceholders` (line 260) asserts `assertDoesNotExist("Test connection", ignoreCase = true)` — **this is the test the brief allows to change**, and it will fail once the button exists because the theme renders labels uppercased ("TEST CONNECTION").
+  - `showsNoUnbuiltPlaceholders` (line 260) asserts `assertDoesNotExist("Test connection", ignoreCase = true)` at
+    line 268 — **this is the test the brief allows to change**, and it will fail once the button exists because the
+    theme renders labels uppercased ("TEST CONNECTION"). `assertDoesNotExist(text, ignoreCase)` is a private helper
+    at line 272 that wraps `onNodeWithText(...).assertIsDisplayed()`.
   - `launchScreen(store, backupViewModel = null)` (line 557) is the composition helper; `mounted`/`contentMounted` unmount the screen in `@After` **before** `database.close()`.
   - The BACKUP tests own their view model's scope (`Dispatchers.Unconfined`) and a single-thread worker dispatcher, and `backupVm(...)` builds one with fake work.
 - `app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt` — MockWebServer WebSocket fake: `answerHelloWithProtocol(...)`, `refuseProtocolMismatch(...)`, `refuseUpgrade` (401 at the upgrade), `host()`, `port()`, `requestCount()`, `framesFor(...)`, `stop()` (closes both ends or `server.shutdown()` hangs).
@@ -44,9 +51,11 @@ Run: test-connection-in-mission-control-6aph. Branch off `842f3b7` ("Copy the rh
 - `app/src/test/java/com/liftoff/app/AppContainerTest.kt` line 67 — `theContainerBuildsTheConnectionCheckFromTheStoredSettings` already drives `container.daemonConnectionCheck()` against `FakeDaemon` with padded stored host/token.
 - `MissionControlViewModelTest.kt`, `EquipmentViewModelTest.kt`, `BackupViewModelTest.kt`, `BackupImportRoomTest.kt`, `settings/SettingsStoreTest.kt` — must keep passing.
 
-## verify.sh — what the gate is (committed this step)
+## verify.sh — what the gate is
 
-`.rho/runs/test-connection-in-mission-control-6aph/verify.sh`. Machinery copied from
+`.rho/runs/test-connection-in-mission-control-6aph/verify.sh`. HEAD is `d95d34c` "run: verify.sh rewritten by claude
+review", which came **after** the first `run: verify` commit, so read the script itself, not the list below from the
+first version. Machinery copied from
 `.rho/runs/copy-the-rho-client-into-liftoff-774c/verify.sh` (one `index_reports` awk pass over
 `app/build/test-results/testDebugUnitTest/TEST-*.xml` → `$WORK/methods` and `$WORK/classes` as
 `<name> <pass|fail|skipped>`; `t <method>` and `c <ClassName>` look names up there; scratch under
@@ -57,17 +66,20 @@ one run, retried only for the `doneBodyweightSetStepperShowsBW` flake, a daemon/
 Class keys in `$WORK/classes` are `C:<fully.qualified.ClassName>`, so a package prefix match must be
 `index($1, "C:com.liftoff.app.rho.") == 1` — without the `C:` it matches nothing.
 
-Names it requires (all new; none exists in `app/src/test` today), each matched by method name across every report:
+Names it requires today (all new; none exists in `app/src/test` as of `842f3b7`), each matched by method name across
+every report — `grep -n '^t \|^c ' verify.sh` is the authoritative list:
 `aSuccessfulConnectionTestShowsTheDaemonsVersionAndTheProtocolVersion`,
 `aProtocolMajorMismatchShowsBothProtocolMajors`, `anUnreachableOrTimedOutDaemonShowsTheOfflineRow`,
 `aRefusedTokenShowsThatTheTokenWasRefused`, `missingHostAndMissingTokenEachSayWhichSettingIsMissing`,
 `aSecondTapWhileTheTestIsRunningChangesNothing`, `theConnectionTestRunsOffTheCallingThread`,
 `theSettingsInTheFieldsAreSavedBeforeTheCheckRuns`, `testConnectionButtonIsShownInTheConnectionSection`,
-`aConnectionResultRowIsDrawnFromTheState`, `theConnectionSectionShowsItIsWorkingWhileTheTestRuns`.
+`aConnectionResultRowIsDrawnFromTheState`.  **Ten, not eleven**: the rewrite dropped
+`theConnectionSectionShowsItIsWorkingWhileTheTestRuns` — the busy look is now carried by
+`aConnectionResultRowIsDrawnFromTheState` ("the busy words sit in the ruled row").
 Class-checked: MissionControlScreenTest, MissionControlViewModelTest, SettingsStoreTest, EquipmentViewModelTest,
 DatabaseExportTest, DatabaseImportTest, BackupRoundTripTest, BackupImportRoomTest, BackupViewModelTest,
-LiftoffShellTest, AppContainerTest, ButtonsTest, ThemePackageTest, InFlightScreenTest, MainActivityTest, plus
-every class under `com.liftoff.app.rho`.
+LiftoffShellTest, AppContainerTest, plus every class under `com.liftoff.app.rho`. (The rewrite dropped the earlier
+version's ButtonsTest / ThemePackageTest / InFlightScreenTest / MainActivityTest class checks.)
 
 ARCHITECTURE.md check (script lines 290-339): reads only the status cell (`awk -F'|' '{print $4}'`) of the line
 starting `| M1 |`, splits it on `;` and on the em/en dashes **only** (splitting on commas would break the plan's
@@ -76,7 +88,16 @@ carries a deferral word (`later|to come|comes next|not built|not yet|…`), if n
 cell says nothing about the milestone being done. A deferral in a clause that does not name the connection test is
 ignored. Verified against candidate wordings in `app/build/m1words.sh`: today's row fails, the plan's row passes.
 
-Probe run against untouched code (2026-10-20, `app/build/verify-probe.log`): gate attempt 1 passed —
+Probe run against untouched code (2026-10-20, `app/build/verify-probe.log`, run against the **first** version of the
+script, the 11-name one): gate attempt 1 passed —
 `BUILD SUCCESSFUL in 2m 22s`, `46 actionable tasks: 46 executed`, 71 reports, 548 tests / 0 failures / 0 skipped —
-then **17 passed, 12 failed, EXIT=1**: all 11 new names "did not run" and the M1 row failing on its current
-wording. Every must-not-break check already passes, so none of them can block a later step.
+then **17 passed, 12 failed, EXIT=1**: all the new names "did not run" and the M1 row failing on its current
+wording. Every must-not-break check already passes, so none of them can block a later step. The rewrite changed only
+the test list and the class list, so this probe still describes how the current script fails on untouched code.
+
+## Tasks (written this step)
+
+`.rho/runs/test-connection-in-mission-control-6aph/tasks.md` — 7 tasks. Ownership of the ten names: task 1 the five
+result-row names (`ConnectionViewModelTest`), task 2 the three behaviour names (same class), task 3
+`testConnectionButtonIsShownInTheConnectionSection` (and every call site the new screen parameter changes), task 4
+`aConnectionResultRowIsDrawnFromTheState`, task 5 ARCHITECTURE.md's M1 row, task 6 the whole gate run once.
