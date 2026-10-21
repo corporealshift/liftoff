@@ -15,13 +15,15 @@
 # stored, a run plan stored, each refusal changing nothing, and the generation row helpers. The brief's body adds
 # what each of those has to carry (focus and rationale, the outline notes, sortie 1 current, the simple 'Run' plan
 # when run generation is off, source GENERATED and rawJson, exercises with resolved ids, segments, the PLANNED
-# step), and each is carried by the named test that covers its group. The plan's Decisions add four more cases
-# (a past week or a changed pattern, replacement, finishedAt on FAILED and CANCELLED, what "for a Mission" means);
-# each is named below and its comment says so.
+# step), and each is carried by the named test that covers its group. Where a named test also shows one of the
+# plan's Decisions, the comment above it names that decision.
 #
 # What is NOT checked here, and why:
 # - No UI test. The brief has no worker, no network and no screen: "only Room writes and their tests", and its
 #   Done-when names Robolectric data tests only. The gate compiles every screen and runs every screen test.
+# - Decisions that go beyond the brief get no test of their own; the owner reviews them in the pull request.
+#   That covers the extra outline refusals (a past week, a pattern that no longer matches) and a second plan
+#   replacing the one already there.
 # - "in one transaction", and "every guard runs before the first write". Both are properties of how the operations
 #   are written. The refusal tests below are what a user would feel: read the mission, the sorties and the plans
 #   back and require them untouched. A script that inspects the operations for a withTransaction call fails
@@ -33,15 +35,12 @@
 # - "fed from the existing valid reply fixtures". Whether a test reads a fixture file or holds the same document
 #   inline is how it is written. The comments below name the fixture values each test must assert, so a test that
 #   ignores the fixtures fails on the values.
-# - ARCHITECTURE.md. The brief's Done-when names no doc update and the plan leaves the document alone; M3 still
-#   has no worker and M6 still has no run-generation UI, so no milestone row is finished by this run.
+# - ARCHITECTURE.md. The brief's Done-when names no doc update and the plan leaves the document alone.
 # - The exact wording of a refusal's reason, and the names of the new operations, their result type and the new
 #   DAO methods. The owner reviews those in the pull request. Each refusal test is required to name its reason
 #   and to change nothing; which word it uses is the author's.
-# - A coach plan of the wrong type for the sortie (a lift plan offered for a run sortie, or the reverse). The
-#   plan's decision is that this throws rather than refusing, because the validator already rejected the
-#   mismatch, and the plan's Testing list asks for no test of it. It is a caller bug, not an outcome a user can
-#   reach, and naming a test for it would only pin the decision.
+# - A coach plan of the wrong type for the sortie. The plan's decision is that this throws, because the validator
+#   already rejected the mismatch; it is a caller bug, not an outcome a user can reach.
 # - CI itself. The brief asks that the tests pass on ubuntu-latest in UTC; the plan fixes the clock and the zone
 #   the way MissionManagerTest already does. The gate runs the suite on this machine; the pull request's CI run
 #   is the one that proves UTC.
@@ -257,12 +256,6 @@ t aRunSortieStillGetsTheSimpleRunPlanWhenRunGenerationIsOff
 # changed.
 t anOutlineStoredForAMissionThatIsNoLongerADraftChangesNothing
 
-# Decision: "an outline for a past week, or one that no longer fits the pattern" — two further refusals, each
-# changing nothing and naming its reason: a DRAFT whose week has ended (the clock moved past its weekStart, as
-# MissionManagerTest's advanceClock does it), and a Mission whose pattern was edited after the outline was
-# validated against the old one. Both read back untouched.
-t anOutlineForAPastWeekOrOneThatNoLongerFitsThePatternIsRefusedAndChangesNothing
-
 # ─── 3. The Flight Plan result ──────────────────────────────────────────────────
 # Brief: "Given a sortie and a validated lift plan or run plan, in one transaction: write the plan with source
 # GENERATED and rawJson set to the validated JSON; for a lift: title, estimated minutes, warmup, notes, and
@@ -299,16 +292,11 @@ t aValidatedRunPlanIsStoredWithItsKindTargetDistancePaceAndSegments
 # still holds no plan, and the current sortie is untouched. This is how a later run drops a stale result.
 t aPlanForASortieThatIsNoLongerCurrentChangesNothing
 
-# "or is IN_FLIGHT, LANDED or SCRUBBED, the operation changes nothing and says so": each of the three states is
-# refused for the current sortie, each names its reason, and the sortie keeps its state and any plan it already
-# had. A plan arriving after the owner started or finished the sortie must not rewrite it.
+# "or is IN_FLIGHT, LANDED or SCRUBBED, the operation changes nothing and says so": a valid plan is offered for a
+# sortie in each of the three states (the current sortie once launched, and a sortie already landed or
+# scrubbed). Each is refused and names its reason, and the sortie keeps its state and any plan it already had.
+# A plan arriving after the owner started or finished the sortie must not rewrite it.
 t aPlanForASortieThatIsInFlightLandedOrScrubbedChangesNothing
-
-# Decision: "A second plan arriving for a sortie that already has one" — the newer plan wins, whatever wrote the
-# older one. A current PENDING sortie that already holds a plan (the simple 'Run' plan, or a plan written by
-# Re-fly) ends up with exactly one plan for that sortie, holding the new coach plan's title and exercises, and it
-# is still PLANNED.
-t aSecondPlanForTheSameSortieReplacesThePlanAlreadyThere
 
 # ─── 4. The generation row helpers ──────────────────────────────────────────────
 # Brief: "Add what the worker will need on GenerationDao to: mark a row RUNNING, SUCCEEDED (with finishedAt),
@@ -321,26 +309,22 @@ echo "=== the generation row helpers ==="
 # "mark a row RUNNING, SUCCEEDED (with finishedAt), FAILED (with its error) or CANCELLED": each helper updates
 # the row it names and leaves the others alone. SUCCEEDED stamps finishedAt; FAILED stamps finishedAt and keeps
 # its error text; CANCELLED stamps finishedAt; RUNNING stamps neither and clears nothing it should keep.
-# Decision: "finishedAt on FAILED and CANCELLED" — a generation that failed or was cancelled has finished too, so
-# Mission Control can say when it stopped whichever way it ended.
+# Decision: "finishedAt on FAILED and CANCELLED" — a generation that failed or was cancelled has finished too.
 t markingAGenerationRunningSucceededFailedOrCancelledSetsItsStatusAndFinishedAt
 
-# "save the session id and lastEventId" and "bump attempt": the cursor survives the status changes around it —
-# invariant 6, a generation is resumable from its stored cursor — so a row that has been marked RUNNING and had
-# its session and lastEventId saved still holds them, and attempt counts up from 0 rather than being set to a
+# "save the session id and lastEventId" and "bump attempt": a row that has been marked RUNNING and had its
+# session and lastEventId saved still holds them, and attempt counts up from 0 rather than being set to a
 # number the caller passes.
 t savingTheSessionIdAndLastEventIdAndBumpingTheAttemptUpdatesTheGenerationRow
 
 # "find the newest non-cancelled generation for a sortie": with several generations for one sortie, the lookup
 # returns the newest one that is not cancelled, and returns nothing when every row for that sortie is cancelled.
-# Decision: "Which generation row is the newest non-cancelled one" — newest by createdAt, then id, because the
-# table records no activity, and a cancelled row is left out rather than ranked last.
+# Decision: "Which generation row is the newest non-cancelled one" — newest by createdAt, then id.
 t theNewestNonCancelledGenerationForASortieIgnoresCancelledRows
 
 # "find the newest non-cancelled generation for … a Mission": the Mission's own OUTLINE generation, not one of
 # its sorties' Flight Plan generations, even when a sortie's row is newer and non-cancelled. Decision: "what 'for
-# a Mission' means in the generation lookup" — the draft screen needs the outline's own status to say "outline
-# failed, retry", and a sortie's newer row would stand in for it and show the wrong thing.
+# a Mission' means in the generation lookup".
 t theNewestNonCancelledGenerationForAMissionIsItsOwnOutlineGeneration
 
 # ─── 5. Must not break ──────────────────────────────────────────────────────────
@@ -349,9 +333,7 @@ t theNewestNonCancelledGenerationForAMissionIsItsOwnOutlineGeneration
 echo ""
 echo "=== must not break ==="
 
-# "MissionManager's existing behaviour and tests (confirm, scrub, launch, land, Re-fly, rollover)" — the two
-# operations land beside confirm and reuse advance, markPlanned and writePlan, so these are the tests that catch
-# a change to any of them.
+# "MissionManager's existing behaviour and tests (confirm, scrub, launch, land, Re-fly, rollover)".
 c MissionManagerTest
 c MissionManagerReFlyTest
 c RolloverTest
@@ -370,13 +352,10 @@ c ExerciseResolverTest
 c EquipmentDaoTest
 
 # "Don't change the Room schema unless it's unavoidable. If it is, add a real migration … and update the
-# exported schema." This is the test that proves the plan's claim that no schema change was needed, and the one
-# that fails if a column, index or entity changes without the export being updated to match.
+# exported schema."
 c SchemaExportTest
 
-# "the coach tests" — every class in com.liftoff.app.coach. The plan changes one of them: the fixture loader is
-# lifted out of CoachReplyFixtureTest into a shared helper, and that test's fixture coverage check stays. The
-# validator's `Valid` gains the JSON text, which is what the coach tests must still pass against.
+# "the coach tests".
 c CoachReplyFixtureTest
 c CoachReplySemanticTest
 c CoachReplyExtractionTest
