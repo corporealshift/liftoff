@@ -6901,3 +6901,291 @@ Done when:
 - ARCHITECTURE.md's package table and milestones reflect what is built: M1–M6 are done, and M0 says the template, schemas, validator and prompt builder exist and that the live measurement (LiveCoachTest) hasn't been run.
 - `./gradlew :app:assembleDebug :app:testDebugUnitTest` passes (use `bash gradlew.sh ...` on this machine).
 
+**Check:** not met. Built and merged: the Space Age design and theme, the navigation shell, Mission Control (settings, equipment, Test connection, export/import), the Room data layer, the Mission/sortie domain logic with rollover, the Launchpad and Mission screens, In-Flight for lifts and runs (notes, Land, Scrub, reopening after a kill), Landed history and detail, Re-fly, and the pure-Kotlin coach work (coach/ template, schemas, schema checker, validator with fixtures, prompt builder with golden files, copied rho client, result storing in Room). Still missing: (1) The GenerationWorker. The round-15 run finished only task 1 of 7, extending FakeDaemon so it scripts a whole rho turn (commit 6b1063e on the unmerged branch rho/generationworker-core-flow-j5ca). It then blocked twice on task 2. The session log shows why: the local model spent 50 turns re-reading DaemonClient.kt, Events.kt, CoachModels.kt and others, losing them to context compaction each time, and wrote no file before the loop guard stopped it. The task was not impossible. It needed too many files read at once. (2) There is no enqueue helper, no resilience (resume, reconnect, offline, 8-attempt cap) and no cancel/supersede. (3) Nothing queues generations from Confirm or from sorties becoming current. Lift sorties stay PENDING, and the 'Generate run plans' toggle has no generated path. (4) There is no Regenerate, no 'Coach is planning' or 'Mission Control offline' status and no §5.4 Re-fly rule on the Launchpad. (5) ARCHITECTURE.md marks M3 and M6 not started and M0 partial. This round breaks the worker into pieces that each need only a few files. Each brief carries the API facts the code needs, so the model doesn't have to dig for them. The first run cherry-picks the finished FakeDaemon and adds only a Room-free, WorkManager-free turn runner. The worker's success path, its failure paths, enqueueing, resilience, cancel/supersede, queueing and the Launchpad status follow as separate small runs.
+
+## Round 16
+
+### 1. Coach turn runner over the copied rho client
+
+Build the piece that runs one coach turn in a rho session: create or reuse the session, send a prompt, watch events until the turn ends, and hand back what happened. It uses no Room and no WorkManager. A later run builds the GenerationWorker on top of it.
+
+Why this is small: an earlier attempt at the whole worker stalled because it had to read too many files at once. Everything this run needs is in this brief and in the four files named below. Don't read DESIGN.md, the rho protocol spec outside the repo, or the data and coach packages. Write the new source file early, then build.
+
+**Step 1: bring in the finished fake daemon.** Commit 6b1063e ('test: teach FakeDaemon to script a whole rho turn') on the local branch rho/generationworker-core-flow-j5ca changes only `app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt`. Cherry-pick it, keeping its message. Don't bring any `.rho/runs/` file from that branch. After the pick, `DaemonConnectionCheckTest` and `AppContainerTest` must still pass. The fake already scripts turns: `script(DaemonScript.Assistant(text), DaemonScript.State("idle"))`, plus `DaemonScript.Ask` and `DaemonScript.Permission`. It also offers `logEvent(type, data)` to seed earlier history, `frames` / `framesFor(method)` to see what the client sent, `answers` to see how the client answered daemon requests, `sessionId` (default "session-1"), and `host()`, `port()`, `start()` and `stop()`.
+
+**Step 2: the turn runner**, a new file in `com.liftoff.app.work` with no Android imports. Its inputs are a `DaemonClient` the caller has already connected (`com.liftoff.app.rho.net.DaemonClient`), an existing session id or null, the session options for a new session (workspace path, labels, description), the prompt text, a `client_id` string, the stored event cursor or null, a turn time limit, and two callbacks: one when a session id is first known, one each time the cursor moves. It returns the session id, the final cursor, how the turn ended (idle, completed, blocked, paused, error, or timed out) and the text of the last assistant message after our prompt (or null).
+
+Protocol facts, all checked against the copied client and the fake:
+- `client.callOrThrow(method, params: JsonElement)` returns the result or throws `DaemonException` (its `code` is the daemon's code, and `isPermanent` covers `RpcCodes.PERMANENT`). `client.respond(id, result)` answers a request the daemon sent.
+- `client.incoming` is a SharedFlow with no replay. Start collecting it before subscribing or prompting, because the fake pushes the turn's events while it is still handling `send_prompt`. Buffer them in a Channel and judge them only once you hold the prompt's `event_id`.
+- `rho.session.create` takes `{workspace, options: {permission_mode: "auto", labels: [...], description}}` and returns `{session_id, event}`. Call it only when there is no session id, and report the id through the callback before anything else.
+- `rho.session.subscribe` takes `{session_id}`.
+- `rho.session.send_prompt` takes `{session_id, content, client_id}` and returns `{event_id}`. A repeated `client_id` returns the original id and is not delivered twice.
+- `rho.session.events_after` takes `EventsAfterParams(sessionId, lastEventId)` and returns `EventsAfterResult(events, synced)`. An unknown cursor is refused with `RpcCodes.CURSOR_UNKNOWN`; then refetch from null. After the prompt, call it once to catch up, and pass those events through the same handling as pushed ones (skip any id already seen).
+- Pushed events arrive as `Incoming.Event(SessionEvent(sessionId, event))`. `Event.id` strings sort in log order. `event.payload<MessageData>()` gives `role` and `content`; `event.payload<StateChangeData>()` gives `to`.
+- The turn ends at the first `state_change` whose id is greater than our prompt's `event_id` and whose `to` is idle, completed, blocked, paused or error. A state_change from before our prompt never ends it.
+- `Incoming.Ask`: respond with `{"answer": "Decide yourself; there is nobody to ask."}`. `Incoming.Permission`: respond with `{"verdict": "deny"}`. Keep waiting after both.
+- Also add a small helper that sends `rho.session.stop` `{session_id}`; the worker calls it later.
+
+Tests, plain JUnit or Robolectric, against the fake. Every wait has a timeout, and use `runBlocking` rather than virtual time, since the fake runs on real threads. They must also pass on the GitHub CI runner (ubuntu-latest, UTC). Cover:
+- a fresh turn: one create frame carrying the workspace, permission_mode auto, the labels and the description; the prompt frame carrying the given client_id; the returned text equal to the scripted assistant message; ended idle; the callbacks receiving the session id and a final cursor
+- an existing session id and cursor: no create frame
+- a state_change to idle logged before the prompt (`logEvent`) does not end the turn
+- a scripted Ask is answered with the sentence above, a scripted Permission is answered deny, and each turn still ends idle with the reply
+- a turn scripted to end blocked, and one ending paused, report that end
+- a turn with no end inside a short limit reports timed out
+- the stop helper sends one `rho.session.stop` frame
+
+Update ARCHITECTURE.md's `com.liftoff.app.work` row ("Exists yet?" column, currently `—`) to name the turn runner. Don't touch the M3 row.
+
+Must not break: the copied files in `com.liftoff.app.rho` (unchanged, per ARCHITECTURE invariant 3), Test connection and its tests, and the build gate. Follow CLAUDE.md: `area: lowercase summary` commits, named files only, LF endings. The full gate can hang once for about 5 minutes on this machine. That is a known flake: run it detached and re-run it rather than investigate.
+
+Done when: the fake-daemon commit is cherry-picked, the turn runner and its tests are in, the ARCHITECTURE.md row is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 2. GenerationWorker: one successful generation end to end
+
+Add `GenerationWorker`, a WorkManager `CoroutineWorker` in `com.liftoff.app.work`. Given a `Generation` row id, it runs one coach turn and stores a valid reply. This run covers only the success path. A later run adds repairs and the failure outcomes.
+
+Read only what's named here. An earlier attempt stalled because it read too much at once. Write the worker file early, then build.
+
+Build on:
+- the turn runner already in `com.liftoff.app.work`, with its fake-daemon tests. It creates or reuses the rho session, sends the prompt with a client_id, follows events until the turn ends, answers ui.ask and permission.request, and returns the session id, the cursor, the end state and the last assistant text. It also has a stop helper.
+- `app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt`, which scripts turns: `script(DaemonScript.Assistant(text), DaemonScript.State("idle"))`.
+- `AppContainer`, reached in the worker as `(applicationContext as LiftoffApplication).container`. It has `database`, `settingsStore`, `missionManager`, `daemonConnectionCheck()` (whose `check()` returns `ConnectionOutcome.Connected` or another outcome) and `daemonClient()` (unconnected; the worker connects and closes it).
+- `GenerationDao`: `get(id)`, `markRunning(id)`, `saveSessionId(id, s)`, `saveLastEventId(id, e)`, `markSucceeded(id, finishedAt)`, `markFailed(id, error, finishedAt)`. The rho session id lives in the `nabuSessionId` column; the row also has `kind` (OUTLINE or FLIGHT_PLAN), `missionId`, `sortieId?`, `status`, `lastEventId?` and `attempt` (starts at 0).
+- `PromptInputLoader(db, settingsStore)`: `outlineInput(missionId)` and `flightPlanInput(missionId, sortie.index)`. `CoachPromptBuilder.prompt(input)`.
+- `CoachReplyValidator.validate(text, GenerationContext(kind, mission.pattern, sortie?.type, activeEquipmentKeys, settings.sortieLengthMinutes))` returns `CoachReplyResult.Valid` or `CoachReplyResult.Invalid(errors)`. The active keys come from `equipmentDao().observeActive().first()`.
+- `MissionManager.storeOutline(missionId, valid)` and `storePlan(sortieId, valid)` return `StoreOutcome.Stored` or `StoreOutcome.Refused(reason)`.
+
+The worker:
+- Missing row: `Result.failure()`, and do nothing. A row already SUCCEEDED, FAILED or CANCELLED: leave it unchanged and return `Result.success()`.
+- Mark the row RUNNING. Run the connection check, and connect the client only on `Connected`. For any other outcome, return `Result.retry()` for now.
+- Run the turn with:
+  - workspace = `settings.coachWorkspacePath`
+  - labels `["liftoff", "liftoff:outline"]` or `["liftoff", "liftoff:flight-plan"]` (never starting with `run:`)
+  - a one-line description
+  - client_id `<generationId>-<attempt>`
+  - the row's stored session id and cursor
+  - a 20-minute limit
+  - saving the session id and cursor to the row through the callbacks
+- On an idle or completed end with a valid reply: store it and mark the row SUCCEEDED. Then stop the rho session. Close the client on every path. Other ends return `Result.retry()` for now; the next run refines them.
+
+Test traps, each found by reading this code:
+1. Use one container only. Tests must use `(ApplicationProvider.getApplicationContext<Context>() as LiftoffApplication).container`, never a second `AppContainer(context)`. A second one would open a second DataStore and a second Room database on the same files.
+2. Nothing seeds equipment. Insert the four active keys `barbell`, `dumbbell`, `bench` and `pullup-bar` (`CoachFixtures.KEYS`) through `equipmentDao().insertAll`, or the lift fixture fails as unknown equipment.
+3. `container.missionManager` uses the real clock. Seed with `onAppOpen()`, so the DRAFT is for the current week. A fixed past date makes `storeOutline` refuse ('the week … has ended').
+4. Seeding for each case:
+   - outline: `onAppOpen()` only, then a row with kind OUTLINE and no sortie.
+   - lift: `onAppOpen()`, `confirm(id)`, then `scrub` the index-0 sortie. Index 1 is then current and PENDING.
+   - run: `settingsStore.setGenerateRunPlans(true)` before `onAppOpen()`, then `confirm(id)`. Index 0 is a current PENDING run.
+   Check the default pattern if a case needs a lift or a run at a given index.
+5. Write the fake's `host()` and `port()`, a non-blank token and a coach workspace path into `settingsStore`. Build the worker with `TestListenableWorkerBuilder<GenerationWorker>(context).setInputData(...)`, and run `doWork()` inside `runBlocking { withTimeout(...) }`. In teardown, stop the fake, then close the database, delete `liftoff.db` and delete the settings file, the way the existing screen tests do.
+
+Replies come from `CoachFixtures.fixture(OUTLINE | LIFT_PLAN | RUN_PLAN)`.
+
+Tests, Robolectric `@Config(sdk = [34])`:
+- outline happy path: `Result.success()`, the row SUCCEEDED with `nabuSessionId` and `lastEventId` set, the Mission ACTIVE with sortie 1 current
+- lift Flight Plan happy path: the sortie PLANNED, and the plan stored with source GENERATED
+- run Flight Plan happy path: the same, for the run
+- a row that already has a session id: no `rho.session.create` frame
+- a missing row returns failure, and a SUCCEEDED row is left unchanged
+- one `rho.session.stop` frame after success
+
+Every wait has a timeout, and nothing depends on timing, so the tests pass on the GitHub CI runner (ubuntu-latest, UTC). Don't change the Room schema. `coach` stays free of Android imports.
+
+Must not break: the turn runner's tests, the coach, data and domain tests, Test connection, and the build gate. Follow CLAUDE.md conventions. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: the tests above pass, ARCHITECTURE.md's `work` row names the worker, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 3. GenerationWorker: repairs and the ways a generation fails
+
+Finish the outcome handling in `GenerationWorker` (`com.liftoff.app.work`). It already runs one turn through the turn runner and stores a valid reply. Its Robolectric tests run it against `FakeDaemon` using the application's own container. Reuse that test class's setup; don't build a new one. Read only the worker, its test, the turn runner and `CoachPromptBuilder.repairPrompt`. Everything else you need is below.
+
+Add:
+- **Invalid reply** (`CoachReplyResult.Invalid(errors)`): call `generationDao().bumpAttempt(id)`, then send `CoachPromptBuilder.repairPrompt(errors)` in the same rho session with client_id `<generationId>-<attempt>`, using the bumped attempt. Allow at most 2 repairs. If the reply is still invalid, call `markFailed` with 'invalid output' followed by the last error list, return `Result.failure()`, and store nothing.
+- **blocked**: FAILED with 'coach needed input', and `Result.failure()`.
+- **Protocol major-version mismatch** (`ConnectionOutcome.ProtocolMismatch`): FAILED with 'Liftoff speaks rho protocol 1.x, the daemon speaks N.x', where N is the daemon's major. If the daemon named no version, use the refusal's own message. Return `Result.failure()`; no session is created.
+- **A permanent refusal** from a call (`DaemonException.isPermanent`): FAILED with the daemon's message.
+- **A valid reply whose target has moved on** (`StoreOutcome.Refused(reason)`): FAILED with the reason, because retrying can never succeed.
+- **paused, error, timed out, a dropped connection, or any non-connected outcome other than a mismatch**: `Result.retry()`. Leave the row RUNNING with its session id and cursor, and no error text.
+- Stop the rho session (`rho.session.stop`) on SUCCEEDED and on every permanent failure after a session exists. Never stop it on a retry. Close the client on every path.
+
+Tests, Robolectric against the fake, with invalid replies from the fixtures in `CoachFixtures` (`BAD_JSON`, `SCHEMA_VIOLATION`, `PROSE_AROUND_JSON`). Script one turn per prompt; the fake repeats the last turn when it runs out.
+- invalid reply, then a repair, then success: two prompt frames in one session, client_ids ending `-0` then `-1`, attempt 1, row SUCCEEDED
+- two failed repairs: three prompt frames and no fourth, attempt 2, row FAILED with 'invalid output' and the last errors, nothing stored
+- blocked becomes FAILED 'coach needed input'
+- a mismatch, both through `refuseProtocolMismatch("2.0")` and `answerHelloWithProtocol("2.0")`: FAILED with the message above, and no create frame
+- paused and error each return retry with the row RUNNING and no stop frame
+- one stop frame on success and on a permanent failure
+
+Every wait has a timeout, and nothing depends on timing (CI is ubuntu-latest, UTC). Don't change the Room schema.
+
+Update ARCHITECTURE.md's M3 row to say the worker's core flow is built, with resilience, cancel, supersede and app wiring still to come.
+
+Must not break: the worker's and the turn runner's existing tests, the coach, data and domain tests, Test connection, and the build gate. Follow CLAUDE.md conventions. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass, the M3 row is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 4. Enqueue helper for coach generations
+
+Add the helper that schedules a `GenerationWorker` run for an existing `Generation` row, and expose it from `AppContainer`. `GenerationWorker` is already in `com.liftoff.app.work`, taking the generation id as input data; read its input key there. The helper only schedules. It never creates rows.
+
+Requirements:
+- unique work named `gen-<generationId>`, with `ExistingWorkPolicy.KEEP`
+- a network-connected constraint
+- exponential backoff with a 1-minute first delay
+- `AppContainer` exposes it. Get `WorkManager` only when the helper is called, so `AppContainerTest` and the screen tests need no WorkManager setup.
+
+`androidx.work:work-runtime-ktx` and `work-testing` are already dependencies. WorkManager is not initialized under Robolectric, so the test sets it up with `WorkManagerTestInitHelper.initializeTestWorkManager`.
+
+Test (Robolectric `@Config(sdk = [34])`): the request carries the name, the KEEP policy, the network constraint and the 1-minute exponential backoff. Calling the helper twice for one generation leaves exactly one work item under that name. Every wait has a timeout; CI is ubuntu-latest, UTC.
+
+Must not break: the worker's tests, `AppContainerTest`, every screen and the build gate. Follow CLAUDE.md conventions. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: the test passes, ARCHITECTURE.md's `work` row names the helper, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 5. GenerationWorker resilience: resume, reconnect and offline
+
+Make `GenerationWorker` (`com.liftoff.app.work`) pick up where it left off, and say when the coach is offline. It already runs a turn through the turn runner, repairs invalid replies, maps every outcome to SUCCEEDED, FAILED or retry, and stops the rho session at the end. Its Robolectric tests run it against `FakeDaemon` using the application's container. Reuse that setup. Read the worker, its test, the turn runner and `FakeDaemon`. You don't need DESIGN.md or the external rho spec: the rules are below.
+
+Add:
+- **paused**: send `rho.session.resume` `{session_id}`, then return `Result.retry()`.
+- **Resume after a drop or a killed worker**: a row that already has `nabuSessionId` and `lastEventId` reuses that session, never creates another, and catches up with `events_after` from the stored cursor. If the cursor is past our own prompt, still find the turn's reply. A re-sent prompt reuses the same client_id (`<generationId>-<attempt>`, with the attempt the row holds), so the daemon delivers it once.
+- **Unreachable daemon** (`ConnectionOutcome.Unreachable`, or a connect that fails): return a retry, and mark the row offline by setting `error` to exactly 'Mission Control offline' while it stays QUEUED or RUNNING. Clear the mark (back to null) as soon as a connection succeeds. Add a small public helper, e.g. `Generation.isCoachOffline`, that a later Launchpad run can call instead of comparing strings. Once WorkManager's `runAttemptCount` shows the 8th attempt has also failed to connect, mark the row FAILED with 'coach unreachable' and return failure.
+
+No Room schema change.
+
+Tests against the fake. Every wait has a timeout and nothing depends on timing (CI is ubuntu-latest, UTC).
+- paused: a `rho.session.resume` frame, then retry
+- a row with a session id and cursor, where the fake's log already holds our prompt and the reply: no create frame, the reply is stored, and `events_after` starts from the stored cursor
+- a retried send reuses the same client_id, and the fake records one message
+- an unreachable daemon (a fake that is stopped, or a closed port) marks the row offline and retries; a later successful run clears the mark
+- an unreachable daemon on the 8th attempt, built with `TestListenableWorkerBuilder.setRunAttemptCount`, becomes FAILED 'coach unreachable'
+
+Must not break: the worker's existing tests, the enqueue helper's test, the coach, data and domain tests, and the build gate. Follow CLAUDE.md conventions. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 6. Cancel and supersede coach generations
+
+Make sure a cancelled or outdated coach generation can never write a result. Build on `GenerationWorker` and its enqueue helper in `com.liftoff.app.work` (unique work `gen-<generationId>`), the stop helper next to the turn runner, `GenerationDao` (`markCancelled(id, finishedAt)`, `getNewestNonCancelledForSortie(sortieId)`, `getNewestNonCancelledOutlineForMission(missionId)`), and `AppContainer`. Reuse the worker test's setup: the application's container and `FakeDaemon`.
+
+Add:
+- **A cancel helper**, exposed from `AppContainer`. For a generation id it cancels the unique work, marks the row CANCELLED, and stops its rho session if the row has one and the daemon can be reached. If the daemon is unreachable, cancelling still succeeds locally. It does nothing to a row that is already SUCCEEDED, FAILED or CANCELLED.
+- **The worker stores only a current result.** Just before storing, the row must not be CANCELLED, and it must be the newest non-cancelled generation for its sortie (Flight Plan) or its Mission's outline (outline). Otherwise store nothing, leave the row's status alone (or mark it CANCELLED if it isn't already), stop its rho session, and return success. Do the check and the store in one Room transaction, so a cancel can't slip in between.
+
+No Room schema change.
+
+Tests (Robolectric; every wait has a timeout; CI is ubuntu-latest, UTC):
+- cancel on a row with a session: the row CANCELLED, and one `rho.session.stop` frame
+- cancel with the daemon unreachable: the row still CANCELLED
+- a worker whose row was cancelled before the turn ended stores nothing
+- a worker whose generation was superseded by a newer row for the same sortie stores nothing, and the newer row's result is still stored when it runs
+- the same for an outline superseded by a newer outline for the same Mission
+
+Update ARCHITECTURE.md's M3 row to say the worker, including resilience, cancel and supersede, is built, and that app wiring comes next.
+
+Must not break: the worker's and the enqueue helper's tests, the coach, data and domain tests, and the build gate. Follow CLAUDE.md conventions. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass, the M3 row is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 7. Queue the week's outline from Confirm
+
+Make Confirm on the Launchpad's draft ask the coach for the week's outline. Read DESIGN.md §4.2 and §7.2 (it calls the harness 'nabu'; it is now 'rho').
+
+Build on:
+- `MissionManager` (`com.liftoff.app.data`). `confirm(missionId)` today freezes the pattern, activates the Mission and makes sortie 1 current without an outline. `storeOutline(missionId, valid)` activates a DRAFT when the outline arrives.
+- the enqueue and cancel helpers on `AppContainer` (`com.liftoff.app.work`)
+- `GenerationDao` and `Generation` (kind OUTLINE)
+- the Launchpad draft (`com.liftoff.app.ui.launchpad`)
+
+Change:
+- **Confirm with a daemon host and token set** freezes the pattern, inserts an OUTLINE `Generation` row (QUEUED), and enqueues it after the transaction commits. The Mission stays DRAFT until the outline is stored.
+- **Confirm with no host or token set** queues nothing and tells the caller the coach isn't configured.
+- **'Continue without outline'** does what confirm does today (activate, sortie 1 current), and cancels any open outline generation for the Mission.
+- **'Retry'** queues a fresh outline generation after one has failed.
+- **Launchpad draft:** once confirmed and waiting, it shows 'Coach is planning the week…' and offers 'Continue without outline', so the app is never stuck. With no connection configured, it says so and offers 'Continue without outline'. After a failure it shows the reason, with Retry and 'Continue without outline'. Use the existing theme parts (`UnderlinedTextButton`, `PrimaryButton`), with no stock M3 visuals. A later run polishes the full status display.
+- The status comes live from Room. Put its derivation in plain Kotlin that a test can drive.
+
+The outline worker storing the result already activates the Mission and makes sortie 1 current; the next run queues sortie 1's Flight Plan. Don't change the Room schema unless it's unavoidable; if it is, add a real migration (never a destructive one) and update the exported schema.
+
+Tests (Robolectric, with WorkManager set up through `WorkManagerTestInitHelper`; every wait has a timeout; CI is ubuntu-latest, UTC):
+- confirm with a connection configured queues one OUTLINE row and one work item, and the Mission stays DRAFT
+- confirm without a host or token queues nothing and reports it
+- continue without outline activates the Mission and cancels the open outline row
+- retry after FAILED queues a new row
+- the draft status derivation for planning, failed and not configured
+
+Existing tests that assumed confirm activates the Mission straight away may be updated to the new behaviour or to 'continue without outline'. Say so in the PR.
+
+Must not break: the worker tests, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control and Test connection, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 8. Queue Flight Plans as sorties become current
+
+Ask the coach for a Flight Plan whenever a sortie becomes current and needs one, and honour the 'Generate run plans' toggle. Read DESIGN.md §4.3, §5.3 and §7.2 (it calls the harness 'nabu'; it is now 'rho').
+
+Build on:
+- `MissionManager` (`com.liftoff.app.data`) and `domain/SortiePlanning.kt`, whose `AwaitGeneration` branch currently does nothing. That covers `storeOutline` (makes sortie 1 current), `land`, `scrub`, `refly`, `confirm` / continue without outline, and the week-ended rollover in `onAppOpen`.
+- the enqueue and cancel helpers on `AppContainer` (`com.liftoff.app.work`). The worker already drops results that are cancelled or superseded.
+- the `generateRunPlans` setting, and the daemon host and token settings
+
+Change:
+- **When a sortie becomes current and needs generation**, insert a FLIGHT_PLAN `Generation` row for it and enqueue it after the transaction commits. That covers sortie 1 after the outline, sortie 1 after continue without outline, and the next sortie after a land or a scrub. A lift always needs one. A run needs one only when the toggle is on. With no host or token set, queue nothing.
+- **With the toggle off**, runs keep getting the simple 'Run' plan they get today. The toggle is read at that moment, and changing it never alters an existing plan.
+- **A regenerate operation** for the current sortie when it is PLANNED or PENDING. It queues a new FLIGHT_PLAN generation and cancels any open one for that sortie. The current plan stays until the new result replaces it.
+- **Cleanup**: Re-fly, scrub, land and the week-ended rollover cancel the affected sortie's open generation, so a late result can never overwrite them.
+
+Don't change the Room schema unless it's unavoidable; if it is, add a real migration (never a destructive one) and update the exported schema.
+
+Tests (Robolectric, with WorkManager set up through `WorkManagerTestInitHelper`; every wait has a timeout; CI is ubuntu-latest, UTC). Show that:
+- storing an outline queues sortie 1's Flight Plan
+- landing and scrubbing queue the next sortie's Flight Plan
+- with the toggle on, a current run queues a generation; with it off, the run gets the simple 'Run' plan and nothing is queued
+- regenerate cancels the open generation and queues a new one
+- Re-fly, scrub and rollover cancel an open generation
+- with no host or token, nothing is queued
+
+Update ARCHITECTURE.md: M6 done, and M3's wiring built.
+
+Must not break: the worker tests, Confirm's outline queueing, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass, ARCHITECTURE.md is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 9. Generation status, Regenerate and the Re-fly rule on the Launchpad
+
+Show the coach's work on the Launchpad, as DESIGN.md §9 ('Launchpad'), §5.4 and §10 describe. Read those, `design/README.md` and `design/screens/launchpad.html`. DESIGN.md calls the harness 'nabu'; it is now 'rho'.
+
+Build on:
+- the Launchpad in `com.liftoff.app.ui.launchpad` (`LaunchpadState`, `LaunchpadViewModel`, `LaunchpadScreen`), with its Draft, Planned, Pending, InFlight and Closed states. The draft already shows the outline's planning, failure and not-configured lines.
+- `MissionManager`'s regenerate, retry, Re-fly and scrub operations
+- `GenerationDao.getNewestNonCancelledForSortie`, the row's `status`, `error` (which holds the validator's error list after 'invalid output') and `nabuSessionId`, and the worker's offline helper on `Generation`
+- the theme parts (`UnderlinedTextButton`, `PrimaryButton`, ink-ruled rows)
+
+Add:
+- **Draft:** while the outline runs and the worker has marked the coach offline, show 'Mission Control offline — retrying' instead of 'Coach is planning the week…'.
+- **PLANNED:** an underlined Regenerate text button next to Scrub, as in the mockup. While a regeneration runs, the current plan stays visible and launchable, with a short 'Coach is re-planning…' line.
+- **PENDING:**
+  - 'Coach is planning…', or 'Mission Control offline — retrying'
+  - after a failure: the reason, the validator's error list when there is one, and Retry
+  - Scrub
+  - Re-fly only when the generation failed, the coach is offline, or no connection is configured (§5.4)
+  - 'View in rho', which shows the rho session id so the owner can find it in rho's app
+
+The status updates live from Room. Put the derivation in plain Kotlin that a Robolectric test can drive. Use the design's parts, with no stock M3 visuals.
+
+Tests (Robolectric; every wait has a timeout; CI is ubuntu-latest, UTC). Each status is derived from the database:
+- draft offline
+- PENDING planning, offline, and failed with errors
+- PLANNED re-planning, with Regenerate present
+- Re-fly shown only when §5.4 allows
+
+Existing Launchpad tests that assume Re-fly is always offered on PENDING may be updated to the §5.4 rule. Say so in the PR.
+
+Update ARCHITECTURE.md so the package table and milestones match what's built. M1–M6 are done. M0 says the template, schemas, validator and prompt builder exist, and that the live measurement (`LiveCoachTest`) hasn't been run.
+
+Must not break: the generation flow and worker tests, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass, ARCHITECTURE.md is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
