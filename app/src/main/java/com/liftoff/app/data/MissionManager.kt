@@ -1,6 +1,10 @@
 package com.liftoff.app.data
 
 import androidx.room.withTransaction
+import com.liftoff.app.coach.CoachLiftPlan
+import com.liftoff.app.coach.CoachOutline
+import com.liftoff.app.coach.CoachReplyResult
+import com.liftoff.app.coach.CoachRunPlan
 import com.liftoff.app.domain.MissionLifecycle
 import com.liftoff.app.domain.allSortiesDone
 import com.liftoff.app.domain.chooseReflySource
@@ -24,6 +28,16 @@ import kotlinx.coroutines.flow.first
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
+
+/**
+ * What a store operation did with the coach result it was handed. A result that arrived after the week moved
+ * on is an ordinary outcome of a background job, so it comes back as a value the worker branches on rather
+ * than an exception.
+ */
+sealed interface StoreOutcome {
+    data object Stored : StoreOutcome
+    data class Refused(val reason: String) : StoreOutcome
+}
 
 class MissionManager(
     private val db: LiftoffDatabase,
@@ -80,6 +94,43 @@ class MissionManager(
             db.missionDao().update(activeMission)
             db.sortieDao().insertAll(sorties)
             advance(missionId, settings)
+        }
+    }
+
+    /**
+     * Store a validated coach outline on a DRAFT Mission: activate it with its notes and with one sortie per
+     * pattern letter, in the pattern's own order, each carrying the focus and rationale of the outline entry at
+     * the same position; then advance, which is what makes sortie 1 current and prepares it (DESIGN.md §4.2).
+     *
+     * The three refusals — not a DRAFT, the week has ended, the outline no longer matches the pattern — change
+     * nothing, because an outline can arrive after the week moved on. A reply that is not an outline is a
+     * caller bug, so it throws rather than refusing.
+     */
+    suspend fun storeOutline(missionId: Long, valid: CoachReplyResult.Valid): StoreOutcome {
+        val settings = settingsStore.settings.first()
+        return db.withTransaction {
+            val mission = db.missionDao().get(missionId)
+                ?: return@withTransaction StoreOutcome.Refused("mission $missionId no longer exists")
+            val outline = when (val plan = valid.plan) {
+                is CoachOutline -> plan
+                else -> throw IllegalArgumentException("${plan::class.simpleName} is not an outline")
+            }
+            if (mission.status != MissionStatus.DRAFT) {
+                return@withTransaction StoreOutcome.Refused("mission is ${mission.status}, not a DRAFT")
+            }
+            if (weekHasEnded(mission.weekStart, clock.instant().atZone(zone()).toLocalDate())) {
+                return@withTransaction StoreOutcome.Refused("the week of ${mission.weekStart} has ended")
+            }
+            if (!outlineMatchesPattern(outline, mission.pattern)) {
+                return@withTransaction StoreOutcome.Refused(
+                    "the outline no longer matches the mission's pattern ${mission.pattern}"
+                )
+            }
+            val (active, sorties) = activateWithOutline(mission, outline)
+            db.missionDao().update(active)
+            db.sortieDao().insertAll(sorties)
+            advance(missionId, settings)
+            StoreOutcome.Stored
         }
     }
 
@@ -153,6 +204,57 @@ class MissionManager(
             db.sortieDao().update(markPlanned(sortie))
         }
     }
+
+    /**
+     * Store a validated coach plan on [sortieId]. `writePlan` replaces whatever plan that sortie already
+     * holds — a repair round or a retry is the normal reason a second plan arrives — and the sortie moves to
+     * PLANNED only when it was PENDING, so a plan that lands on a PLANNED sortie leaves it PLANNED.
+     *
+     * A plan for a sortie that is no longer current, or that the owner has already launched, landed or
+     * scrubbed, changes nothing and says why: a generation can outlive the moment it was asked for. A plan of
+     * the wrong type for the sortie is a caller bug — the validator already rejected that mismatch — so it
+     * throws rather than refusing.
+     */
+    suspend fun storePlan(sortieId: Long, valid: CoachReplyResult.Valid): StoreOutcome =
+        db.withTransaction {
+            val sortie = db.sortieDao().get(sortieId)
+                ?: return@withTransaction StoreOutcome.Refused("sortie $sortieId no longer exists")
+            val mission = db.missionDao().get(sortie.missionId)
+                ?: return@withTransaction StoreOutcome.Refused("sortie $sortieId has no mission")
+
+            val draft = when (val plan = valid.plan) {
+                is CoachLiftPlan -> {
+                    require(sortie.type == SortieType.LIFT) {
+                        "a lift plan cannot be stored on the ${sortie.type} sortie $sortieId"
+                    }
+                    coachLiftDraft(plan, valid.json)
+                }
+                is CoachRunPlan -> {
+                    require(sortie.type == SortieType.RUN) {
+                        "a run plan cannot be stored on the ${sortie.type} sortie $sortieId"
+                    }
+                    coachRunDraft(plan, valid.json)
+                }
+                else -> throw IllegalArgumentException(
+                    "${plan::class.simpleName} is not a flight plan"
+                )
+            }
+
+            if (mission.status != MissionStatus.ACTIVE) {
+                return@withTransaction StoreOutcome.Refused("mission is ${mission.status}")
+            }
+            if (sortie.state != SortieState.PENDING && sortie.state != SortieState.PLANNED) {
+                return@withTransaction StoreOutcome.Refused("sortie is ${sortie.state}")
+            }
+            val current = currentSortie(db.sortieDao().getForMission(mission.id))
+            if (current == null || current.id != sortieId) {
+                return@withTransaction StoreOutcome.Refused("sortie $sortieId is not the current sortie")
+            }
+
+            db.flightPlanDao().writePlan(sortieId, draft)
+            if (sortie.state == SortieState.PENDING) db.sortieDao().update(markPlanned(sortie))
+            StoreOutcome.Stored
+        }
 
     private suspend fun advance(missionId: Long, settings: Settings) {
         val mission = db.missionDao().get(missionId)!!
