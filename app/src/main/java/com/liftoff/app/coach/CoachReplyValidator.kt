@@ -38,7 +38,8 @@ object CoachReplyValidator {
             semanticErrors(document, context)
         if (errors.isNotEmpty()) return CoachReplyResult.Invalid(errors)
 
-        return CoachReplyResult.Valid(planOf(document, context))
+        // `document` is what `extract` pulled out of the reply, so its text is the validated JSON (§8).
+        return CoachReplyResult.Valid(plan = planOf(document, context), json = document.toString())
     }
 
     /**

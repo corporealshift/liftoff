@@ -33,7 +33,12 @@ sealed interface CoachPlan
  */
 sealed interface CoachReplyResult {
 
-    data class Valid(val plan: CoachPlan) : CoachReplyResult
+    /**
+     * [json] is the text of the JSON object the validator accepted, not the caller's raw reply: a
+     * reply can arrive in a code fence or with prose around it, and DESIGN.md §8's `rawJson` is the
+     * validated output.
+     */
+    data class Valid(val plan: CoachPlan, val json: String) : CoachReplyResult
 
     data class Invalid(val errors: List<String>) : CoachReplyResult
 }

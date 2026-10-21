@@ -1,8 +1,10 @@
 package com.liftoff.app.coach
 
-import com.liftoff.app.data.GenerationKind
 import com.liftoff.app.data.SortieType
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,16 +17,15 @@ import java.io.File
  * An invalid fixture asserts its exact list of lines, so a fixture that produces a second,
  * unexpected error fails as loudly as one that words its message wrongly.
  *
- * The context is the plan's: pattern `RLRLR`, the four active equipment keys, a 60-minute sortie.
- * Lift fixtures use the sortie at position 1, run fixtures the one at position 0.
- *
- * This class also owns the fixture loader every later fixture test reuses.
+ * The fixtures, the loader and the context they are checked against live in [CoachFixtures]: pattern
+ * `RLRLR`, the four active equipment keys, a 60-minute sortie, the lift sortie at position 1 and the
+ * run sortie at position 0. The data tests read the same replies through the same loader.
  */
 class CoachReplyFixtureTest {
 
     @Test
     fun outlineFixtureParsesIntoTheExpectedOutline() {
-        val plan = validPlan(OUTLINE, OUTLINE_CONTEXT) as CoachOutline
+        val plan = CoachFixtures.validPlan(CoachFixtures.OUTLINE, CoachFixtures.OUTLINE_CONTEXT) as CoachOutline
 
         assertEquals(5, plan.sorties.size)
         assertEquals(listOf(0, 1, 2, 3, 4), plan.sorties.map { it.index })
@@ -52,7 +53,7 @@ class CoachReplyFixtureTest {
 
     @Test
     fun liftPlanFixtureParsesIntoTheExpectedLiftPlan() {
-        val plan = validPlan(LIFT_PLAN, LIFT_CONTEXT) as CoachLiftPlan
+        val plan = CoachFixtures.validPlan(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT) as CoachLiftPlan
 
         assertEquals("Push + core", plan.title)
         assertEquals(65, plan.estimatedMinutes)
@@ -80,7 +81,7 @@ class CoachReplyFixtureTest {
 
     @Test
     fun runPlanFixtureParsesIntoTheExpectedRunPlan() {
-        val plan = validPlan(RUN_PLAN, RUN_CONTEXT) as CoachRunPlan
+        val plan = CoachFixtures.validPlan(CoachFixtures.RUN_PLAN, CoachFixtures.RUN_CONTEXT) as CoachRunPlan
 
         assertEquals("Tempo intervals", plan.title)
         assertEquals("tempo", plan.kind)
@@ -100,13 +101,52 @@ class CoachReplyFixtureTest {
 
     @Test
     fun fencedFixtureParsesIntoTheExpectedPlan() {
-        val raw = fixture(LIFT_PLAN_FENCED)
-        assertTrue("$LIFT_PLAN_FENCED is not fenced", raw.trimStart().startsWith("```json"))
+        val raw = CoachFixtures.fixture(CoachFixtures.LIFT_PLAN_FENCED)
+        assertTrue("${CoachFixtures.LIFT_PLAN_FENCED} is not fenced", raw.trimStart().startsWith("```json"))
 
-        val plan = validPlan(LIFT_PLAN_FENCED, LIFT_CONTEXT) as CoachLiftPlan
-        assertEquals(validPlan(LIFT_PLAN, LIFT_CONTEXT), plan)
+        val plan = CoachFixtures.validPlan(CoachFixtures.LIFT_PLAN_FENCED, CoachFixtures.LIFT_CONTEXT) as CoachLiftPlan
+        assertEquals(CoachFixtures.validPlan(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT), plan)
         assertEquals("Push + core", plan.title)
         assertEquals(4, plan.exercises.size)
+    }
+
+    @Test
+    fun validCarriesTheAcceptedJsonObjectRatherThanTheReplyItWasWrappedIn() {
+        val plain = CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT)
+        val fenced = CoachFixtures.validReply(CoachFixtures.LIFT_PLAN_FENCED, CoachFixtures.LIFT_CONTEXT)
+
+        // The fence is how the reply was dressed, not part of the object, so both yield one text.
+        assertEquals(plain.json, fenced.json)
+        assertEquals(plain.plan, fenced.plan)
+        assertNotEquals(
+            "the raw reply is fenced text with an info string; what is carried is the object",
+            CoachFixtures.fixture(CoachFixtures.LIFT_PLAN_FENCED),
+            fenced.json,
+        )
+
+        // The same object dressed by hand — fence, info string, blank lines — is still one text.
+        val dressed = CoachReplyValidator.validate(
+            "\n  ```json\n" + CoachFixtures.fixture(CoachFixtures.LIFT_PLAN) + "\n  ```  \n",
+            CoachFixtures.LIFT_CONTEXT,
+        )
+        assertTrue("the dressed reply should have parsed, got $dressed", dressed is CoachReplyResult.Valid)
+        assertEquals(plain.json, (dressed as CoachReplyResult.Valid).json)
+
+        val json = plain.json
+        assertFalse("no fence markers survive in the accepted text", json.contains("```"))
+        assertTrue("the text is the object itself, not text around it", json.startsWith("{") && json.endsWith("}"))
+
+        // The text is the object `extract` accepted from the unfenced fixture, and nothing else.
+        val extracted = CoachReplyValidator.extract(CoachFixtures.fixture(CoachFixtures.LIFT_PLAN))
+        assertTrue("expected one JSON object, got $extracted", extracted is Extracted.Ok)
+        assertEquals((extracted as Extracted.Ok).document.toString(), json)
+        assertEquals((extracted as Extracted.Ok).document, Json.parseToJsonElement(json))
+
+        // Prose around the object never reaches a Valid at all: extraction rejects the reply first.
+        assertTrue(
+            CoachReplyValidator.validate(CoachFixtures.fixture(CoachFixtures.PROSE_AROUND_JSON), CoachFixtures.LIFT_CONTEXT)
+            is CoachReplyResult.Invalid,
+        )
     }
 
     // ─── the invalid replies, each with its own message ─────────────────────────
@@ -115,7 +155,7 @@ class CoachReplyFixtureTest {
     fun badJsonFixtureGivesOneNotValidJsonLine() {
         // Braces balance and a trailing comma follows the last exercise, so the object is found and
         // kotlinx is the one that rejects it. The reason is kotlinx's sentence, so only the prefix is pinned.
-        val errors = errorsOf(BAD_JSON, LIFT_CONTEXT)
+        val errors = CoachFixtures.errorsOf(CoachFixtures.BAD_JSON, CoachFixtures.LIFT_CONTEXT)
         assertEquals(1, errors.size)
         assertTrue(errors[0], errors[0].startsWith("\$: not valid JSON: "))
         assertTrue(errors[0], errors[0].removePrefix("\$: not valid JSON: ").isNotBlank())
@@ -127,7 +167,7 @@ class CoachReplyFixtureTest {
         // leads and stops there, so the reply reads as prose, not as kotlinx's broken-JSON message.
         assertEquals(
             listOf("\$: unexpected text before the JSON object"),
-            errorsOf(PROSE_AROUND_JSON, LIFT_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.PROSE_AROUND_JSON, CoachFixtures.LIFT_CONTEXT),
         )
     }
 
@@ -140,7 +180,7 @@ class CoachReplyFixtureTest {
                 "estimated_minutes: expected an integer, got a string",
                 "exercises[1]: unexpected property 'day'",
             ),
-            errorsOf(SCHEMA_VIOLATION, LIFT_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.SCHEMA_VIOLATION, CoachFixtures.LIFT_CONTEXT),
         )
     }
 
@@ -148,7 +188,7 @@ class CoachReplyFixtureTest {
     fun unknownEquipmentFixtureNamesTheIdAndItsPath() {
         assertEquals(
             listOf("exercises[2].equipment: kettlebell is not in the equipment list"),
-            errorsOf(UNKNOWN_EQUIPMENT, LIFT_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.UNKNOWN_EQUIPMENT, CoachFixtures.LIFT_CONTEXT),
         )
     }
 
@@ -158,7 +198,7 @@ class CoachReplyFixtureTest {
         // unknown id: the same line, not a second message about deactivation.
         assertEquals(
             listOf("exercises[1].equipment: rowing-machine is not in the equipment list"),
-            errorsOf(INACTIVE_EQUIPMENT, LIFT_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.INACTIVE_EQUIPMENT, CoachFixtures.LIFT_CONTEXT),
         )
     }
 
@@ -171,7 +211,7 @@ class CoachReplyFixtureTest {
                 "sorties: expected 5 sorties for the pattern RLRLR, got 4",
                 "sorties[2].type: must be 'run' at position 2 of the pattern RLRLR",
             ),
-            errorsOf(OUTLINE_PATTERN_MISMATCH, OUTLINE_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.OUTLINE_PATTERN_MISMATCH, CoachFixtures.OUTLINE_CONTEXT),
         )
     }
 
@@ -179,7 +219,7 @@ class CoachReplyFixtureTest {
     fun repsAndSecondsFixtureGivesItsError() {
         assertEquals(
             listOf("exercises[0].sets[1]: reps and seconds cannot both be set"),
-            errorsOf(REPS_AND_SECONDS, LIFT_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.REPS_AND_SECONDS, CoachFixtures.LIFT_CONTEXT),
         )
     }
 
@@ -189,7 +229,7 @@ class CoachReplyFixtureTest {
         // line is the only one.
         assertEquals(
             listOf("estimated_minutes: 80 is more than 75 (1.25 × the 60-minute sortie length)"),
-            errorsOf(OVER_LENGTH_SORTIE, LIFT_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.OVER_LENGTH_SORTIE, CoachFixtures.LIFT_CONTEXT),
         )
     }
 
@@ -199,7 +239,7 @@ class CoachReplyFixtureTest {
         // both spellings.
         assertEquals(
             listOf("exercises[3].name: 'bench  press' duplicates 'Bench Press' at exercises[0]"),
-            errorsOf(DUPLICATE_EXERCISE_NAMES, LIFT_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.DUPLICATE_EXERCISE_NAMES, CoachFixtures.LIFT_CONTEXT),
         )
     }
 
@@ -209,13 +249,13 @@ class CoachReplyFixtureTest {
         // the five schema errors that document would trigger against the lift-plan schema.
         assertEquals(
             listOf("type: 'run' does not match the lift sortie being planned"),
-            errorsOf(PLAN_TYPE_MISMATCH, LIFT_CONTEXT),
+            CoachFixtures.errorsOf(CoachFixtures.PLAN_TYPE_MISMATCH, CoachFixtures.LIFT_CONTEXT),
         )
     }
 
     @Test
     fun everyFixtureFileIsCoveredByATest() {
-        val dir = fixtureDirectory()
+        val dir = CoachFixtures.fixtureDirectory()
         val onDisk = (dir.listFiles { file -> file.isFile && file.name.endsWith(".txt") } ?: emptyArray<File>())
             .mapTo(mutableSetOf()) { it.name }
 
@@ -225,94 +265,14 @@ class CoachReplyFixtureTest {
         assertTrue("$dir has no file named ${missing.sorted()}", missing.isEmpty())
     }
 
-    // ─── the loader every fixture test uses ─────────────────────────────────────
-
-    /** The fixture text, read the way `CoachSchemaFilesTest` reads `schemas/outline.json`. */
-    private fun fixture(name: String): String {
-        val resource = "$FIXTURE_PACKAGE/$name"
-        javaClass.classLoader?.getResourceAsStream(resource)?.use {
-            return it.readBytes().toString(Charsets.UTF_8)
-        }
-        // app/src/test/resources is not yet proven on this project's test classpath, so fall back to
-        // the working-directory route ExerciseNamesTest.coachPackageHasNoAndroidImports uses.
-        val file = fixtureSourceDirs().map { File(it, name) }.firstOrNull { it.isFile }
-            ?: throw AssertionError("$name: no fixture on the classpath or under ${fixtureSourceDirs().joinToString(" or ")}")
-        return file.readText()
-    }
-
-    private fun fixtureDirectory(): File =
-        fixtureSourceDirs().firstOrNull { it.isDirectory }
-            ?: throw AssertionError("no fixture directory at ${fixtureSourceDirs().joinToString(" or ")}")
-
-    /** The two working directories a unit test runs from — `app/`, and the module dir one level up. */
-    private fun fixtureSourceDirs(): List<File> =
-        listOf(File("../$FIXTURE_SOURCE_DIR"), File(FIXTURE_SOURCE_DIR))
-
-    private fun validPlan(fixture: String, context: GenerationContext): CoachPlan {
-        val result = CoachReplyValidator.validate(fixture(fixture), context)
-        assertTrue(
-            "$fixture should have parsed, got ${(result as? CoachReplyResult.Invalid)?.errors}",
-            result is CoachReplyResult.Valid,
-        )
-        return (result as CoachReplyResult.Valid).plan
-    }
-
-    /** The lines an invalid fixture must produce, so a fixture that parses, or produces an extra line, fails. */
-    private fun errorsOf(fixture: String, context: GenerationContext): List<String> {
-        val result = CoachReplyValidator.validate(fixture(fixture), context)
-        assertTrue("expected $fixture to be rejected, got $result", result is CoachReplyResult.Invalid)
-        return (result as CoachReplyResult.Invalid).errors
-    }
-
     private companion object {
-        const val FIXTURE_PACKAGE = "fixtures/coach"
-        const val FIXTURE_SOURCE_DIR = "src/test/resources/fixtures/coach"
-
-        const val OUTLINE = "outline-valid.txt"
-        const val LIFT_PLAN = "lift-plan-valid.txt"
-        const val RUN_PLAN = "run-plan-valid.txt"
-        const val LIFT_PLAN_FENCED = "lift-plan-fenced.txt"
-
-        const val BAD_JSON = "bad-json.txt"
-        const val PROSE_AROUND_JSON = "prose-around-json.txt"
-        const val SCHEMA_VIOLATION = "schema-violation.txt"
-        const val UNKNOWN_EQUIPMENT = "unknown-equipment.txt"
-        const val INACTIVE_EQUIPMENT = "inactive-equipment.txt"
-        const val OUTLINE_PATTERN_MISMATCH = "outline-pattern-mismatch.txt"
-        const val REPS_AND_SECONDS = "reps-and-seconds.txt"
-        const val OVER_LENGTH_SORTIE = "over-length-sortie.txt"
-        const val DUPLICATE_EXERCISE_NAMES = "duplicate-exercise-names.txt"
-        const val PLAN_TYPE_MISMATCH = "plan-type-mismatch.txt"
-
         /** Every fixture a test in this class reads; `everyFixtureFileIsCoveredByATest` checks it against the directory. */
         val COVERED = setOf(
-            OUTLINE, LIFT_PLAN, RUN_PLAN, LIFT_PLAN_FENCED,
-            BAD_JSON, PROSE_AROUND_JSON, SCHEMA_VIOLATION, UNKNOWN_EQUIPMENT, INACTIVE_EQUIPMENT,
-            OUTLINE_PATTERN_MISMATCH, REPS_AND_SECONDS, OVER_LENGTH_SORTIE, DUPLICATE_EXERCISE_NAMES,
-            PLAN_TYPE_MISMATCH,
-        )
-
-        val KEYS = listOf("barbell", "dumbbell", "bench", "pullup-bar")
-
-        val OUTLINE_CONTEXT = GenerationContext(
-            kind = GenerationKind.OUTLINE,
-            pattern = "RLRLR",
-            equipmentKeys = KEYS,
-            sortieLengthMinutes = 60,
-        )
-        val LIFT_CONTEXT = GenerationContext(
-            kind = GenerationKind.FLIGHT_PLAN,
-            pattern = "RLRLR",
-            sortieType = SortieType.LIFT,
-            equipmentKeys = KEYS,
-            sortieLengthMinutes = 60,
-        )
-        val RUN_CONTEXT = GenerationContext(
-            kind = GenerationKind.FLIGHT_PLAN,
-            pattern = "RLRLR",
-            sortieType = SortieType.RUN,
-            equipmentKeys = KEYS,
-            sortieLengthMinutes = 60,
+            CoachFixtures.OUTLINE, CoachFixtures.LIFT_PLAN, CoachFixtures.RUN_PLAN, CoachFixtures.LIFT_PLAN_FENCED,
+            CoachFixtures.BAD_JSON, CoachFixtures.PROSE_AROUND_JSON, CoachFixtures.SCHEMA_VIOLATION,
+            CoachFixtures.UNKNOWN_EQUIPMENT, CoachFixtures.INACTIVE_EQUIPMENT,
+            CoachFixtures.OUTLINE_PATTERN_MISMATCH, CoachFixtures.REPS_AND_SECONDS, CoachFixtures.OVER_LENGTH_SORTIE,
+            CoachFixtures.DUPLICATE_EXERCISE_NAMES, CoachFixtures.PLAN_TYPE_MISMATCH,
         )
     }
 }
