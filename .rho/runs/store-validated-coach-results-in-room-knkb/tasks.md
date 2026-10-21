@@ -14,7 +14,7 @@ The plan's Testing list asks for two cases `verify.sh` no longer names (a second
 sortie; an outline for a past week or one that no longer fits the pattern). They are the plan's Decisions that go
 beyond the brief, so they are not gate-required — write them anyway, in the task that owns the operation they test.
 
-- [ ] 1. The generation row helpers on `GenerationDao`
+- [x] 1. The generation row helpers on `GenerationDao`
   The brief's third heading, and the only task nothing else depends on. `GenerationDao` today has only the CRUD
   export/import needed, so this is new `@Query` updates and two lookups on the interface: mark RUNNING; mark
   SUCCEEDED / FAILED / CANCELLED (the last three stamp `finishedAt`, FAILED also keeps its error text); save the
