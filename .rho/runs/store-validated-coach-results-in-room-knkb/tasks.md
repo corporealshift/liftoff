@@ -80,7 +80,7 @@ beyond the brief, so they are not gate-required — write them anyway, in the ta
   with `failures="0" errors="0"`, and `--tests '*FlightPlanDaoTest*' --tests '*ExerciseResolverTest*'` in the same
   invocation is still green.
 
-- [ ] 4. The flight-plan refusals: a stale result changes nothing
+- [x] 4. The flight-plan refusals: a stale result changes nothing
   The other half of the brief's second heading, on the operation task 3 added. A valid plan offered for a sortie of
   the right type that is **not** the Mission's current one, and for a sortie that is IN_FLIGHT, LANDED or SCRUBBED
   (the current sortie once launched; a sortie already landed or scrubbed). Each is refused, names its reason in the
