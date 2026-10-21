@@ -2,6 +2,7 @@ package com.liftoff.app.data
 
 import androidx.room.withTransaction
 import com.liftoff.app.coach.CoachLiftPlan
+import com.liftoff.app.coach.CoachOutline
 import com.liftoff.app.coach.CoachReplyResult
 import com.liftoff.app.coach.CoachRunPlan
 import com.liftoff.app.domain.MissionLifecycle
@@ -93,6 +94,43 @@ class MissionManager(
             db.missionDao().update(activeMission)
             db.sortieDao().insertAll(sorties)
             advance(missionId, settings)
+        }
+    }
+
+    /**
+     * Store a validated coach outline on a DRAFT Mission: activate it with its notes and with one sortie per
+     * pattern letter, in the pattern's own order, each carrying the focus and rationale of the outline entry at
+     * the same position; then advance, which is what makes sortie 1 current and prepares it (DESIGN.md §4.2).
+     *
+     * The three refusals — not a DRAFT, the week has ended, the outline no longer matches the pattern — change
+     * nothing, because an outline can arrive after the week moved on. A reply that is not an outline is a
+     * caller bug, so it throws rather than refusing.
+     */
+    suspend fun storeOutline(missionId: Long, valid: CoachReplyResult.Valid): StoreOutcome {
+        val settings = settingsStore.settings.first()
+        return db.withTransaction {
+            val mission = db.missionDao().get(missionId)
+                ?: return@withTransaction StoreOutcome.Refused("mission $missionId no longer exists")
+            val outline = when (val plan = valid.plan) {
+                is CoachOutline -> plan
+                else -> throw IllegalArgumentException("${plan::class.simpleName} is not an outline")
+            }
+            if (mission.status != MissionStatus.DRAFT) {
+                return@withTransaction StoreOutcome.Refused("mission is ${mission.status}, not a DRAFT")
+            }
+            if (weekHasEnded(mission.weekStart, clock.instant().atZone(zone()).toLocalDate())) {
+                return@withTransaction StoreOutcome.Refused("the week of ${mission.weekStart} has ended")
+            }
+            if (!outlineMatchesPattern(outline, mission.pattern)) {
+                return@withTransaction StoreOutcome.Refused(
+                    "the outline no longer matches the mission's pattern ${mission.pattern}"
+                )
+            }
+            val (active, sorties) = activateWithOutline(mission, outline)
+            db.missionDao().update(active)
+            db.sortieDao().insertAll(sorties)
+            advance(missionId, settings)
+            StoreOutcome.Stored
         }
     }
 
