@@ -31,6 +31,10 @@ import java.util.UUID
  * The fixtures plan the sortie at a given pattern position — the lift at 1, the run at 0 — so each test first
  * makes that sortie the current one and leaves it PENDING. Clock and zone are fixed the way
  * [MissionManagerTest] fixes them, so the same week is current here as on the CI runner in UTC.
+ *
+ * A refusal test reads the mission, the week's sorties and every plan row back and requires them unchanged.
+ * `writePlan` deletes the sortie's existing plan, so a guard that ran after it would leave a hole here even
+ * though the returned outcome still named the refusal.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -40,6 +44,7 @@ class MissionManagerPlanTest {
     private lateinit var sortieDao: SortieDao
     private lateinit var flightPlanDao: FlightPlanDao
     private lateinit var exerciseDao: ExerciseDao
+    private lateinit var missionDao: MissionDao
     private lateinit var settingsStore: SettingsStore
     private lateinit var manager: MissionManager
 
@@ -51,6 +56,7 @@ class MissionManagerPlanTest {
         sortieDao = db.sortieDao()
         flightPlanDao = db.flightPlanDao()
         exerciseDao = db.exerciseDao()
+        missionDao = db.missionDao()
 
         // A file of its own, so turning run generation on here cannot reach another test class.
         val dataStore = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
@@ -285,5 +291,117 @@ class MissionManagerPlanTest {
         assertEquals(9, stored.exercises.sumOf { it.sets.size })
         assertEquals("Push + core", stored.plan.title)
         assertEquals(SortieState.PLANNED, sortieDao.get(sortie.id)!!.state)
+    }
+
+    // ── refusals: a stale result changes nothing ───────────────────────────────
+
+    /** Everything a store operation could write, read back in one go. */
+    private data class WeekState(
+        val mission: Mission,
+        val sorties: List<Sortie>,
+        val plans: List<FlightPlan>,
+        val exercises: List<PlannedExercise>,
+        val sets: List<PlannedSet>,
+        val segments: List<RunSegment>,
+    )
+
+    private suspend fun weekState(missionId: Long): WeekState = WeekState(
+        mission = missionDao.get(missionId)!!,
+        sorties = sortieDao.getForMission(missionId),
+        plans = flightPlanDao.getAllPlans(),
+        exercises = flightPlanDao.getAllPlannedExercises(),
+        sets = flightPlanDao.getAllPlannedSets(),
+        segments = flightPlanDao.getAllRunSegments(),
+    )
+
+    /** The refusal, and the reason it has to name. */
+    private fun refusalReason(outcome: StoreOutcome, names: String): String {
+        assertTrue("$names: the outcome was $outcome", outcome is StoreOutcome.Refused)
+        val reason = (outcome as StoreOutcome.Refused).reason
+        assertTrue("the refusal should name $names, got \"$reason\"", reason.contains(names))
+        return reason
+    }
+
+    private suspend fun assertNothingChanged(missionId: Long, before: WeekState) {
+        val after = weekState(missionId)
+        assertEquals("the mission row is untouched", before.mission, after.mission)
+        assertEquals("no sortie moved", before.sorties, after.sorties)
+        assertEquals("no plan was written or deleted", before.plans, after.plans)
+        assertEquals("no planned exercise was written or deleted", before.exercises, after.exercises)
+        assertEquals("no set was written or deleted", before.sets, after.sets)
+        assertEquals("no segment was written or deleted", before.segments, after.segments)
+    }
+
+    @Test
+    fun aPlanForASortieThatIsNoLongerCurrentChangesNothing() = runBlocking {
+        val current = currentLiftSortie()
+        val missionId = current.missionId
+        // The week's other LIFT sortie: the right type for this plan, still PENDING, but index 1 is the
+        // current one, so a result for index 3 has arrived after the week moved on.
+        val stale = sortieDao.getForMission(missionId).first { it.index == 3 }
+        assertEquals(SortieType.LIFT, stale.type)
+        assertEquals(SortieState.PENDING, stale.state)
+        assertNotEquals(current.id, stale.id)
+        assertNull(flightPlanDao.getPlan(stale.id))
+
+        val valid = CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT)
+        // The current sortie holds the plan this same reply was asked for, so "untouched" has something to keep.
+        assertEquals(StoreOutcome.Stored, manager.storePlan(current.id, valid))
+        val currentPlanId = flightPlanDao.getPlan(current.id)!!.plan.id
+        val before = weekState(missionId)
+
+        refusalReason(manager.storePlan(stale.id, valid), "not the current sortie")
+
+        assertNothingChanged(missionId, before)
+        assertNull("the stale sortie still holds no plan", flightPlanDao.getPlan(stale.id))
+        assertEquals(SortieState.PENDING, sortieDao.get(stale.id)!!.state)
+        assertEquals(SortieState.PLANNED, sortieDao.get(current.id)!!.state)
+        assertEquals(
+            "the current sortie keeps the plan it already had",
+            currentPlanId, flightPlanDao.getPlan(current.id)!!.plan.id
+        )
+    }
+
+    @Test
+    fun aPlanForASortieThatIsInFlightLandedOrScrubbedChangesNothing() = runBlocking {
+        val sortie = currentLiftSortie()
+        val missionId = sortie.missionId
+        val scrubbed = sortieDao.getForMission(missionId).first { it.index == 0 }
+        assertEquals(SortieType.RUN, scrubbed.type)
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+
+        val lift = CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT)
+        val run = CoachFixtures.validReply(CoachFixtures.RUN_PLAN, CoachFixtures.RUN_CONTEXT)
+
+        // IN_FLIGHT: the plan arrives for the current sortie after the owner started it.
+        assertEquals(StoreOutcome.Stored, manager.storePlan(sortie.id, lift))
+        manager.launch(sortie.id)
+        assertEquals(SortieState.IN_FLIGHT, sortieDao.get(sortie.id)!!.state)
+        var before = weekState(missionId)
+        refusalReason(manager.storePlan(sortie.id, lift), "IN_FLIGHT")
+        assertNothingChanged(missionId, before)
+
+        // LANDED: the same sortie, after the owner finished it. Its plan and its sets are still there.
+        manager.land(sortie.id)
+        assertEquals(SortieState.LANDED, sortieDao.get(sortie.id)!!.state)
+        val landedPlanId = flightPlanDao.getPlan(sortie.id)!!.plan.id
+        before = weekState(missionId)
+        refusalReason(manager.storePlan(sortie.id, lift), "LANDED")
+        assertNothingChanged(missionId, before)
+        assertEquals(
+            "the plan the owner landed is still the one they landed",
+            landedPlanId, flightPlanDao.getPlan(sortie.id)!!.plan.id
+        )
+
+        // SCRUBBED: a run sortie the owner scrubbed, holding the simple plan it was written before the scrub.
+        val scrubbedPlanId = flightPlanDao.getPlan(scrubbed.id)!!.plan.id
+        assertEquals(FlightPlanSource.SIMPLE_RUN, flightPlanDao.getPlan(scrubbed.id)!!.plan.source)
+        before = weekState(missionId)
+        refusalReason(manager.storePlan(scrubbed.id, run), "SCRUBBED")
+        assertNothingChanged(missionId, before)
+        assertEquals(
+            "the scrubbed sortie keeps the plan it already had",
+            scrubbedPlanId, flightPlanDao.getPlan(scrubbed.id)!!.plan.id
+        )
     }
 }
