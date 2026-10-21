@@ -65,7 +65,7 @@ there before adding to it.
   Done when: a cold run of `com.liftoff.app.work.CoachTurnRunnerTest` reports every test in it passing
   (`failures=` and `errors=` are 0) and its XML contains all five method names written so far.
 
-- [ ] 4. The ends the daemon reports, the limit, and the stop helper
+- [x] 4. The ends the daemon reports, the limit, and the stop helper
   Covers: four more tests in the same class. A turn scripted to end `blocked`, and one scripted to end `paused`, each
   report that end and not `idle` or a timeout. A turn with no end inside a short limit (the limit is a parameter; the
   test sets it to a fraction of a second) reports `timed out`, and the cursor that comes back is the furthest event
