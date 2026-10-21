@@ -23,7 +23,7 @@ there before adding to it.
   Tests written: none. `DaemonConnectionCheckTest` and `AppContainerTest` already exist and are checked as whole
   classes by verify.sh; this task only has to leave them green.
 
-- [ ] 2. The turn runner, and the two cases that prove it works end to end
+- [x] 2. The turn runner, and the two cases that prove it works end to end
   Covers: the new file `app/src/main/java/com/liftoff/app/work/CoachTurnRunner.kt`, which creates the
   `com.liftoff.app.work` package. It holds the runner as a suspend function over a `DaemonClient` the caller already
   connected, the value it returns (session id, final cursor, how the turn ended, last assistant text or null), the six
