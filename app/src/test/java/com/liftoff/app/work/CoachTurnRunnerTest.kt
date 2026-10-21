@@ -176,6 +176,163 @@ class CoachTurnRunnerTest {
         )
     }
 
+    /**
+     * "a state_change to idle logged before the prompt (logEvent) does not end the turn". The end check
+     * compares against the prompt's own event_id, not against "the next event", so an idle from before this
+     * prompt is one more event to read rather than the end of the turn: the runner still reaches the
+     * scripted end and reports its reply.
+     *
+     * [FakeDaemon.logEvent] pushes nothing — only a socket that called rho.session.subscribe gets pushes —
+     * so this old idle reaches the runner through the catch-up events_after, which is asked for from the
+     * start because the runner was handed no cursor.
+     */
+    @Test
+    fun aStateChangeLoggedBeforeThePromptDoesNotEndTheTurn(): Unit = runBlocking {
+        val oldIdle = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "idle")
+            put("reason", "the turn before this one")
+        })
+        val reply = "the reply this turn asked for"
+        daemon.script(DaemonScript.Assistant(reply), DaemonScript.State("idle", "this turn finished"))
+
+        val client = connectedClient()
+        val cursors = mutableListOf<String>()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = null,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "what should I do next",
+                    clientId = "turn-3",
+                    cursor = null,
+                    limit = turnLimit,
+                    onCursor = { cursors.add(it) },
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        val promptId = promptEventId("turn-3")
+        assertTrue("the seeded state_change predates this turn's prompt: $oldIdle vs $promptId", oldIdle < promptId)
+        assertTrue(
+            "the runner was handed no cursor, so the catch-up read asked for the whole log",
+            frameFor("rho.session.events_after")["last_event_id"] == null,
+        )
+        assertTrue(
+            "the old idle arrived through the catch-up read, since logEvent pushed nothing: $cursors",
+            cursors.contains(oldIdle),
+        )
+
+        assertEquals(TurnEnd.Idle, outcome.end)
+        assertEquals("the turn ran on past the older idle to the scripted reply", reply, outcome.lastAssistantText)
+        assertEquals(
+            "the cursor this turn left is the scripted end, not the older idle: $cursors",
+            eventId(daemon.log.last()),
+            outcome.cursor,
+        )
+        assertTrue("the cursor moved forward past the seeded idle: $cursors", cursors.last() > oldIdle)
+    }
+
+    /**
+     * "a scripted Ask is answered with the sentence above" — read out of the fake's answers, keyed by the
+     * fake's own request id — "and each turn still ends idle with the reply". The fake holds the rest of the
+     * turn back until the client answers, so a runner that ignores the question has a turn that never ends.
+     */
+    @Test
+    fun aDaemonQuestionIsAnsweredWithTheFixedSentenceAndTheTurnStillEndsIdle(): Unit = runBlocking {
+        val reply = "the daemon answered its own question and carried on"
+        daemon.script(
+            DaemonScript.Ask("which of these two?", listOf("left", "right")),
+            DaemonScript.Assistant(reply),
+            DaemonScript.State("idle"),
+        )
+
+        val client = connectedClient()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = null,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "which one?",
+                    clientId = "turn-4",
+                    cursor = null,
+                    limit = turnLimit,
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        val answer = answerTo("srv-1")
+        assertEquals(
+            "a runner with nobody watching decides its own questions: $answer",
+            "Decide yourself; there is nobody to ask.",
+            answer["answer"]?.jsonPrimitive?.contentOrNull,
+        )
+        assertEquals("the runner answered one daemon request, and only that one: ${daemon.answers}", 1, daemon.answers.size)
+        assertEquals(
+            "one answer frame, so the question was not answered twice",
+            1,
+            daemon.frames.count { !it.contains("\"method\":") },
+        )
+
+        assertEquals(TurnEnd.Idle, outcome.end)
+        assertEquals("the runner kept waiting and got the reply the question was holding back", reply, outcome.lastAssistantText)
+        assertEquals("the end arrived only after the answer", eventId(daemon.log.last()), outcome.cursor)
+    }
+
+    /**
+     * "a scripted Permission is answered deny", read out of the fake's answers, "and the turn still ends idle
+     * with its reply". Denying is what a runner with nobody watching does to a tool it cannot vouch for, and
+     * the held-back rest of the turn is what proves it kept waiting after answering.
+     */
+    @Test
+    fun aPermissionRequestIsAnsweredDenyAndTheTurnStillEndsIdle(): Unit = runBlocking {
+        val reply = "the reply that came after the tool was refused"
+        daemon.script(
+            DaemonScript.Permission("write_file", "write /repo/coach/plan.md", "high"),
+            DaemonScript.Assistant(reply),
+            DaemonScript.State("idle"),
+        )
+
+        val client = connectedClient()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = null,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "write the plan file",
+                    clientId = "turn-5",
+                    cursor = null,
+                    limit = turnLimit,
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        val answer = answerTo("srv-1")
+        assertEquals(
+            "a runner with nobody watching denies a tool it cannot vouch for: $answer",
+            "deny",
+            answer["verdict"]?.jsonPrimitive?.contentOrNull,
+        )
+        assertEquals("the runner answered one daemon request, and only that one: ${daemon.answers}", 1, daemon.answers.size)
+        assertEquals(
+            "one answer frame, so the request was not answered twice",
+            1,
+            daemon.frames.count { !it.contains("\"method\":") },
+        )
+
+        assertEquals(TurnEnd.Idle, outcome.end)
+        assertEquals("the runner kept waiting and got the reply the permission request was holding back", reply, outcome.lastAssistantText)
+        assertEquals("the end arrived only after the answer", eventId(daemon.log.last()), outcome.cursor)
+    }
+
     /** The params of the one frame this client sent calling [method], failing if there was not exactly one. */
     private fun frameFor(method: String): JsonObject {
         val frames = daemon.framesFor(method)
@@ -189,5 +346,34 @@ class CoachTurnRunnerTest {
         val value = this[key]?.jsonObject
         assertTrue("the frame has no \"$key\" object: $this", value != null)
         return value!!
+    }
+
+    /**
+     * What the client answered the fake's own request [requestId] with. The fake keys its answers by that
+     * request id ("srv-1", …), which is also the id the client had to answer with.
+     */
+    private fun answerTo(requestId: String): JsonObject {
+        val answer = daemon.answers[requestId]
+        assertTrue("the runner never answered request $requestId; the fake recorded ${daemon.answers}", answer != null)
+        val body = answer!! as? JsonObject
+        assertTrue("the answer to $requestId is not an object: $answer", body != null)
+        return body!!
+    }
+
+    /** The id of one entry of the fake's log, which is what a cursor is compared against. */
+    private fun eventId(event: JsonObject): String {
+        val id = event["id"]?.jsonPrimitive?.contentOrNull
+        assertTrue("this event has no id: $event", id != null)
+        return id!!
+    }
+
+    /** The id the fake gave the prompt sent under [clientId], read back out of its log. */
+    private fun promptEventId(clientId: String): String {
+        val event = daemon.log.firstOrNull {
+            it["type"]?.jsonPrimitive?.contentOrNull == EventType.MESSAGE &&
+                it["data"]?.jsonObject?.get("client_id")?.jsonPrimitive?.contentOrNull == clientId
+        }
+        assertTrue("no prompt event for client_id $clientId in ${daemon.log.map { it["id"] }}", event != null)
+        return eventId(event!!)
     }
 }
