@@ -48,7 +48,7 @@ there before adding to it.
   (`bash gradlew.sh :app:testDebugUnitTest --no-build-cache --tests 'com.liftoff.app.work.CoachTurnRunnerTest'`)
   writes a `TEST-*.xml` whose `tests=` counts both named methods and whose `failures=` and `errors=` are 0.
 
-- [ ] 3. The turn boundary, and the two kinds of daemon request the runner must answer
+- [x] 3. The turn boundary, and the two kinds of daemon request the runner must answer
   Covers: three more tests in the same class, no new production file. A `state_change` to `idle` seeded with
   `logEvent` before the prompt must not end the turn — the runner still reaches the scripted end and reports its
   reply, because the end check compares against the prompt's own `event_id` and not against "the next event". Note how
