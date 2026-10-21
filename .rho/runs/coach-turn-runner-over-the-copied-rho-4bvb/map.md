@@ -42,6 +42,53 @@ What the picked fake gains (confirmed from the diff, so a later session need not
 
 Plain JUnit 4 + `runBlocking`, as in `app/src/test/java/com/liftoff/app/rho/DaemonConnectionCheckTest.kt` (7 tests, no Robolectric — the runner has no Android imports, so neither do its tests): `FakeDaemon()` + `start()` in `@Before`, `stop()` in `@After`, `DaemonClient("http://${daemon.host()}:${daemon.port()}/", "sekrit")` then `connect()`. `app/src/test/java/com/liftoff/app/AppContainerTest.kt` (8 tests, Robolectric) is the other class the cherry-pick must leave green. Every wait wrapped in `withTimeout` well under the build's 5-minute test-task timeout (`app/build.gradle.kts:48`), because a wait that never ends kills the test task and writes no `TEST-*.xml`.
 
+## verify.sh (written by the verify step)
+
+`.rho/runs/coach-turn-runner-over-the-copied-rho-4bvb/verify.sh` is the run's definition of done. It runs the CI gate
+(`timeout 1800 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, retried up to 3 times for
+the known flake `doneBodyweightSetStepperShowsBW`, a daemon/memory kill, or a hung suite that wrote no report), then
+reads every `TEST-*.xml` in one awk pass into `app/build/verify-work/methods` and `…/classes`, then looks each named
+test up by **method name** (so the class and package stay the implementer's choice). A name that never ran is a
+failure — that is what makes the script fail on untouched code.
+
+The nine names, covering the brief's seven "Cover:" bullets (Ask and Permission split, blocked and paused split, and the
+stop helper the brief asks for in the same step):
+
+- `aFreshTurnCreatesOneSessionAndReturnsItsReplyAndCursor`
+- `aSessionAndCursorHandedInIsUsedWithoutCreatingAnother`
+- `aStateChangeLoggedBeforeThePromptDoesNotEndTheTurn`
+- `aDaemonQuestionIsAnsweredWithTheFixedSentenceAndTheTurnStillEndsIdle`
+- `aPermissionRequestIsAnsweredDenyAndTheTurnStillEndsIdle`
+- `aTurnThatEndsBlockedReportsBlocked`
+- `aTurnThatEndsPausedReportsPaused`
+- `aTurnWithNoEndInsideItsLimitReportsTimedOut`
+- `theStopHelperSendsOneSessionStopFrame`
+
+Plus the two classes the brief says the pick must leave green, checked as whole classes (every test in them must have
+run and passed): `DaemonConnectionCheckTest` (`com.liftoff.app.rho`, 7 tests) and `AppContainerTest`
+(`com.liftoff.app`, 8 tests). No other class is named: the gate already runs the whole suite, so a class the brief
+does not name (e.g. `ConnectionViewModelTest`, which is Test connection's own tests today) would only add a demand to
+keep one particular class name.
+
+Doc checks, both written as a rejection of the old wording:
+- the `com.liftoff.app.work` table row (`grep -m1 -E '^\|[^|]*com\.liftoff\.app\.work'`), third cell
+  (`awk -F'\|' '{print $4}'`, whitespace stripped): fails while that cell is exactly `—` or empty, and fails unless
+  the cell matches `turn` **and** `runner` case-insensitively. Verified against six candidate cells: `—`, an empty
+  cell and `Not started` fail; `✅ (CoachTurnRunner.kt)`, `✅ (CoachTurnRunner.kt — the coach turn runner;
+  GenerationWorker not started)` and `Partial: the turn runner exists; the worker is not built` all pass.
+- the M3 row must be byte-identical to the same row in the tree this run started from. That tree is found as
+  `git rev-list -1 HEAD -- <run dir>/brief.md` then `^` → `1976682` today, read with
+  `git cat-file blob "$base:ARCHITECTURE.md"` (`git show branch:path` fails in Git Bash here; `cat-file` works).
+
+Bring-in check: `git log --oneline -- .rho/runs/generationworker-core-flow-j5ca` must be empty and nothing under that
+path may be in the tree. Both need `2>/dev/null || true`, because git errors on a path that never existed.
+
+Ran once on the untouched tree (`app/build/verify-probe.log`): gate attempt 1 passed in 2m24s, and the script exited
+1 with **5 passed / 10 failed** — the nine named tests "did not run" plus the `com.liftoff.app.work` row. The gate,
+the two classes, the M3 row and the bring-in check passed. The report parser was checked separately against the 74
+reports that run wrote (575 methods, 74 classes) and against a synthetic report holding a `<failure>`, an `<error>`, a
+`<skipped/>` and a `name="x[0]"` testcase spread over several lines.
+
 ## Gate
 
 `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` (CLAUDE.md), run from the repo root where `gradlew.sh` sits. On this machine run it detached with `mkdir -p app/build` first and a log + `EXIT=$?` sentinel — not behind a pipe, since `cmd | tail; echo $?` reports `tail`'s status. Counts come from the XML (`tests=`, `failures=`, `errors=` on each `app/build/test-results/testDebugUnitTest/TEST-*.xml`), not from `BUILD SUCCESSFUL`. The full suite can hang for ~5 minutes and that is a known flake to re-run, not investigate; `app/build.gradle.kts:48` is what kills it, and a stranded test executor holding `app/build/test-results` is cleared with `bash gradlew.sh --stop` plus deleting that directory. One In-Flight screen test also fails at random with a closed Room pool and passes on a re-run of the same tree.
