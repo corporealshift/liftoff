@@ -18,9 +18,11 @@ import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -36,6 +38,13 @@ class CoachTurnRunnerTest {
 
     /** The runner's limit for a turn the fake is scripted to finish at once. */
     private val turnLimit = 2.seconds
+
+    /**
+     * The limit for a turn scripted with no end to find: a fraction of a second, long enough for the
+     * calls a turn makes over a localhost socket and far shorter than the wait for an end that never
+     * arrives, so the limit is what ends the turn.
+     */
+    private val shortLimit = 500.milliseconds
 
     /** The runner's limit plus room for the fake to answer, so a hang fails here, not the build. */
     private val answerWindow = 15.seconds
@@ -331,6 +340,198 @@ class CoachTurnRunnerTest {
         assertEquals(TurnEnd.Idle, outcome.end)
         assertEquals("the runner kept waiting and got the reply the permission request was holding back", reply, outcome.lastAssistantText)
         assertEquals("the end arrived only after the answer", eventId(daemon.log.last()), outcome.cursor)
+    }
+
+    /**
+     * "a turn scripted to end blocked … report that end". The end is the first state_change after the
+     * prompt whose target is blocked, and it comes back as blocked — not as idle, and not as a timeout
+     * that ran out looking for an end. The word the fake actually logged is read off its log, so the
+     * mapping from the daemon's state to the runner's end reason is checked rather than assumed.
+     */
+    @Test
+    fun aTurnThatEndsBlockedReportsBlocked(): Unit = runBlocking {
+        val reply = "I need the equipment list before I can plan the next set"
+        daemon.script(
+            DaemonScript.Assistant(reply),
+            DaemonScript.State("blocked", "waiting on the equipment list"),
+        )
+
+        val client = connectedClient()
+        val cursors = mutableListOf<String>()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = null,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "what should I do next",
+                    clientId = "turn-6",
+                    cursor = null,
+                    limit = turnLimit,
+                    onCursor = { cursors.add(it) },
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        val end = daemon.log.last()
+        assertEquals(EventType.STATE_CHANGE, end["type"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("blocked", end["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull)
+
+        assertEquals(
+            "the daemon's blocked is its own end reason, not idle and not a timeout: $end",
+            TurnEnd.Blocked,
+            outcome.end,
+        )
+        assertEquals("the reply read before the end is still reported", reply, outcome.lastAssistantText)
+        assertEquals("the cursor this turn left is the blocked state_change", eventId(end), outcome.cursor)
+        assertEquals("the cursor callback saw that same end", eventId(end), cursors.last())
+    }
+
+    /**
+     * "… and one ending paused, report that end". Paused is its own end reason, not a timeout. This turn
+     * is scripted with no assistant message at all, so the state_change is the only thing after the
+     * prompt: the runner stops at it rather than waiting out its limit for a reply that never comes.
+     */
+    @Test
+    fun aTurnThatEndsPausedReportsPaused(): Unit = runBlocking {
+        daemon.script(DaemonScript.State("paused", "the session was paused by whoever runs it"))
+
+        val client = connectedClient()
+        val cursors = mutableListOf<String>()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = null,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "pause this for now",
+                    clientId = "turn-7",
+                    cursor = null,
+                    limit = turnLimit,
+                    onCursor = { cursors.add(it) },
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        val end = daemon.log.last()
+        assertEquals(EventType.STATE_CHANGE, end["type"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("paused", end["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull)
+
+        assertEquals(
+            "paused is an end the daemon reported, not a limit that ran out: $end",
+            TurnEnd.Paused,
+            outcome.end,
+        )
+        assertNull("a paused turn that never produced a reply still ends paused", outcome.lastAssistantText)
+        assertEquals("the cursor this turn left is the paused state_change", eventId(end), outcome.cursor)
+        assertEquals("the cursor callback saw that same end", eventId(end), cursors.last())
+    }
+
+    /**
+     * "a turn with no end inside a short limit reports timed out". The limit is a parameter, so this test
+     * hands in a fraction of a second, and the runner returns the timeout as a value instead of letting
+     * the wait escape. The turn is scripted with an assistant message and no state_change, so there is a
+     * furthest event actually read but no end to find, and the cursor that comes back is that event and
+     * not the one handed in: a retry picks up where this attempt stopped.
+     */
+    @Test
+    fun aTurnWithNoEndInsideItsLimitReportsTimedOut(): Unit = runBlocking {
+        val seeded = daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", "the reply from the turn before this one")
+        })
+        val reply = "the daemon answered, but never said the turn was over"
+        daemon.script(DaemonScript.Assistant(reply))
+
+        val client = connectedClient()
+        val cursors = mutableListOf<String>()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = daemon.sessionId,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "carry on",
+                    clientId = "turn-8",
+                    cursor = seeded,
+                    limit = shortLimit,
+                    onCursor = { cursors.add(it) },
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        assertEquals("a turn that never reached a state_change is its own end reason", TurnEnd.TimedOut, outcome.end)
+
+        val furthest = daemon.log.last()
+        assertEquals(EventType.MESSAGE, furthest["type"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(reply, furthest["data"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull)
+
+        assertEquals(
+            "the catch-up read asked for what came after the cursor handed in",
+            seeded,
+            frameFor("rho.session.events_after")["last_event_id"]?.jsonPrimitive?.contentOrNull,
+        )
+        assertEquals(
+            "the cursor that comes back is the furthest event this attempt actually read",
+            eventId(furthest),
+            outcome.cursor,
+        )
+        assertTrue(
+            "the cursor moved past the one handed in: $seeded -> ${outcome.cursor}",
+            outcome.cursor != null && outcome.cursor!! > seeded,
+        )
+        assertEquals("the callback saw the same furthest event", eventId(furthest), cursors.last())
+        assertEquals("the reply was read before the limit ran out", reply, outcome.lastAssistantText)
+    }
+
+    /**
+     * "Also add a small helper that sends rho.session.stop {session_id}". One call, one frame, carrying
+     * the id it was given — an id that is not the fake's own, so the frame shows the pass-through rather
+     * than a default. The turn before it ran out of its limit and stopped nothing itself: stopping stays
+     * the caller's call, which is why the helper exists at all.
+     */
+    @Test
+    fun theStopHelperSendsOneSessionStopFrame(): Unit = runBlocking {
+        daemon.script(DaemonScript.Assistant("the daemon answered and never ended the turn"))
+
+        val client = connectedClient()
+        try {
+            val outcome = withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = daemon.sessionId,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "carry on",
+                    clientId = "turn-9",
+                    cursor = null,
+                    limit = shortLimit,
+                )
+            }
+            assertEquals(TurnEnd.TimedOut, outcome.end)
+            assertEquals(
+                "the runner never stops a session, not even on its own timeout: ${daemon.framesFor("rho.session.stop")}",
+                0,
+                daemon.framesFor("rho.session.stop").size,
+            )
+
+            val stopped = "coach-session-the-caller-chose"
+            withTimeout(answerWindow) { stopCoachSession(client, stopped) }
+
+            val frame = frameFor("rho.session.stop")
+            assertEquals(
+                "the frame carries the session id the helper was given, not the one the fake hands out",
+                stopped,
+                frame["session_id"]?.jsonPrimitive?.contentOrNull,
+            )
+        } finally {
+            client.close()
+        }
     }
 
     /** The params of the one frame this client sent calling [method], failing if there was not exactly one. */
