@@ -52,7 +52,7 @@ beyond the brief, so they are not gate-required — write them anyway, in the ta
   '*SchemaChecker*' --tests '*CoachPrompt*' --tests '*ExerciseNamesTest*'` (all in one invocation) reports 0 failures
   and `everyFixtureFileIsCoveredByATest` still passing.
 
-- [ ] 3. The coach plan → `FlightPlanDraft` mapping, and the flight-plan store operation
+- [x] 3. The coach plan → `FlightPlanDraft` mapping, and the flight-plan store operation
   The brief's second heading, happy paths. A new file beside `ReFlyCopy.kt` maps a `CoachLiftPlan` or `CoachRunPlan`
   to a `FlightPlanDraft` with `source = GENERATED` and `rawJson` = the validated JSON from task 2 — for a lift: title,
   estimated minutes, warmup, notes, exercises with their equipment keys passed straight through to
