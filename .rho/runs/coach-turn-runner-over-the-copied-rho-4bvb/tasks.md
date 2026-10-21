@@ -8,7 +8,7 @@ each is written by exactly one task. All nine live in the one new class
 `app/src/test/java/com/liftoff/app/work/CoachTurnRunnerTest.kt`, so tasks 3 and 4 must read what the earlier tasks put
 there before adding to it.
 
-- [ ] 1. Bring in the finished scripted fake daemon
+- [x] 1. Bring in the finished scripted fake daemon
   Covers: `git cherry-pick 6b1063e` on this branch, keeping its message. The source branch
   `rho/generationworker-core-flow-j5ca` is checked out in another runner worktree, so do not check it out or merge it —
   pick by sha. No hand edits to `app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt`, and no file from
