@@ -174,6 +174,54 @@ daemon host/port/token, coach workspace path). `SettingsStore` is DataStore-back
 - Known flake: `doneBodyweightSetStepperShowsBW` (In-Flight screen test, Room "closed pool") fails
   at random and passes on a re-run of the same tree.
 
+## CI
+
+`.github/workflows/ci.yml`, job `gate`, `ubuntu-latest`, Java 17 (temurin), 20-minute job timeout, runs on every
+pull request and on pushes to `main`. Its only build step is
+`./gradlew :app:assembleDebug :app:testDebugUnitTest`. `LIFTOFF_LIVE_*` env vars are never set, so the live coach
+test skips itself there.
+
+## Existing test classes (exact class names, for verify.sh's class checks)
+
+`app/src/test/java/com/liftoff/app/`: `AppContainerTest`, `MainActivityTest`.
+`coach/`: `CoachPromptBuilderTest`, `CoachPromptGoldenFileTest`, `CoachReplyExtractionTest`,
+`CoachReplyFixtureTest`, `CoachReplySemanticTest`, `CoachSchemaFilesTest`, `CoachSchemaLoadTest`,
+`ExerciseNamesTest`, `SchemaCheckerKeywordTest`, `SchemaCheckerValidDocumentTest`.
+`data/`: `BackupRoundTripTest`, `DatabaseExportTest`, `DatabaseImportTest`, `EquipmentDaoTest`,
+`ExerciseResolverTest`, `FlightPlanDaoTest`, `GenerationDaoTest`, `MissionDaoTest`, `MissionManagerReFlyTest`,
+`MissionManagerTest`, `PromptInputLoaderTest`, `SchemaExportTest`, `SortieDaoTest`.
+`domain/`: `MissionsTest`, **`ReFlyTest`** (file `ReFlyTest.kt`, capital F), `RolloverTest`, `SortiePlanningTest`,
+`SortiesTest`, `WeekTest`. `rho/`: `DaemonConnectionCheckTest` (+ `FakeDaemon.kt`, not a test class).
+`settings/`: `SettingsStoreTest`. `ui/`: `LiftoffShellTest`, `ShellNavTest`; `ui/control/`: `BackupImportRoomTest`,
+`BackupViewModelTest`, `ConnectionViewModelTest`, `EquipmentViewModelTest`, `MissionControlScreenTest`,
+`MissionControlViewModelTest`; `ui/inflight/`: `InFlightLandScrubTest`, `InFlightLeaveTest`, `InFlightRunTest`,
+`InFlightScreenTest`, `InFlightStatesTest`, `InFlightViewModelTest`, `LandScrubDialogTest`, `NoteDialogTest`,
+`RunLandingTest`; `ui/landed/`: `LandedStatesTest`; `ui/launchpad/`: `LaunchpadDraftControlsTest`,
+`LaunchpadDraftGuardsTest`, `LaunchpadReFlyTest`, `LaunchpadScrubTest`, `LaunchpadStatesTest`;
+`ui/mission/`: `MissionStatesTest`; `ui/sortie/`: `FlightPlanSectionTest`, `PlanFormatTest`; `ui/theme/`: 12
+classes (`ButtonsTest`, `ColorSchemeTest`, `ColorTokensTest`, `FontLicenseTest`, `FontResourcesTest`, `IconsTest`,
+`OffsetShadowTest`, `PatternTrackTest`, `PreviewsTest`, `ShapesTest`, `StripesTest`, `ThemePackageTest`,
+`TypographyTest`).
+
+**Invariant 2 is already guarded for `coach` only**: `ExerciseNamesTest.coachPackageHasNoAndroidImports` reads
+every `.kt` in `src/main/java/com/liftoff/app/coach` and asserts no `import android.` / `import androidx.`.
+There is no equivalent test for `domain`.
+
+## The verify script
+
+`.rho/runs/store-validated-coach-results-in-room-knkb/verify.sh` — run it detached
+(`mkdir -p app/build` first, `nohup bash .rho/runs/.../verify.sh > app/build/verify.log 2>&1`). It:
+1. runs the CI gate (`bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, `timeout 2400`,
+   results dir cleared first, up to 3 attempts only for the known flake / a build-level failure / a hung suite that
+   wrote no reports), and fails if `:app:testDebugUnitTest` came `FROM-CACHE` or `UP-TO-DATE`;
+2. indexes every `TEST-*.xml` once with awk into `app/build/verify-work/methods` and `/classes` (worst outcome
+   kept per name; class keys are prefixed `C:`), then requires **15 named test methods** by exact method name
+   (any class, any package) and 55 named test **classes** to have run with nothing failing or skipped;
+3. exits 1 with `NOT DONE: 15 check(s) failed.` on the untouched tree — verified against `c70f8ad`+plan commits:
+   gate attempt 1 passed, 72 classes / 558 tests / 0 skipped / 0 failures / 0 errors, 56 checks ok.
+
+Baseline on untouched HEAD, for comparison after the work lands: **72 classes, 558 tests, 0 failures**.
+
 ## Machine notes
 
 - Build with `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` (exports `ANDROID_HOME`).
