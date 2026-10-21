@@ -33,7 +33,7 @@ beyond the brief, so they are not gate-required — write them anyway, in the ta
   four names plus the existing `insertGetUpdateDelete` in that class's XML with `failures="0" errors="0"`, and
   `--tests '*SchemaExportTest*'` in the same invocation is still green (it is what proves no schema change happened).
 
-- [ ] 2. `Valid` carries the validated JSON, and the fixture loader becomes shared
+- [x] 2. `Valid` carries the validated JSON, and the fixture loader becomes shared
   Two small prerequisites the store operations need, in one commit.
   (a) `CoachReplyResult.Valid` gains the JSON text of the object the validator accepted, which `validate` already has
   in hand through `extract(raw).document`. The caller's raw reply — which can hold a code fence or prose — is never
