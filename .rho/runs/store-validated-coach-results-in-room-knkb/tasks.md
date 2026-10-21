@@ -120,7 +120,7 @@ beyond the brief, so they are not gate-required — write them anyway, in the ta
   moved on from PENDING; and
   `--tests '*MissionManagerTest*' --tests '*MissionManagerReFlyTest*'` in the same invocation is still green.
 
-- [ ] 6. The whole gate, run once
+- [x] 6. The whole gate, run once
   Nothing new to write: the cross-cutting check no per-class gate covers — `MissionManagerTest`'s rollover, the coach
   tests, export/import, every screen, and `SchemaExportTest`.
   Run `bash .rho/runs/store-validated-coach-results-in-room-knkb/verify.sh` detached (`mkdir -p app/build` first,
