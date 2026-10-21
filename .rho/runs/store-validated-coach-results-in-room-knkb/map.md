@@ -27,7 +27,7 @@ Run: store validated coach results in Room. Read this before the code.
 ## Existing code
 
 ### `data/MissionManager.kt`
-`confirm`, `scrub`, `launch`, `land`, `refly`, private `advance(missionId, settings)`, private
+`confirm` (line 70), `scrub`, `launch`, `land`, `refly`, private `advance(missionId, settings)` (line 157), private
 `currentWeekOf(clock, zone)`. Constructor takes `db`, `settingsStore`, `clock` (default
 `Clock.systemUTC()`), `zone` (default `ZoneId.systemDefault()`), and holds
 `currentWeekStart: MutableStateFlow<LocalDate?>`.
@@ -117,7 +117,7 @@ inserts `Exercise(normalizedName, displayName = name.trim())`; throws on a blank
 `CoachSortieFocus(index, sortieType, focus, rationale?)`,
 `CoachExercise(name, equipment: List<String>, sets: List<CoachSet>, restSeconds?, notes?)`,
 `CoachSet(reps?, seconds?, weight?)`, `CoachSegment(description, distance?, minutes?)`.
-`CoachReplyResult.Valid(plan) | Invalid(errors)`. `GenerationContext(kind, pattern, sortieType?,
+`CoachReplyResult.Valid(plan) | Invalid(errors)` — `CoachModels.kt:36` and `:38`; `Valid` has one field today. `GenerationContext(kind, pattern, sortieType?,
 equipmentKeys, sortieLengthMinutes)` — `init` requires `sortieType` for a FLIGHT_PLAN.
 
 ### `coach/CoachReplyValidator.kt`
@@ -133,7 +133,9 @@ equipment ids in the passed list, `estimated_minutes <= 1.25 × sortieLengthMinu
 normalized exercise names. Run: only the type match.
 
 **`Valid` carries no JSON** — only the typed plan. The validated text has to come from the
-caller; `extract(raw).document.toString()` is the source available inside the module.
+caller; `extract(raw).document.toString()` is the source available inside the module. `validate` calls `extract` at
+`CoachReplyValidator.kt:29`, so the accepted `JsonObject` is already in hand there and `Valid` can be given its text
+without a second extraction.
 `title` is **required** by both `lift-plan.json` and `run-plan.json` (max 60 chars), and
 DESIGN §9 (line 562) says a PLANNED card shows "the plan summary (title, the exercise list or
 run summary, estimated time)" — so a plan's title is user-visible.
@@ -157,16 +159,22 @@ daemon host/port/token, coach workspace path). `SettingsStore` is DataStore-back
   `context.cacheDir`, and a **fixed clock** `2026-01-12T00:00:00Z` with `zone = { ZoneOffset.UTC }`
   (so the current week is Monday 2026-01-12). `advanceClock(days)` rebuilds the manager with a
   later fixed clock. Helpers `insertMission(weekStart, pattern, status)` and
-  `insertSortie(missionId, index, type, focus, state)`.
+  `insertSortie(missionId, index, type, focus, state)` insert rows straight into the DAOs, so a test can build an
+  ACTIVE mission whose sortie 0 is already SCRUBBED without going through `confirm`. Run generation is switched on
+  with `settingsStore.setGenerateRunPlans(true)` (`SettingsStore.kt:88`), which is what leaves a run sortie PENDING
+  instead of writing it the simple plan.
 - `data/MissionManagerReFlyTest.kt` — same shape; asserts refusal cases and `rawJson == "{}"`.
 - `data/GenerationDaoTest.kt` — one test, `insertGetUpdateDelete`, exercising `update` with every
   field. No helper tests yet.
 - `data/FlightPlanDaoTest.kt` — `writePlan` cases, including that a second `writePlan` replaces
   the first plan for a sortie.
-- `coach/CoachReplyFixtureTest.kt` — owns the fixture loader every later fixture test reuses:
-  `fixture(name)` (classpath `fixtures/coach/<name>`, then `src/test/resources/fixtures/coach`
-  fallback), `validPlan(fixture, context)`, `errorsOf(fixture, context)`, and a `COVERED` set that
-  `everyFixtureFileIsCoveredByATest` checks against the directory. Constants `KEYS =
+- `coach/CoachReplyFixtureTest.kt` — owns the fixture loader every later fixture test reuses, all of it
+  **private**: `fixture(name)` (line 231; classpath `fixtures/coach/<name>`, then `src/test/resources/fixtures/coach`
+  fallback), `fixtureDirectory`, `fixtureSourceDirs`, `validPlan(fixture, context)` (251), `errorsOf(fixture,
+  context)` (261), and a `private companion object` (267) holding the fixture-name constants, a `COVERED` set that
+  `everyFixtureFileIsCoveredByATest` (217) checks against the directory, and the shared `KEYS` /
+  `OUTLINE_CONTEXT` / `LIFT_CONTEXT` / `RUN_CONTEXT`. Sharing it means moving all of that out, not just the three
+  functions. That test's `COVERED` set and coverage test stay as they are. Constants `KEYS =
   ["barbell","dumbbell","bench","pullup-bar"]`, `OUTLINE_CONTEXT`/`LIFT_CONTEXT`/`RUN_CONTEXT` all
   on pattern `"RLRLR"`, `sortieLengthMinutes = 60`. Convention: **lift fixtures use the sortie at
   pattern position 1, run fixtures position 0.**
@@ -215,10 +223,17 @@ There is no equivalent test for `domain`.
    results dir cleared first, up to 3 attempts only for the known flake / a build-level failure / a hung suite that
    wrote no reports), and fails if `:app:testDebugUnitTest` came `FROM-CACHE` or `UP-TO-DATE`;
 2. indexes every `TEST-*.xml` once with awk into `app/build/verify-work/methods` and `/classes` (worst outcome
-   kept per name; class keys are prefixed `C:`), then requires **15 named test methods** by exact method name
+   kept per name; class keys are prefixed `C:`), then requires **13 named test methods** by exact method name
    (any class, any package) and 55 named test **classes** to have run with nothing failing or skipped;
-3. exits 1 with `NOT DONE: 15 check(s) failed.` on the untouched tree — verified against `c70f8ad`+plan commits:
-   gate attempt 1 passed, 72 classes / 558 tests / 0 skipped / 0 failures / 0 errors, 56 checks ok.
+3. exits 1 with `NOT DONE: 13 check(s) failed.` on the untouched tree — verified against `c70f8ad`+plan commits:
+   gate attempt 1 passed, 72 classes / 558 tests / 0 skipped / 0 failures / 0 errors; every named test reported
+   "did not run".
+
+**The script was rewritten by claude review at `a58a9bd`, and now names 13 tests, not 15.** Dropped:
+`anOutlineForAPastWeekOrOneThatNoLongerFitsThePatternIsRefusedAndChangesNothing` and
+`aSecondPlanForTheSameSortieReplacesThePlanAlreadyThere` (both are the plan's Decisions that go beyond the brief, so
+the owner reviews them in the pull request instead of the gate). The plan's Testing list still asks for both, so
+`tasks.md` has the task that owns each operation write them anyway.
 
 Baseline on untouched HEAD, for comparison after the work lands: **72 classes, 558 tests, 0 failures**.
 
