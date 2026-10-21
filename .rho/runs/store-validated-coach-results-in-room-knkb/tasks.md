@@ -96,7 +96,7 @@ beyond the brief, so they are not gate-required — write them anyway, in the ta
   class's XML with `failures="0" errors="0"`, and each refusal test asserts the mission, the sorties and the plans read
   back unchanged — not only that the outcome names the reason.
 
-- [ ] 5. The outline operation: storing an outline activates the Mission
+- [x] 5. The outline operation: storing an outline activates the Mission
   The brief's first heading. On `MissionManager`, beside `confirm`: guard, insert one sortie per pattern letter in the
   pattern's own order — each taking `focus` and `focusRationale` from the outline entry at the same index instead of
   `confirmWithoutOutline`'s two hardcoded defaults — write `Mission.outlineNotes`, then reuse the private `advance` so
