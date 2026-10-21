@@ -27,4 +27,46 @@ interface GenerationDao {
 
     @Delete
     suspend fun delete(generation: Generation)
+
+    // The generation worker's row helpers. Each one writes only the columns that step owns, so a row that is
+    // restarted keeps its session, its event cursor and its attempt count.
+
+    @Query("UPDATE generation SET status = 'RUNNING' WHERE id = :id")
+    suspend fun markRunning(id: Long)
+
+    @Query("UPDATE generation SET status = 'SUCCEEDED', finishedAt = :finishedAt WHERE id = :id")
+    suspend fun markSucceeded(id: Long, finishedAt: Long)
+
+    // A generation that failed has still finished, so it stamps finishedAt too and keeps the reason it failed for.
+    @Query("UPDATE generation SET status = 'FAILED', error = :error, finishedAt = :finishedAt WHERE id = :id")
+    suspend fun markFailed(id: Long, error: String, finishedAt: Long)
+
+    @Query("UPDATE generation SET status = 'CANCELLED', finishedAt = :finishedAt WHERE id = :id")
+    suspend fun markCancelled(id: Long, finishedAt: Long)
+
+    @Query("UPDATE generation SET nabuSessionId = :nabuSessionId WHERE id = :id")
+    suspend fun saveSessionId(id: Long, nabuSessionId: String)
+
+    // The cursor moves as events arrive, so it is saved on its own rather than travelling with the session id.
+    @Query("UPDATE generation SET lastEventId = :lastEventId WHERE id = :id")
+    suspend fun saveLastEventId(id: Long, lastEventId: String)
+
+    // The row counts its own attempts; the worker never says which number it is on.
+    @Query("UPDATE generation SET attempt = attempt + 1 WHERE id = :id")
+    suspend fun bumpAttempt(id: Long)
+
+    // Newest by createdAt, tie-break id: the table records no activity, and a cancelled row is a dead end that
+    // must not stand in as the current generation.
+    @Query(
+        "SELECT * FROM generation WHERE sortieId = :sortieId AND status != 'CANCELLED' " +
+            "ORDER BY createdAt DESC, id DESC LIMIT 1"
+    )
+    suspend fun getNewestNonCancelledForSortie(sortieId: Long): Generation?
+
+    // Only the Mission's own outline generation: a sortie's plan generation is not what the draft screen shows.
+    @Query(
+        "SELECT * FROM generation WHERE missionId = :missionId AND kind = 'OUTLINE' AND status != 'CANCELLED' " +
+            "ORDER BY createdAt DESC, id DESC LIMIT 1"
+    )
+    suspend fun getNewestNonCancelledOutlineForMission(missionId: Long): Generation?
 }
