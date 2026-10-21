@@ -23,18 +23,35 @@ What this run touches, and what is already there. Read the code you change; this
 
 **`app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt`** (129 lines today) — MockWebServer-backed fake, `@Before start()` / `@After stop()`. `host()`, `port()`, `frames`, `framesFor(method)` (a substring match on `"method":"<name>"`), `requests`, `requestCount()`, `refuseMethod`, `refuseUpgrade`, `refuseProtocolMismatch`, `answerHelloWithProtocol`. Answers `rho.hello` and everything else with `{"ok":true,…}` today.
 
-**`ARCHITECTURE.md`** — line 36 is the `com.liftoff.app.work` row, third column `—`. Line 31 is the rho row. Invariants (line 58+): 3 "Nothing in rho changes… only existing protocol methods", 4 copied-with-header, 6 "Generations are resumable from the `Generation` row (stored cursor)", 7 "Session labels never start with `run:`", 8 "up to 2 in-session repairs". `com.liftoff.app.work` does not exist yet in `app/src/main/java/com/liftoff/app/` (packages today: coach, data, domain, rho, settings, ui).
+**`ARCHITECTURE.md`** — line 36 is the `com.liftoff.app.work` row, third column `—`. Today it reads exactly:
+
+    | `com.liftoff.app.work` | Android-side workers (`GenerationWorker`). Uses WorkManager and Android APIs. | — |
+
+Line 31 is the rho row. Invariants (line 58+): 3 "Nothing in rho changes… only existing protocol methods", 4 copied-with-header, 6 "Generations are resumable from the `Generation` row (stored cursor)", 7 "Session labels never start with `run:`", 8 "up to 2 in-session repairs". `com.liftoff.app.work` does not exist yet in `app/src/main/java/com/liftoff/app/` (packages today: coach, data, domain, rho, settings, ui).
+The M3 row, which must not move, reads exactly:
+
+    | M3 | Generation — rho client copy, `GenerationWorker`, outline + lift plan end to end | Not started — the copied rho client and its connection check exist; the worker does not |
+
+The tree it must stay identical to is `1976682` (this run's `brief.md` was added by `01cd8b0 run: brief`, whose parent is `1976682 goal: round 16 check`).
 
 ## Bringing in the scripted fake (step 1)
 
 `6b1063e` "test: teach FakeDaemon to script a whole rho turn" — one file, `FakeDaemon.kt`, +279/-10. Verified clean: merge-base of HEAD and that commit is `2d21d87` and `FakeDaemon.kt` is byte-identical between merge-base and HEAD, so the pick cannot conflict. The branch also holds `0a2811c run: task 1 done`, a `.rho/runs/` commit the brief says not to bring.
+
+`rho/generationworker-core-flow-j5ca` is checked out in the worktree
+`.rho/runner/worktrees/generationworker-core-flow-j5ca` (at `0a2811c`), so `git checkout` of it fails here: cherry-pick
+by sha (`git cherry-pick 6b1063e`) and nothing else.
 
 What the picked fake gains (confirmed from the diff, so a later session need not re-derive it):
 - `sealed interface DaemonScript` with `Assistant(content)`, `State(to, reason = "")`, `Ask(question, choices = emptyList())`, `Permission(tool, summary, risk = "low")`; `script(vararg DaemonScript)` adds **one turn per prompt the fake accepts**.
 - `logEvent(type, data: JsonObject): String` seeds an event before any connection and returns its id.
 - `sessionId` (`@Volatile`, default `"session-1"`), `log` (the event log), `answers` (`ConcurrentHashMap<String, JsonElement>` keyed by the fake's own request id, `srv-1`, …).
 - `rho.session.create` → `{session_id, event}` and logs a `session` event carrying `workspace` and `options` as sent. `rho.session.subscribe` → `{subscribed:true}` and re-sends a held Ask. `rho.session.send_prompt` → `{event_id}`, and a repeated `client_id` returns the original id and appends nothing. `rho.session.events_after` → `{events, synced:true}` from the cursor, `CURSOR_UNKNOWN` for an id not in the log, whole log for a null/absent `last_event_id`. `rho.session.stop` → `{}` plus a `state_change` to `completed` / `stopped`. An unscripted method still gets `{ok:true,…}`.
-- Ordering that matters: `send_prompt` **answers first, then plays the turn** in the same `onMessage`, so the pushed events arrive just after the response frame. An Ask/Permission `hold`s the rest of the turn until the client answers, then plays on.
+- Ordering that matters: `send_prompt` **answers first, then plays the turn** in the same `onMessage`, so the pushed events arrive just after the response frame. An Ask/Permission `hold`s the rest of the turn until the client answers, then plays on. `handle` is `@Synchronized`, so a whole turn is played inside the frame that prompted it.
+- **Only subscribers get pushes**: `rho.session.subscribe` adds the socket to `subscribers` (removed in `onClosed`/`onFailure`), and `append` pushes to those sockets only. `logEvent` before any connection therefore seeds the log with no push at all.
+- A daemon-originated request carries `id` = `"srv-1"`, `"srv-2"`, … and the same value as `request_id`; that `id` is what `client.respond` must answer with, and it is the key `answers` records the reply under. `clientAnswered` is what resumes a held turn.
+- `rho.session.stop` answers `{}` and appends a `state_change` to `completed` / `stopped`, so a stop test run after a turn leaves that event in the fake's log.
+- `rho.session.create` logs a `session` event carrying `workspace` and `options` as sent, so a test can read the create back from `framesFor("rho.session.create")` params or from `log`.
 - Event ids are `"01E" + sequence.padStart(23, '0')` — fixed width, so id order is log order and comparing ids is a string comparison. Timestamps are a fixed clock (`2026-01-01T00:mm:ssZ`), one second per event, so nothing reads a real clock and CI's UTC is irrelevant.
 - `nextTurn()` **repeats the last scripted turn** once `turns` runs out; script once per prompt for different replies.
 
@@ -88,6 +105,17 @@ Ran once on the untouched tree (`app/build/verify-probe.log`): gate attempt 1 pa
 the two classes, the M3 row and the bring-in check passed. The report parser was checked separately against the 74
 reports that run wrote (575 methods, 74 classes) and against a synthetic report holding a `<failure>`, an `<error>`, a
 `<skipped/>` and a `name="x[0]"` testcase spread over several lines.
+
+## Task split (written by this step)
+
+`.rho/runs/coach-turn-runner-over-the-copied-rho-4bvb/tasks.md` holds five tasks, in `plan.md`'s order: 1 the
+cherry-pick of `6b1063e` (writes no test; must leave `DaemonConnectionCheckTest` and `AppContainerTest` green) →
+2 `CoachTurnRunner.kt` plus the new `CoachTurnRunnerTest.kt` and the two happy-path tests → 3 the turn boundary and the
+Ask / Permission answers → 4 blocked / paused / timeout / the stop helper → 5 the ARCHITECTURE.md row and the whole
+detached gate. Tasks 2–4 all append to the same test class, so each must read what the earlier ones put there.
+
+Checked at HEAD `c4e3f38` (run: verify): all nine names verify.sh looks for are absent from `app/src` (grep per name,
+0 hits each), and each is assigned to exactly one task under its exact verify.sh name.
 
 ## Gate
 
