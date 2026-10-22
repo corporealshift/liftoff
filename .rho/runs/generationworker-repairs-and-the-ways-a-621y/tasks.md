@@ -74,7 +74,7 @@ run detached into a log under `app/build/` with an `EXIT=$?` sentinel and no pip
   `aTurnThatEndsInErrorRetriesAndLeavesTheRowRunningWithItsSessionAndCursor`.
   Done when both pass in one cold run of `GenerationWorkerTest`.
 
-- [ ] ARCHITECTURE.md's two rows
+- [x] ARCHITECTURE.md's two rows
   The M3 milestone row (line 82): its Status cell stops reading "Not started — … the worker does not" and says
   the worker's core flow is built, naming resilience (repairs and retries), cancellation, supersede and app
   wiring/enqueueing as still to come, with a "still to come"-type marker. The `com.liftoff.app.work` area-map
