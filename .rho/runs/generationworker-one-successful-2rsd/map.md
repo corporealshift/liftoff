@@ -43,7 +43,10 @@
 ## The row
 
 `app/src/main/java/com/liftoff/app/data/Generation.kt` — `id` (auto), `kind`, `missionId`, `sortieId?`, `status`, `nabuSessionId?`, `lastEventId?`, `attempt = 0`, `error?`, `createdAt`, `finishedAt?`
-`GenerationDao.kt` — `get(id)`, `markRunning(id)`, `saveSessionId(id, s)`, `saveLastEventId(id, e)`, `markSucceeded(id, finishedAt)`, `markFailed(id, error, finishedAt)`, `markCancelled(...)`, **`bumpAttempt(id)`** (exists, but is not in the brief's list of calls; `GenerationDaoTest` proves it climbs 0→3), plus the export/import and "newest non-cancelled" reads.
+`GenerationDao.kt` — **`insert(generation): Long`** (a test seeds a row with `insert`; `Generation.createdAt` has
+**no default**, so it must be passed), `get(id)`, `getAll()`, `insertAll`, `countAll()`, `update`, `delete`,
+`markRunning(id)`,
+`saveSessionId(id, s)`, `saveLastEventId(id, e)`, `markSucceeded(id, finishedAt)`, `markFailed(id, error, finishedAt)`, `markCancelled(...)`, **`bumpAttempt(id)`** (exists, but is not in the brief's list of calls; `GenerationDaoTest` proves it climbs 0→3), plus the export/import and "newest non-cancelled" reads.
 `Enums.kt` — `GenerationKind { OUTLINE, FLIGHT_PLAN }`, `GenerationStatus { QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED }`, `SortieType { RUN, LIFT }`, `SortieState { PENDING, PLANNED, IN_FLIGHT, LANDED, SCRUBBED }`, `FlightPlanSource { GENERATED, REFLY, SIMPLE_RUN }`.
 
 ## What the worker reads to build the prompt and the context
@@ -55,6 +58,7 @@
 - `CoachPromptBuilder.prompt(input): String` (an `object`)
 - `CoachReplyValidator.validate(raw: String, context: GenerationContext): CoachReplyResult` — `Valid(plan, json)` | `Invalid(errors: List<String>)`; `GenerationContext(kind, pattern, sortieType? = null, equipmentKeys, sortieLengthMinutes)` **requires** `sortieType` when `kind == FLIGHT_PLAN`
 - `MissionManager.storeOutline(missionId, valid)` / `storePlan(sortieId, valid)` → `StoreOutcome.Stored` | `StoreOutcome.Refused(reason)`
+  - Other `MissionManager` calls a test seeds with: `onAppOpen(): Mission`, `confirm(missionId: Long)`, `scrub(sortieId: Long, reason: String? = null)` — `scrub` takes a sortie **id**, not an index.
   - outline refuses: mission gone, mission not `DRAFT`, week ended, outline/pattern mismatch. On success it activates the Mission, inserts one sortie per pattern letter and `advance`s, so sortie 1 becomes current.
   - plan refuses: sortie gone, no mission, mission not `ACTIVE`, sortie not `PENDING`/`PLANNED`, sortie not the current one. On success it writes the plan (source `GENERATED`) and marks a `PENDING` sortie `PLANNED`.
 
@@ -128,6 +132,13 @@ not dirty it — verified).
 The work-row check splits the cell on `;` and judges only the entry that names the worker, so a correct row that
 also says "the failure outcomes not written yet" passes, while the current row's
 "`GenerationWorker` not written yet" fails. A plain `grep GenerationWorker` would pass on the untouched row.
+
+## The task split (written 2026-10-22, see tasks.md)
+
+Six tasks: 1 `GenerationWorker.kt` (compile only, no test); 2 the test class's harness + the outline case;
+3 the lift and run cases; 4 the two row guards (missing row, already-finished row); 5 the resume case and the
+single stop frame; 6 the ARCHITECTURE.md `work` row plus one detached whole-suite gate. Tasks 2–5 all add to
+`GenerationWorkerTest.kt`, so each reads what the previous task left there rather than rebuilding the harness.
 
 ## Rules that bind this run
 
