@@ -26,6 +26,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.Clock
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -59,10 +60,10 @@ class GenerationWorker(
         // The prompt and the validator both need the Mission's pattern and the Sortie's type, so a row
         // that outlived them has nothing left to resume.
         val mission = container.database.missionDao().get(row.missionId)
-            ?: return failRow(generations, generationId, "Mission ${row.missionId} no longer exists")
+            ?: return failGeneration(generations, generationId, "Mission ${row.missionId} no longer exists", client = null, sessionId = null)
         val sortie = row.sortieId?.let { container.database.sortieDao().get(it) }
         if (row.kind == GenerationKind.FLIGHT_PLAN && sortie == null) {
-            return failRow(generations, generationId, "Sortie ${row.sortieId} no longer exists")
+            return failGeneration(generations, generationId, "Sortie ${row.sortieId} no longer exists", client = null, sessionId = null)
         }
 
         return when (container.daemonConnectionCheck().check()) {
@@ -80,6 +81,9 @@ class GenerationWorker(
         sortie: Sortie?,
     ): Result {
         val client = container.daemonClient()
+        // The id this turn actually ran on, held here so the catch can give it up even when the turn threw
+        // before it could report an outcome.
+        var reportedSessionId: String? = null
         return try {
             client.connect()
             val settings = container.settingsStore.settings.first()
@@ -96,15 +100,29 @@ class GenerationWorker(
                     clientId = "${row.id}-${row.attempt}",
                     cursor = row.lastEventId,
                     limit = TURN_LIMIT,
-                    onSessionId = onSessionId,
+                    onSessionId = { id ->
+                        reportedSessionId = id
+                        onSessionId(id)
+                    },
                     onCursor = onCursor,
                 )
             }
             storeFinishedTurn(container, generations, client, row, mission, sortie, settings, outcome)
         } catch (dropped: DaemonException) {
-            // A daemon that isn't there, or a call it refused, is a generation that didn't get to
-            // finish rather than one that finished badly; the progress already saved is where it resumes.
-            Result.retry()
+            // A refusal the daemon will give the same answer to every time is a generation that is over.
+            // Anything else — a connection that went away, a call it might take next time — is a turn that
+            // didn't get to finish, and the progress already saved is where it resumes.
+            if (dropped.isPermanent) {
+                failGeneration(
+                    generations,
+                    row.id,
+                    dropped.message.orEmpty(),
+                    client,
+                    reportedSessionId ?: row.nabuSessionId,
+                )
+            } else {
+                Result.retry()
+            }
         } finally {
             client.close()
         }
@@ -134,7 +152,11 @@ class GenerationWorker(
         }
     }
 
-    /** Validate, store, mark SUCCEEDED, then give up the session. Anything else leaves both for the retry. */
+    /**
+     * Validate, store, mark SUCCEEDED, then give up the session. A turn that ends blocked, or a store that
+     * refuses its target, is over for the same reason every time, so it ends through [failGeneration];
+     * anything else leaves the row and the session for the retry.
+     */
     private suspend fun storeFinishedTurn(
         container: AppContainer,
         generations: GenerationDao,
@@ -145,6 +167,11 @@ class GenerationWorker(
         settings: Settings,
         outcome: TurnOutcome,
     ): Result {
+        // A coach that asked for input is a generation that will not answer itself: retrying asks the same
+        // question and gets the same question back.
+        if (outcome.end == TurnEnd.Blocked) {
+            return failGeneration(generations, row.id, "coach needed input", client, outcome.sessionId)
+        }
         if (outcome.end != TurnEnd.Idle && outcome.end != TurnEnd.Completed) return Result.retry()
         val raw = outcome.lastAssistantText ?: return Result.retry()
 
@@ -164,7 +191,11 @@ class GenerationWorker(
             GenerationKind.OUTLINE -> container.missionManager.storeOutline(row.missionId, valid)
             GenerationKind.FLIGHT_PLAN -> container.missionManager.storePlan(requireNotNull(row.sortieId), valid)
         }
-        if (stored is StoreOutcome.Refused) return Result.retry()
+        // The store's own reason is the end of it: a target that has moved on does not move back, so a
+        // retry would be refused for the same reason.
+        if (stored is StoreOutcome.Refused) {
+            return failGeneration(generations, row.id, stored.reason, client, outcome.sessionId)
+        }
 
         generations.markSucceeded(row.id, clock.millis())
         // Only a generation that stored its answer gives up its session; every other end resumes it (invariant 6).
@@ -181,12 +212,28 @@ class GenerationWorker(
         return CoachPromptBuilder.prompt(input)
     }
 
-    private suspend fun failRow(
+    /**
+     * The one permanent end: the row is FAILED with the reason it ended for, the session this generation got
+     * is given up, and nothing is retried. A stop the daemon refuses changes nothing — the outcome was already
+     * decided before it was attempted.
+     */
+    private suspend fun failGeneration(
         generations: GenerationDao,
         generationId: Long,
-        reason: String,
+        message: String,
+        client: DaemonClient?,
+        sessionId: String?,
     ): Result {
-        generations.markFailed(generationId, reason, clock.millis())
+        generations.markFailed(generationId, message, clock.millis())
+        if (client != null && sessionId != null) {
+            try {
+                stopCoachSession(client, sessionId)
+            } catch (stopped: CancellationException) {
+                throw stopped
+            } catch (_: Exception) {
+                // A session the daemon won't give up is the daemon's to clean up.
+            }
+        }
         return Result.failure()
     }
 

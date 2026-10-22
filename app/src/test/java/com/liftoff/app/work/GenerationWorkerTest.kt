@@ -23,6 +23,7 @@ import com.liftoff.app.rho.FakeDaemon
 import com.liftoff.app.rho.net.Rpc
 import com.liftoff.app.rho.protocol.EventType
 import com.liftoff.app.rho.protocol.RhoJson
+import com.liftoff.app.rho.protocol.RpcCodes
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
@@ -404,6 +405,138 @@ class GenerationWorkerTest {
         )
     }
 
+    /**
+     * blocked ends the generation for good: `Result.failure()` and the row FAILED with 'coach needed input'.
+     * Scripted as an assistant line then `State("blocked")` on an OUTLINE row over a mission seeded with
+     * onAppOpen() only. A coach that asked for input will not answer itself, so this is not a retry: nothing is
+     * stored — the mission is still DRAFT with no sorties — and the session the turn opened is given up once,
+     * the way a generation that finished gives up its session.
+     */
+    @Test
+    fun aTurnThatEndsBlockedFailsTheGenerationWithCoachNeededInput() {
+        daemon.script(
+            DaemonScript.Assistant("Which equipment do you mean by 'the bar'?"),
+            DaemonScript.Assistant("I need the weights you actually have."),
+            DaemonScript.State("blocked", "the coach is waiting for input"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        assertEquals("coach needed input", row.error)
+        assertNotNull(row.finishedAt)
+        // A FAILED row is still the trace of the turn it ran, so it keeps the session that turn reported.
+        assertEquals("the row lost the session its blocked turn ran on", daemon.sessionId, row.nabuSessionId)
+
+        val storedMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+        assertEquals(MissionStatus.DRAFT, storedMission.status)
+        assertEquals("a blocked turn stored something: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
+
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
+    /**
+     * a permanent refusal at a call ends the generation for good: `Result.failure()` and the row FAILED with
+     * the daemon's own words. `rho.session.send_prompt` is refused through [FakeDaemon.refuseMethod] with a code
+     * in `RpcCodes.PERMANENT` and a message of the fake's own, on an OUTLINE row over a mission seeded with
+     * onAppOpen() only. The session was already opened by the time the call was refused, so it is given up once
+     * even though the generation died, and the row keeps the session id it died with.
+     */
+    @Test
+    fun aPermanentRefusalAtACallFailsTheGenerationWithTheDaemonsMessageAndStopsTheSession() {
+        val refusal = "the fake will not take this prompt"
+        daemon.refuseMethod["rho.session.send_prompt"] = RpcCodes.INVALID_REQUEST to refusal
+        // Scripted but never played: the prompt is refused before the daemon has anything to say.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        // The daemon's own message, word for word: a permanent refusal says the same thing every time.
+        assertEquals("rho.session.send_prompt: $refusal", row.error)
+        assertNotNull(row.finishedAt)
+        assertEquals("a row that died this way lost its session", daemon.sessionId, row.nabuSessionId)
+
+        assertEquals("the refused store left something behind: ", MissionStatus.DRAFT, runBlocking { container.database.missionDao().get(mission.id) }!!.status)
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
+    /**
+     * a valid reply whose target has moved on ends the generation for good: `Result.failure()` and the row
+     * FAILED with the reason `MissionManager` itself gives. Seeded like the run happy path —
+     * setGenerateRunPlans(true) before onAppOpen(), then confirm(id), leaving index 0 a current PENDING RUN —
+     * then [MissionManager.scrub] that sortie between inserting the row and running the worker, so the turn
+     * still gets a valid run plan and the store turns it away. Nothing is stored, and the session is given up
+     * once.
+     */
+    @Test
+    fun aValidReplyForASortieThatHasMovedOnFailsTheGenerationWithTheStoresOwnReason() {
+        // Before onAppOpen(): confirm() is what prepares the current sortie, and it reads this setting then.
+        runBlocking { container.settingsStore.setGenerateRunPlans(true) }
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.RUN_PLAN)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        runBlocking { container.missionManager.confirm(mission.id) }
+
+        val run = sortieAt(mission.id, 0)
+        assertEquals("index 0 is a RUN under RLRLR", SortieType.RUN, run.type)
+        assertAwaitingGeneration(run)
+
+        val generationId = insertFlightPlanGeneration(mission.id, run.id)
+        // The target moves out from under the row before the worker reaches the store with its valid reply.
+        runBlocking { container.missionManager.scrub(run.id) }
+        assertEquals(SortieState.SCRUBBED, runBlocking { container.database.sortieDao().get(run.id) }!!.state)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        // The store's own sentence for this state, not a generic 'the store refused'.
+        assertEquals("sortie is SCRUBBED", row.error)
+        assertNotNull(row.finishedAt)
+        assertEquals("the row lost the session its turn ran on", daemon.sessionId, row.nabuSessionId)
+
+        assertNull("a plan was stored on the scrubbed sortie", runBlocking { container.database.flightPlanDao().getPlan(run.id) })
+        assertEquals(SortieState.SCRUBBED, runBlocking { container.database.sortieDao().get(run.id) }!!.state)
+
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
     private fun runWorker(generationId: Long): ListenableWorker.Result = runBlocking {
         withTimeout(turnWait) {
             TestListenableWorkerBuilder<GenerationWorker>(context)
@@ -467,6 +600,19 @@ class GenerationWorkerTest {
         assertTrue("the worker created a session: ${daemon.framesFor("rho.session.create")}", daemon.framesFor("rho.session.create").isEmpty())
         assertTrue("the worker sent a prompt: ${daemon.framesFor("rho.session.send_prompt")}", daemon.framesFor("rho.session.send_prompt").isEmpty())
         assertTrue("the worker sent the daemon this: ${daemon.frames}", daemon.frames.isEmpty())
+    }
+
+    /**
+     * The frame a permanent end leaves behind: exactly one `rho.session.stop`, naming the session this
+     * generation ran on. A generation that died gives its session up just as one that finished does.
+     */
+    private fun assertSessionGivenUpOnce(sessionId: String) {
+        val stopped = frameFor("rho.session.stop")
+        assertEquals(
+            "the stop gave up a session other than the one this generation ran on",
+            sessionId,
+            stopped["session_id"]?.jsonPrimitive?.contentOrNull,
+        )
     }
 
     /** The params of the one frame this worker sent calling [method], failing if there was not exactly one. */
