@@ -11,9 +11,11 @@
   no DI framework, `AppContainer` builds everything by hand.
 - `CLAUDE.md`: gate is `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`; commit messages
   `area: lowercase summary`; stage named files only; short comments (why, not what); §2 vocabulary.
-- `ARCHITECTURE.md:36` — the `com.liftoff.app.work` row. It ends **"nothing enqueues it yet"**, which
-  this run must replace with the helper's name. `ARCHITECTURE.md:82` (M3 row) already lists "WorkManager's
-  retry policy and backoff" as still to come; the brief's done_when only names the work row.
+- `ARCHITECTURE.md:36` — the `com.liftoff.app.work` row. Its last clause is **"nothing enqueues it yet"**,
+  which this run must replace with the helper's name. `ARCHITECTURE.md:82` (M3 row) ends "resilience beyond
+  those outcomes (WorkManager's retry policy and backoff), cancellation, supersede and app wiring still to
+  come"; the plan's Decisions moves backoff out of that clause and adds the helper to the built list, and
+  verify.sh does not check the M3 row.
 
 ## Files involved
 
@@ -26,7 +28,7 @@
   → `Result.success()` without a coach turn. Nothing here enqueues anything; no attempt cap yet.
 - `app/src/main/java/com/liftoff/app/AppContainer.kt` (66 lines) — `class AppContainer(context: Context)`
   holding `private val appContext = context.applicationContext`. Members today: lazy `settingsStore`,
-  `val database: LiftoffDatabase` (Room `liftoff.db`), lazy `missionManager`; private suspend
+  `val database: LiftoffDatabase by lazy { … }` (Room `liftoff.db`, line 23), lazy `missionManager`; private suspend
   `daemonSettings()`, and suspend `daemonConnectionCheck()`, `daemonClient()`. No WorkManager anywhere,
   and no `WorkManagerInitializer` removal, so the helper's member must call
   `WorkManager.getInstance(appContext)` inside the call. The helper is exposed here.
@@ -80,13 +82,17 @@ change it after that):
 2. Indexes every `TEST-*.xml` in one awk pass into name → pass/fail/skipped (worst outcome kept), then requires each
    named test to have run and passed, and each listed class to have run with everything in it passing. Gradle exits 0
    when a `--tests` name matches nothing, so a test that was never written would otherwise pass silently.
-3. Compares ARCHITECTURE.md's `com.liftoff.app.work` row against the same row at `brief_commit^`, where
-   `brief_commit = git rev-list -1 HEAD -- <run dir>/brief.md` → `af51236`, base `4aaf02c`. Two checks: the row must
-   no longer carry the "nothing enqueues it yet" claim (matched only on enqueue/schedule verbs, with `\b` before the
-   verb so a helper named `…Enqueuer.kt` is not read as the claim surviving — a row may legitimately still say
-   "nothing in the app calls it yet"), and the row must name an artifact the base doc did not already name (a
-   backticked token, or a plain uppercase-initial identifier of ≥8 chars, or a `*.kt` file name). No particular
-   helper name is required. The M3 row is not checked: the brief names only the work row.
+3. Compares ARCHITECTURE.md's `com.liftoff.app.work` row (found by `grep -m1 -E '^\|[^|]*com\.liftoff\.app\.work'`)
+   against the same row at `brief_commit^`, where `brief_commit = git rev-list -1 HEAD -- <run dir>/brief.md` →
+   `af51236`, base `4aaf02c`. Two checks: (a) the row, lowercased with `` ` ``, `*` and `_` stripped, must not
+   contain the literal `nothing enqueues it yet` — verify.sh was rewritten by commit `075ba5b` ("run: verify.sh
+   rewritten by claude review") and now matches that phrase literally, so the row must simply stop saying it (any
+   casing; other true statements like "nothing in the UI calls it yet" are fine); (b) the row must name an artifact
+   the base doc did not already name — a backticked identifier token, a plain uppercase-initial word of ≥8 chars,
+   or a `*.kt` file name — so `GenerationEnqueuer.kt` or `GenerationEnqueuer` satisfies it. No particular helper
+   name is required. The M3 row is not checked: the brief names only the work row.
+4. Section 1's gate deletes `app/build/test-results/testDebugUnitTest` before each of its up-to-3 attempts, and only
+   the attempt it reports on is checked for `:app:testDebugUnitTest FROM-CACHE|UP-TO-DATE|NO-SOURCE`.
 
 ## WorkManager 2.9.1 facts (read off the jars in the Gradle cache, not from memory)
 
@@ -122,7 +128,11 @@ change it after that):
   `Room…inMemoryDatabaseBuilder(…).allowMainThreadQueries()` and installs it with
   `WorkManagerImpl.setDelegate(...)` (a plain static swap, no throw when repeated). So under Robolectric
   a test may read the WorkSpec synchronously on the main thread, and each call to
-  `initializeTestWorkManager` gives a fresh in-memory DB.
+  `initializeTestWorkManager` gives a fresh in-memory DB — call it in `@Before` so each test in
+  `GenerationEnqueuerTest` starts with an empty WorkDatabase (otherwise the "one item under the name"
+  checks see the previous test's work), and `closeWorkDatabase()` in `@After`. The delegate is a
+  process-wide static, so a test class that runs after it in the same JVM sees WorkManager as initialized;
+  verify.sh says that is harmless here because nothing in the UI calls the helper.
 - `WorkManagerImpl.initialize` throws `IllegalStateException` ("WorkManager is already initialized…")
   only when both the delegated and default instances are set; `getInstance()` returns the delegate if
   one is set, otherwise the default (null under Robolectric without init → `WorkManager.getInstance`
@@ -136,3 +146,18 @@ change it after that):
   without touching WorkManager's database.
 - The six tests verify.sh §2 names, and what each must show, are in `verify.sh` itself — read it, this note is not
   the list.
+
+## This run's tasks (`.rho/runs/enqueue-helper-for-coach-generations-8vdt/tasks.md`)
+
+Four tasks: (1) the helper + the two request-shape tests, (2) the two unique-name/`KEEP` tests, (3) the
+`AppContainer` member + the two container tests, (4) the two ARCHITECTURE.md rows + the whole-suite gate. All six
+named tests go in one class, `GenerationEnqueuerTest.kt`, created by task 1 and added to by tasks 2 and 3.
+
+## The two ARCHITECTURE.md rows as they stand at `4aaf02c` (HEAD of this branch before any work)
+
+- Line 36, third column, tail: `… stopping the rho session on a finished generation and never on a retry; nothing
+  enqueues it yet)`. The clause to replace is the last one, inside the existing parentheses.
+- Line 82, tail: `… resilience beyond those outcomes (WorkManager's retry policy and backoff), cancellation,
+  supersede and app wiring still to come`.
+- Neither row names `GenerationEnqueuer` today, and `GenerationWorker`, `CoachTurnRunner.kt` and
+  `CoachTurnRunner` are already named in the base doc, so they do not count as the new artifact.
