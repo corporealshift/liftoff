@@ -38,7 +38,7 @@ test must show.
   Robolectric, the plan's fallback is a one-shot `suspend` active-only query beside `observeActive` in
   `EquipmentDao` — no schema change, and the worker's shape stays the same.
 
-- [ ] The lift and run happy paths
+- [x] The lift and run happy paths
   Add to `GenerationWorkerTest`. Lift: `onAppOpen()`, `confirm(id)`, then `scrub` the index-0 sortie (by its id),
   which leaves index 1 (a `LIFT` under the default `RLRLR`) current and `PENDING`; row `kind = FLIGHT_PLAN` with that
   sortie's id, reply `fixture(LIFT_PLAN)`. Run: `settingsStore.setGenerateRunPlans(true)` **before**
