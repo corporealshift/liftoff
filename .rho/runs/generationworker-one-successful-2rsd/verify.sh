@@ -13,7 +13,7 @@
 # are matched across every report, so which file and package each one sits in is the implementer's call; what it
 # must show is written in the comment above it.
 #
-# The brief's test list has six bullets; the last one covers two different rows (a row that is not there, and a
+# The brief's test list has six bullets; the fifth covers two different rows (a row that is not there, and a
 # row that already finished), which are two behaviours, so they are named separately. Seven names for six bullets.
 #
 # What is NOT checked here, and why:
@@ -285,8 +285,10 @@ c CoachTurnRunnerTest
 c ConnectionViewModelTest
 
 # ─── 4. ARCHITECTURE.md ────────────────────────────────────────────────────────
-# Brief Done-when: "ARCHITECTURE.md's work row names the worker". The row is looked up in the area-map table, and
-# only its "Exists yet?" cell, so the check is that the cell no longer says the worker is missing and does name it.
+# Brief Done-when: "ARCHITECTURE.md's work row names the worker". Only the row's "Exists yet?" cell is read (the
+# Responsibility cell already says `GenerationWorker`). The cell must name GenerationWorker and must not still say
+# that GenerationWorker is not written. Other notes in the cell — "repairs and failure outcomes not written yet" —
+# are honest about the later run and do not fail this check.
 echo ""
 echo "=== ARCHITECTURE.md ==="
 
@@ -294,33 +296,16 @@ work_row="$(grep -m1 -E '^\|[^|]*com\.liftoff\.app\.work' ARCHITECTURE.md | tr -
 if [ -z "$work_row" ]; then
     bad "the com.liftoff.app.work row is in the area map"
 else
-    # The cell is a parenthesised list split on ';'. Each entry is read on its own, so a later entry that says
-    # something else is still missing ("the failure outcomes not written yet") does not make this check fail, and
-    # the row's own name for the worker is what is being judged.
-    work_cell="$(printf '%s\n' "$work_row" | awk -F'|' '{ print $4 }' | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    work_cell="$(printf '%s\n' "$work_row" | awk -F'|' '{ print $4 }' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    lc_cell="$(printf '%s\n' "$work_cell" | tr '[:upper:]' '[:lower:]' | tr -d '`*_')"
     if [ -z "$work_cell" ] || [ "$work_cell" = "—" ]; then
         bad "the com.liftoff.app.work row's 'Exists yet?' cell names the worker (it still reads the em dash that means 'does not exist yet')"
+    elif printf '%s\n' "$lc_cell" | grep -Eq 'generationworker(\.kt)?[[:space:]]*(is[[:space:]]+)?(not([[:space:]]+yet)?[[:space:]]+(written|built|implemented|started)|does[[:space:]]+not[[:space:]]+exist)'; then
+        bad "the com.liftoff.app.work row's 'Exists yet?' cell says the worker exists (it still reads: $work_cell)"
+    elif printf '%s\n' "$lc_cell" | grep -q 'generationworker'; then
+        ok "the com.liftoff.app.work row's 'Exists yet?' cell names the worker"
     else
-        read -r miss named <<<"$(printf '%s\n' "$work_cell" | awk -F';' '
-            BEGIN { miss = 0; named = 0 }
-            {
-                for (i = 1; i <= NF; i++) {
-                    s = tolower($i)
-                    gsub(/[ \t]+/, " ", s)
-                    if (s ~ /generationworker|[[:space:]]worker|worker[[:space:]]|^worker/) {
-                        if (s ~ /not (written|built|implemented|started|done) yet|does not exist|not started/) miss = 1
-                        else named = 1
-                    }
-                }
-            }
-            END { print miss, named }')"
-        if [ "${miss:-0}" -eq 1 ]; then
-            bad "the com.liftoff.app.work row's 'Exists yet?' cell says the worker exists (it still reads: $work_cell)"
-        elif [ "${named:-0}" -eq 1 ]; then
-            ok "the com.liftoff.app.work row's 'Exists yet?' cell names the worker"
-        else
-            bad "the com.liftoff.app.work row's 'Exists yet?' cell names the worker (it reads: $work_cell)"
-        fi
+        bad "the com.liftoff.app.work row's 'Exists yet?' cell names GenerationWorker (it reads: $work_cell)"
     fi
 fi
 
