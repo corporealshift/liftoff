@@ -11,7 +11,7 @@ new class, `app/src/test/java/com/liftoff/app/work/GenerationEnqueuerTest.kt` (R
 every wait given a timeout or run inside `withTimeout`). Task 1 creates the class; tasks 2 and 3 add
 tests to it. The names below are spelled exactly as verify.sh spells them.
 
-- [ ] 1. The enqueue helper, and the shape of the request it builds
+- [x] 1. The enqueue helper, and the shape of the request it builds
   Covers: `app/src/main/java/com/liftoff/app/work/GenerationEnqueuer.kt` (new) — builds the one-time
   request for `GenerationWorker` carrying the generation id under `GenerationWorker.GENERATION_ID`, with
   the connected-network constraint and exponential backoff whose first delay is 60 000 ms, enqueues it as
