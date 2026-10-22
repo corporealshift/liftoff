@@ -49,7 +49,7 @@ run detached into a log under `app/build/` with an `EXIT=$?` sentinel and no pip
   `aProtocolMismatchThatNamesNoVersionFailsTheGenerationWithTheDaemonsOwnMessage`.
   Done when those three pass and `GenerationWorkerTest` is green in one cold run of the class.
 
-- [ ] The repair loop
+- [x] The repair loop
   `GenerationWorker.kt`: on `CoachReplyResult.Invalid`, `bumpAttempt(id)` first, then another `runCoachTurn`
   wrapped in `savingProgressTo` on the session id and cursor the previous turn reported, with
   `CoachPromptBuilder.repairPrompt(errors)` and client_id `<generationId>-<attempt>` built from the attempt
