@@ -77,6 +77,58 @@
 - The `android-dev` skill names two deadlocks that have already hung this kind of suite: a Room `Flow` read with `.first()` inside `runBlocking` under Robolectric (main looper paused ⇒ hang; fix is a `suspend` one-shot query beside the `Flow`), and `MockWebServer.enqueue` once against two connections (fix is a `Dispatcher`). Relevant to the worker's `equipmentDao().observeActive().first()`.
 - `app/build.gradle.kts` already has `androidx.work:work-runtime-ktx:2.9.1` (implementation) **and** `androidx.work:work-testing:2.9.1`, robolectric 4.14.1, androidx.test:core 1.6.1, mockwebserver 4.12.0 — no dependency change needed.
 
+## CI, gate and machine facts (verified 2026-10-21)
+
+- `.github/workflows/ci.yml`: one job `gate`, `ubuntu-latest`, `timeout-minutes: 20`, and its only build step is
+  `./gradlew :app:assembleDebug :app:testDebugUnitTest`. Locally that is `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`.
+- `gradlew.sh` pins `JAVA_HOME=~/android-toolchain/jdk`, `ANDROID_HOME=~/android-toolchain/sdk` and execs
+  `~/android-toolchain/gradle/bin/gradle`.
+- **The pinned JDK ignores `TZ` on this machine.** `TZ=UTC java …` still reports
+  `java.time.ZoneId.systemDefault() == America/New_York` (checked with a one-file Java program under
+  `app/build/tzcheck/`). So a verify script here cannot force the CI timezone; `TZ=Etc/UTC` is dropped by Git Bash
+  before the process even sees it.
+- Room exports its schema: `app/build.gradle.kts:12` sets `arg("room.schemaLocation", "$projectDir/schemas")` and
+  `app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json` is committed. A schema change shows up there as a
+  rewritten `1.json` or a new version file.
+- The known flake is `doneBodyweightSetStepperShowsBW` (`app/src/test/java/com/liftoff/app/ui/inflight/InFlightScreenTest.kt:601`).
+- Test classes the brief's "Must not break" list points at: `CoachTurnRunnerTest` (11 tests, plain JUnit, no
+  Robolectric), `ConnectionViewModelTest` (`app/src/test/java/com/liftoff/app/ui/control/`), plus
+  `DaemonConnectionCheckTest` and `AppContainerTest`.
+- This run's base commit (the tree it started from) is `9aedcf7`, the parent of `36e64e5 run: brief`.
+- ARCHITECTURE.md's `com.liftoff.app.work` "Exists yet?" cell, verbatim:
+  `Partly (\`CoachTurnRunner.kt\`: the coach turn runner over the copied rho client, using neither Room nor WorkManager; \`GenerationWorker\` not written yet)`
+  — it already contains the word `GenerationWorker`, so a doc check must reject the "not written yet" wording, not
+  just look for the name. The M3 row (`| M3 |`) reads `Not started — the copied rho client and its connection check exist; the worker does not`.
+- Test-method naming style in this repo is a full sentence in camelCase, e.g.
+  `aFreshTurnCreatesOneSessionAndReturnsItsReplyAndCursor`, `theStopHelperSendsOneSessionStopFrame`.
+
+## The verify script (written 2026-10-21, probe-verified)
+
+`verify.sh` was run twice against the untouched tree (`app/build/verify-probe.log`, `app/build/verify-probe2.log`).
+Both: gate attempt 1 passed (2m32s cold, then 1m17s with only `:app:testDebugUnitTest` re-executed after the
+results dir was deleted), and the script exited 1 — the seven named tests "did not run" plus the work row. That is
+the correct failing state; do not re-run a probe to "confirm" it again.
+
+The seven names, one per thing the brief asks for (its six bullets, the last split into the missing row and the
+finished row):
+`anOutlineGenerationStoresTheReplyAndMarksTheRowSucceeded`,
+`aLiftPlanGenerationMarksTheSortiePlannedAndStoresAGeneratedPlan`,
+`aRunPlanGenerationMarksTheSortiePlannedAndStoresAGeneratedPlan`,
+`aGenerationRowWithASessionIdAlreadyStoredIsResumedWithoutCreatingAnotherSession`,
+`aGenerationRowThatDoesNotExistReturnsFailureAndSendsNothingToTheDaemon`,
+`aGenerationRowThatAlreadyFinishedIsLeftAsItIsAndReportedAsDone`,
+`oneSessionStopFrameIsSentAfterASuccessfulStore`.
+
+Checks beyond the named tests: the gate (`timeout 1800 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
+--no-build-cache`, retried up to 3 times only for the known flake / a daemon or memory kill / a hung suite that
+wrote no report), `c CoachTurnRunnerTest`, `c ConnectionViewModelTest`, the work row's "Exists yet?" cell, and
+`app/schemas` byte-identical to `9aedcf7` both committed and in the working tree after the gate run (the gate does
+not dirty it — verified).
+
+The work-row check splits the cell on `;` and judges only the entry that names the worker, so a correct row that
+also says "the failure outcomes not written yet" passes, while the current row's
+"`GenerationWorker` not written yet" fails. A plain `grep GenerationWorker` would pass on the untouched row.
+
 ## Rules that bind this run
 
 - `CLAUDE.md`: gate is `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`; commit messages `area: lowercase summary`; stage named files only; §2 vocabulary (`Mission`/`Sortie`/`FlightPlan`/`Generation`, never "session" for a sortie); short comments, why not what; LF endings.
