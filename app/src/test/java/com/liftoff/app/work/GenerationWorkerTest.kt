@@ -742,6 +742,94 @@ class GenerationWorkerTest {
         assertNoSessionWasOpened()
     }
 
+    /**
+     * a paused turn is retried, not finished: `Result.retry()`, and the row is left exactly as a resume needs it
+     * — RUNNING, with the session id and the cursor the paused turn reported still on it, no error text, its
+     * attempt untouched and no finishedAt. Scripted as an assistant line then [DaemonScript.State] "paused" on an
+     * OUTLINE row over a mission seeded with onAppOpen() only. A coach that paused mid-turn has not answered, so
+     * the next run continues this same turn (invariant 6) instead of asking again. Nothing is stored, and the
+     * session is left open: no `rho.session.stop` frame, because the turn that resumes needs the session it
+     * paused in.
+     */
+    @Test
+    fun aPausedTurnRetriesAndLeavesTheRowRunningWithItsSessionAndCursor() {
+        daemon.script(
+            DaemonScript.Assistant("The week is laid out; I need a moment before the plans."),
+            DaemonScript.State("paused", "the coach stopped part-way through the turn"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Retry)
+
+        // The turn this row resumes into really ran: a session was opened and a prompt went into it.
+        frameFor("rho.session.create")
+        assertEquals("$generationId-0", frameFor("rho.session.send_prompt")["client_id"]?.jsonPrimitive?.contentOrNull)
+
+        val paused = daemon.log.single { it["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull == "paused" }
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.RUNNING, row.status)
+        assertEquals("the row lost the session its paused turn stopped in", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the row's cursor is not where the paused turn stopped", eventId(paused), row.lastEventId)
+        assertNull("the retry left error text on a row that is still running", row.error)
+        assertEquals("the retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
+        assertNull("the retry stamped a row that has not finished", row.finishedAt)
+
+        // The half-reply this turn got to is not an answer yet, so nothing reached the mission.
+        assertEquals(
+            "a paused turn stored an outline",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertEquals("a paused turn stored sorties: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
+
+        assertSessionLeftOpen()
+    }
+
+    /**
+     * a turn that ends in error is retried the same way: `Result.retry()`, the row still RUNNING with its session
+     * id and cursor kept, `error` still null, its attempt unchanged, and no `rho.session.stop` frame. Scripted as
+     * an assistant line then [DaemonScript.State] "error". The daemon's own failure is not the generation's: the
+     * row is not FAILED and carries no error text, and the two fields a resume reads are left where the turn left
+     * them, so the next run picks the same turn back up.
+     */
+    @Test
+    fun aTurnThatEndsInErrorRetriesAndLeavesTheRowRunningWithItsSessionAndCursor() {
+        daemon.script(
+            DaemonScript.Assistant("Starting with Monday's lift, then—"),
+            DaemonScript.State("error", "the coach's turn fell over"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Retry)
+
+        frameFor("rho.session.create")
+        assertEquals("$generationId-0", frameFor("rho.session.send_prompt")["client_id"]?.jsonPrimitive?.contentOrNull)
+
+        val errored = daemon.log.single { it["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull == "error" }
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.RUNNING, row.status)
+        assertEquals("the row lost the session its errored turn stopped in", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the row's cursor is not where the errored turn stopped", eventId(errored), row.lastEventId)
+        assertNull("the retry wrote the daemon's error onto a row that is still running", row.error)
+        assertEquals("the retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
+        assertNull("the retry stamped a row that has not finished", row.finishedAt)
+
+        assertEquals(
+            "an errored turn stored an outline",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertEquals("an errored turn stored sorties: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
+
+        assertSessionLeftOpen()
+    }
+
     private fun runWorker(generationId: Long): ListenableWorker.Result = runBlocking {
         withTimeout(turnWait) {
             TestListenableWorkerBuilder<GenerationWorker>(context)
@@ -829,6 +917,14 @@ class GenerationWorkerTest {
             "the stop gave up a session other than the one this generation ran on",
             sessionId,
             stopped["session_id"]?.jsonPrimitive?.contentOrNull,
+        )
+    }
+
+    /** What a retry leaves behind instead: no `rho.session.stop`, because the session is where it resumes. */
+    private fun assertSessionLeftOpen() {
+        assertTrue(
+            "a retry gave up the session it stopped in: ${daemon.framesFor("rho.session.stop")}",
+            daemon.framesFor("rho.session.stop").isEmpty(),
         )
     }
 
