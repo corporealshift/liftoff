@@ -57,7 +57,7 @@ test must show.
   `aGenerationRowThatAlreadyFinishedIsLeftAsItIsAndReportedAsDone`.
   Done when both pass in a run of this class.
 
-- [ ] Resume, and the single stop frame
+- [x] Resume, and the single stop frame
   Add to `GenerationWorkerTest`: a row whose `nabuSessionId` is seeded with the fake's own `sessionId`
   (`"session-1"`) so the pushed events match the session the runner filters on — no `rho.session.create` frame
   at all, the turn still reaches its end and the row still ends `SUCCEEDED` on the stored session. And a
