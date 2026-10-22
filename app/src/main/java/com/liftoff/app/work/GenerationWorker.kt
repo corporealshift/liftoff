@@ -256,7 +256,8 @@ class GenerationWorker(
 
             generations.markSucceeded(row.id, clock.millis())
             // Only a generation that stored its answer gives up its session; every other end resumes it (invariant 6).
-            stopCoachSession(client, turn.sessionId)
+            // A stop the daemon refuses changes nothing: the outcome was already decided before it was attempted.
+            giveUpSession(client, turn.sessionId)
             return Result.success()
         }
     }
@@ -283,16 +284,18 @@ class GenerationWorker(
         sessionId: String?,
     ): Result {
         generations.markFailed(generationId, message, clock.millis())
-        if (client != null && sessionId != null) {
-            try {
-                stopCoachSession(client, sessionId)
-            } catch (stopped: CancellationException) {
-                throw stopped
-            } catch (_: Exception) {
-                // A session the daemon won't give up is the daemon's to clean up.
-            }
-        }
+        if (client != null && sessionId != null) giveUpSession(client, sessionId)
         return Result.failure()
+    }
+
+    /** The stop on its own: a session the daemon won't give up is the daemon's to clean up. */
+    private suspend fun giveUpSession(client: DaemonClient, sessionId: String) {
+        try {
+            stopCoachSession(client, sessionId)
+        } catch (stopped: CancellationException) {
+            throw stopped
+        } catch (_: Exception) {
+        }
     }
 
     companion object {

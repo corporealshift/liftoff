@@ -407,6 +407,49 @@ class GenerationWorkerTest {
     }
 
     /**
+     * a stop the daemon refuses after the store has already succeeded changes nothing: `Result.success()`, the row
+     * SUCCEEDED with `error` still null, the outline stored, and exactly one `rho.session.stop` frame. The same
+     * happy path as the case above, with `rho.session.stop` refused through [FakeDaemon.refuseMethod] by a code in
+     * `RpcCodes.PERMANENT` — the shape a daemon gives a session it has already moved on from. The outcome was
+     * decided by the store, so the daemon's refusal is not written onto the row, and the generation does not ask a
+     * second time for the session it was just refused.
+     */
+    @Test
+    fun aRefusedStopAfterASuccessfulStoreStillEndsTheGenerationSucceeded() {
+        val refusal = "the fake will not stop a session it has already completed"
+        daemon.refuseMethod["rho.session.stop"] = RpcCodes.INVALID_TRANSITION to refusal
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertNull("the refused stop was written onto a row that had already succeeded", row.error)
+        assertNotNull(row.finishedAt)
+        assertEquals("the row lost the session its turn ran on", daemon.sessionId, row.nabuSessionId)
+
+        // The reply was stored before the stop was attempted, which is the outcome a stop cannot change.
+        assertEquals(
+            "the store this stop was refused after did not happen",
+            MissionStatus.ACTIVE,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertNotNull(
+            "the stored outline left no current sortie",
+            currentSortie(runBlocking { container.database.sortieDao().getForMission(mission.id) }),
+        )
+
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
+    /**
      * invalid reply, then a repair, then success: two prompt frames in one session, client_ids ending -0 then -1,
      * attempt 1, row SUCCEEDED. [CoachFixtures.BAD_JSON] is the first turn's reply and [CoachFixtures.OUTLINE] the
      * repair's, on an OUTLINE row over a mission seeded with onAppOpen() only. One `rho.session.create` frame and
