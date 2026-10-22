@@ -79,7 +79,7 @@ there before adding to it.
   `failures=` and `errors=` 0, and `bash gradlew.sh :app:testDebugUnitTest --no-build-cache --tests
   'com.liftoff.app.rho.DaemonConnectionCheckTest' --tests 'com.liftoff.app.AppContainerTest'` is still green.
 
-- [ ] 5. Name it in the area map, then run the whole gate
+- [x] 5. Name it in the area map, then run the whole gate
   Covers: `ARCHITECTURE.md` line 36, the `com.liftoff.app.work` row — change only its "Exists yet?" cell (currently
   `—`) so it names the turn runner and says it uses neither Room nor WorkManager; the Responsibility cell and the M3
   milestone row stay byte-identical. Then run the whole gate detached, as the brief's Done-when and verify.sh both do:
