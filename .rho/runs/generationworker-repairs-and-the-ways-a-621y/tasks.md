@@ -35,7 +35,7 @@ run detached into a log under `app/build/` with an `EXIT=$?` sentinel and no pip
   Done when those three pass and the class's seven existing tests still pass in one cold run of
   `GenerationWorkerTest`.
 
-- [ ] The protocol major-version mismatch
+- [x] The protocol major-version mismatch
   `GenerationWorker.kt`: the `ProtocolMismatch` arm of the connection `when` (today every non-`Connected`
   outcome falls into `else -> Result.retry()`) goes through the FAILED-and-stop helper with its own message
   builder — 'Liftoff speaks rho protocol 1.x, the daemon speaks N.x' built from the daemon's major, word for
