@@ -67,7 +67,7 @@ test must show.
   `oneSessionStopFrameIsSentAfterASuccessfulStore`.
   Done when both pass in a run of this class.
 
-- [ ] The `work` row in ARCHITECTURE.md, and the whole-suite gate
+- [x] The `work` row in ARCHITECTURE.md, and the whole-suite gate
   Rewrite the "Exists yet?" cell of the `com.liftoff.app.work` row (line 36) so it names `GenerationWorker` and
   no longer says it is not written; keep an honest note that the repairs and failure outcomes are still to come.
   Leave the M3 milestone row (line 82) alone. Then run the full gate detached — `bash gradlew.sh --stop`, then
