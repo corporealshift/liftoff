@@ -537,6 +537,85 @@ class GenerationWorkerTest {
         assertSessionGivenUpOnce(daemon.sessionId)
     }
 
+    /**
+     * a refused hello ends the generation for good: `rho.hello` is refused with PROTOCOL_MISMATCH and the
+     * fake's own mismatch message naming daemon 2.0 ([FakeDaemon.refuseProtocolMismatch]), on an OUTLINE row
+     * over a mission seeded with onAppOpen() only. `Result.failure()`, and the row FAILED with the sentence a
+     * user reads in Mission Control's Test connection for that major. The handshake is the connection check's
+     * own socket, so no session is opened and none is given up: the hello is the only frame the daemon sees.
+     */
+    @Test
+    fun aProtocolMismatchFromARefusedHelloFailsTheGenerationWithoutOpeningASession() {
+        daemon.refuseProtocolMismatch("2.0")
+        // Scripted but never played: the hello is refused before there is a session to prompt into.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        // Word for word the Test-connection row: majors, not the full versions the two sides answered with.
+        mismatchFailedRow(generationId, mission.id, "Liftoff speaks rho protocol 1.x, the daemon speaks 2.x")
+        assertNoSessionWasOpened()
+    }
+
+    /**
+     * a hello that is accepted but answers a protocol major this client doesn't speak
+     * ([FakeDaemon.answerHelloWithProtocol]) ends it the same way: the check reads the mismatch off the
+     * reply rather than off a refusal. Same expectations — `Result.failure()`, the row FAILED with the same
+     * sentence for the same major, and no session opened or given up.
+     */
+    @Test
+    fun aProtocolMismatchFromAnAcceptedHelloFailsTheGenerationWithoutOpeningASession() {
+        daemon.answerHelloWithProtocol("2.0")
+        // Scripted but never played: the reply's version is settled before any session exists.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        mismatchFailedRow(generationId, mission.id, "Liftoff speaks rho protocol 1.x, the daemon speaks 2.x")
+        assertNoSessionWasOpened()
+    }
+
+    /**
+     * a mismatch that names no version keeps the daemon's own words: `rho.hello` is refused with
+     * PROTOCOL_MISMATCH and a message that names no version at all, so the check's `daemonVersion` comes back
+     * empty. The row is FAILED with that refusal word for word — not the "1.x / N.x" sentence, and not that
+     * sentence with a blank or invented major in it — and no session is opened.
+     */
+    @Test
+    fun aProtocolMismatchThatNamesNoVersionFailsTheGenerationWithTheDaemonsOwnMessage() {
+        val refusal = "rho_protocol_mismatch: the daemon will not speak to this protocol"
+        daemon.refuseMethod["rho.hello"] = RpcCodes.PROTOCOL_MISMATCH to refusal
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = mismatchFailedRow(generationId, mission.id, refusal)
+        // A version nobody named is not filled in with a blank or an invented one.
+        assertTrue("the refusal was rewritten into the majors sentence: ${row.error}", "1.x" !in row.error.orEmpty())
+        assertNoSessionWasOpened()
+    }
+
     private fun runWorker(generationId: Long): ListenableWorker.Result = runBlocking {
         withTimeout(turnWait) {
             TestListenableWorkerBuilder<GenerationWorker>(context)
@@ -555,6 +634,18 @@ class GenerationWorkerTest {
                 kind = GenerationKind.FLIGHT_PLAN,
                 missionId = missionId,
                 sortieId = sortieId,
+                status = GenerationStatus.QUEUED,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    /** A QUEUED outline row over [missionId]: what every case that never reaches a turn is asked about. */
+    private fun insertOutlineGeneration(missionId: Long): Long = runBlocking {
+        container.database.generationDao().insert(
+            Generation(
+                kind = GenerationKind.OUTLINE,
+                missionId = missionId,
                 status = GenerationStatus.QUEUED,
                 createdAt = System.currentTimeMillis(),
             ),
@@ -613,6 +704,40 @@ class GenerationWorkerTest {
             sessionId,
             stopped["session_id"]?.jsonPrimitive?.contentOrNull,
         )
+    }
+
+    /**
+     * The row a protocol mismatch leaves behind, returned so a case can read its error too: FAILED with
+     * [error], stamped, with no session id — the check hung up its own socket without opening one — and
+     * nothing stored.
+     */
+    private fun mismatchFailedRow(generationId: Long, missionId: Long, error: String): Generation {
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        assertEquals(error, row.error)
+        assertNotNull(row.finishedAt)
+        assertNull("a mismatch opened a session anyway", row.nabuSessionId)
+        assertEquals(
+            "a mismatch stored something",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(missionId) }!!.status,
+        )
+        assertEquals("a mismatch stored something: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(missionId) })
+        return row
+    }
+
+    /**
+     * What a mismatch leaves on the wire: the hello the connection check sent on its own socket, and nothing
+     * else — no session created, no prompt, and no session given up, because a mismatch never opened one.
+     */
+    private fun assertNoSessionWasOpened() {
+        assertTrue(
+            "the worker never asked the daemon what protocol it speaks: ${daemon.frames}",
+            daemon.framesFor("rho.hello").isNotEmpty(),
+        )
+        assertTrue("a mismatch created a session: ${daemon.framesFor("rho.session.create")}", daemon.framesFor("rho.session.create").isEmpty())
+        assertTrue("a mismatch sent a prompt: ${daemon.framesFor("rho.session.send_prompt")}", daemon.framesFor("rho.session.send_prompt").isEmpty())
+        assertTrue("a mismatch gave up a session it never opened: ${daemon.framesFor("rho.session.stop")}", daemon.framesFor("rho.session.stop").isEmpty())
     }
 
     /** The params of the one frame this worker sent calling [method], failing if there was not exactly one. */

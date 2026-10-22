@@ -20,6 +20,7 @@ import com.liftoff.app.data.StoreOutcome
 import com.liftoff.app.rho.ConnectionOutcome
 import com.liftoff.app.rho.net.DaemonClient
 import com.liftoff.app.rho.net.DaemonException
+import com.liftoff.app.rho.protocol.PROTOCOL_VERSION
 import com.liftoff.app.settings.Settings
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -66,8 +67,19 @@ class GenerationWorker(
             return failGeneration(generations, generationId, "Sortie ${row.sortieId} no longer exists", client = null, sessionId = null)
         }
 
-        return when (container.daemonConnectionCheck().check()) {
+        return when (val connection = container.daemonConnectionCheck().check()) {
             is ConnectionOutcome.Connected -> runGeneration(container, generations, row, mission, sortie)
+
+            // A major this client doesn't speak answers the same way every time, and the check used its
+            // own socket, so there is no session here to give up.
+            is ConnectionOutcome.ProtocolMismatch -> failGeneration(
+                generations,
+                generationId,
+                mismatchMessage(connection),
+                client = null,
+                sessionId = null,
+            )
+
             else -> Result.retry()
         }
     }
@@ -271,3 +283,18 @@ class GenerationWorker(
  * retry, and the stored session id and cursor make that retry a continuation of the same turn.
  */
 private val TURN_LIMIT: Duration = 20.minutes
+
+/** DESIGN 10 compares the major only, so the row names majors: the client's 1.0 reads "1.x". */
+private val liftoffProtocolMajor: String = majorOf(PROTOCOL_VERSION)?.let { "$it.x" } ?: PROTOCOL_VERSION
+
+/**
+ * The sentence Mission Control's Test connection shows for a major this client doesn't speak, so a
+ * generation that died this way reads the same as the row that says why. A daemon that named no major
+ * keeps its own refusal's words rather than being given a blank or invented one.
+ */
+private fun mismatchMessage(mismatch: ConnectionOutcome.ProtocolMismatch): String {
+    val daemonMajor = majorOf(mismatch.daemonVersion) ?: return mismatch.message
+    return "Liftoff speaks rho protocol $liftoffProtocolMajor, the daemon speaks $daemonMajor.x"
+}
+
+private fun majorOf(version: String): Int? = version.trim().substringBefore('.').toIntOrNull()
