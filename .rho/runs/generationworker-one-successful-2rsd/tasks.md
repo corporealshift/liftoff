@@ -6,7 +6,7 @@ task 6 is the doc row and the whole-suite gate. The seven test names below are e
 looks for — write them with those spellings, and read the comment above each name in `verify.sh` for what the
 test must show.
 
-- [ ] Write `GenerationWorker.kt`
+- [x] Write `GenerationWorker.kt`
   New file `app/src/main/java/com/liftoff/app/work/GenerationWorker.kt`: a `CoroutineWorker` with the plain
   `(context, params)` constructor so `TestListenableWorkerBuilder` can build it without a `WorkerFactory`. It
   covers the whole brief's worker: read the `Generation` row by id (missing row ⇒ `Result.failure()`, nothing
