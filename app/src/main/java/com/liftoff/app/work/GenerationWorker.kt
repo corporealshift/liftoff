@@ -20,18 +20,22 @@ import com.liftoff.app.data.StoreOutcome
 import com.liftoff.app.rho.ConnectionOutcome
 import com.liftoff.app.rho.net.DaemonClient
 import com.liftoff.app.rho.net.DaemonException
+import com.liftoff.app.rho.protocol.PROTOCOL_VERSION
 import com.liftoff.app.settings.Settings
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.Clock
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 /**
- * One generation: the row named by [GENERATION_ID] is asked for one coach turn and, if that turn
- * finishes with a reply that passes validation, the reply is stored and the row is marked SUCCEEDED.
+ * One generation: the row named by [GENERATION_ID] is asked for a coach turn and, if that turn finishes
+ * with a reply that passes validation, the reply is stored and the row is marked SUCCEEDED. A reply that
+ * fails validation is put back to the same session with the validator's own error lines, up to
+ * [MAX_REPAIRS] times for the generation.
  *
  * Everything about talking to the daemon is [runCoachTurn]'s; this owns the row, the schedule and the
  * storage. The plain `(context, params)` constructor is what lets WorkManager build it without a
@@ -59,19 +63,30 @@ class GenerationWorker(
         // The prompt and the validator both need the Mission's pattern and the Sortie's type, so a row
         // that outlived them has nothing left to resume.
         val mission = container.database.missionDao().get(row.missionId)
-            ?: return failRow(generations, generationId, "Mission ${row.missionId} no longer exists")
+            ?: return failGeneration(generations, generationId, "Mission ${row.missionId} no longer exists", client = null, sessionId = null)
         val sortie = row.sortieId?.let { container.database.sortieDao().get(it) }
         if (row.kind == GenerationKind.FLIGHT_PLAN && sortie == null) {
-            return failRow(generations, generationId, "Sortie ${row.sortieId} no longer exists")
+            return failGeneration(generations, generationId, "Sortie ${row.sortieId} no longer exists", client = null, sessionId = null)
         }
 
-        return when (container.daemonConnectionCheck().check()) {
+        return when (val connection = container.daemonConnectionCheck().check()) {
             is ConnectionOutcome.Connected -> runGeneration(container, generations, row, mission, sortie)
+
+            // A major this client doesn't speak answers the same way every time, and the check used its
+            // own socket, so there is no session here to give up.
+            is ConnectionOutcome.ProtocolMismatch -> failGeneration(
+                generations,
+                generationId,
+                mismatchMessage(connection),
+                client = null,
+                sessionId = null,
+            )
+
             else -> Result.retry()
         }
     }
 
-    /** Connects, runs one turn, and hangs up whatever the turn did or didn't end as. */
+    /** Connects, runs the turn and any repairs it leads to, and hangs up whatever the last one ended as. */
     private suspend fun runGeneration(
         container: AppContainer,
         generations: GenerationDao,
@@ -80,31 +95,50 @@ class GenerationWorker(
         sortie: Sortie?,
     ): Result {
         val client = container.daemonClient()
+        // The id this turn actually ran on, held here so the catch can give it up even when the turn threw
+        // before it could report an outcome.
+        var reportedSessionId: String? = null
         return try {
             client.connect()
             val settings = container.settingsStore.settings.first()
+            // Held here because a repair turn runs on the same session, with the same labels and description.
+            val options = CoachSessionOptions(
+                workspace = settings.coachWorkspacePath,
+                labels = labelsFor(row.kind),
+                description = descriptionOf(row, sortie),
+            )
             val outcome = savingProgressTo(generations, row.id) { onSessionId, onCursor ->
                 runCoachTurn(
                     client = client,
                     sessionId = row.nabuSessionId,
-                    options = CoachSessionOptions(
-                        workspace = settings.coachWorkspacePath,
-                        labels = labelsFor(row.kind),
-                        description = descriptionOf(row, sortie),
-                    ),
+                    options = options,
                     prompt = promptFor(container, row, sortie),
                     clientId = "${row.id}-${row.attempt}",
                     cursor = row.lastEventId,
                     limit = TURN_LIMIT,
-                    onSessionId = onSessionId,
+                    onSessionId = { id ->
+                        reportedSessionId = id
+                        onSessionId(id)
+                    },
                     onCursor = onCursor,
                 )
             }
-            storeFinishedTurn(container, generations, client, row, mission, sortie, settings, outcome)
+            storeFinishedTurn(container, generations, client, row, mission, sortie, settings, options, outcome)
         } catch (dropped: DaemonException) {
-            // A daemon that isn't there, or a call it refused, is a generation that didn't get to
-            // finish rather than one that finished badly; the progress already saved is where it resumes.
-            Result.retry()
+            // A refusal the daemon will give the same answer to every time is a generation that is over.
+            // Anything else — a connection that went away, a call it might take next time — is a turn that
+            // didn't get to finish, and the progress already saved is where it resumes.
+            if (dropped.isPermanent) {
+                failGeneration(
+                    generations,
+                    row.id,
+                    dropped.message.orEmpty(),
+                    client,
+                    reportedSessionId ?: row.nabuSessionId,
+                )
+            } else {
+                Result.retry()
+            }
         } finally {
             client.close()
         }
@@ -134,7 +168,15 @@ class GenerationWorker(
         }
     }
 
-    /** Validate, store, mark SUCCEEDED, then give up the session. Anything else leaves both for the retry. */
+    /**
+     * Validate, store, mark SUCCEEDED, then give up the session. A turn that ends blocked, or a store that
+     * refuses its target, is over for the same reason every time, so it ends through [failGeneration];
+     * anything else leaves the row and the session for the retry.
+     *
+     * A reply that fails validation is handed back to the same session with the validator's own error
+     * lines (§7.3 step 5), and the turn that comes back is judged exactly like this one. The cap is the
+     * row's [Generation.attempt], so the repairs belong to the generation rather than to this run.
+     */
     private suspend fun storeFinishedTurn(
         container: AppContainer,
         generations: GenerationDao,
@@ -143,11 +185,9 @@ class GenerationWorker(
         mission: Mission,
         sortie: Sortie?,
         settings: Settings,
+        options: CoachSessionOptions,
         outcome: TurnOutcome,
     ): Result {
-        if (outcome.end != TurnEnd.Idle && outcome.end != TurnEnd.Completed) return Result.retry()
-        val raw = outcome.lastAssistantText ?: return Result.retry()
-
         val context = GenerationContext(
             kind = row.kind,
             pattern = mission.pattern,
@@ -155,21 +195,71 @@ class GenerationWorker(
             equipmentKeys = container.database.equipmentDao().observeActive().first().map { it.key },
             sortieLengthMinutes = settings.sortieLengthMinutes,
         )
-        val valid = when (val reply = CoachReplyValidator.validate(raw, context)) {
-            is CoachReplyResult.Invalid -> return Result.retry()
-            is CoachReplyResult.Valid -> reply
-        }
 
-        val stored = when (row.kind) {
-            GenerationKind.OUTLINE -> container.missionManager.storeOutline(row.missionId, valid)
-            GenerationKind.FLIGHT_PLAN -> container.missionManager.storePlan(requireNotNull(row.sortieId), valid)
-        }
-        if (stored is StoreOutcome.Refused) return Result.retry()
+        var turn = outcome
+        while (true) {
+            // A coach that asked for input is a generation that will not answer itself: retrying asks the same
+            // question and gets the same question back.
+            if (turn.end == TurnEnd.Blocked) {
+                return failGeneration(generations, row.id, "coach needed input", client, turn.sessionId)
+            }
+            if (turn.end != TurnEnd.Idle && turn.end != TurnEnd.Completed) return Result.retry()
 
-        generations.markSucceeded(row.id, clock.millis())
-        // Only a generation that stored its answer gives up its session; every other end resumes it (invariant 6).
-        stopCoachSession(client, outcome.sessionId)
-        return Result.success()
+            // A coach that said nothing has answered, just badly, so it is judged like any other reply rather
+            // than waited out again under the client_id the daemon already dedupes.
+            val raw = turn.lastAssistantText.orEmpty()
+            val valid = when (val reply = CoachReplyValidator.validate(raw, context)) {
+                is CoachReplyResult.Valid -> reply
+                is CoachReplyResult.Invalid -> {
+                    // Read off the row, so a run that resumes part-way through a repair asks no more than the
+                    // two this generation is allowed in total.
+                    if (requireNotNull(generations.get(row.id)).attempt >= MAX_REPAIRS) {
+                        return failGeneration(
+                            generations,
+                            row.id,
+                            "invalid output: " + reply.errors.joinToString("; "),
+                            client,
+                            turn.sessionId,
+                        )
+                    }
+                    generations.bumpAttempt(row.id)
+                    // The attempt as the row holds it now: the daemon dedupes a prompt by client_id, so the id
+                    // the refused turn went out under would have played no turn at all.
+                    val attempt = requireNotNull(generations.get(row.id)).attempt
+                    val refused = turn
+                    turn = savingProgressTo(generations, row.id) { onSessionId, onCursor ->
+                        runCoachTurn(
+                            client = client,
+                            sessionId = refused.sessionId,
+                            options = options,
+                            prompt = CoachPromptBuilder.repairPrompt(reply.errors),
+                            clientId = "${row.id}-$attempt",
+                            cursor = refused.cursor,
+                            limit = TURN_LIMIT,
+                            onSessionId = onSessionId,
+                            onCursor = onCursor,
+                        )
+                    }
+                    continue
+                }
+            }
+
+            val stored = when (row.kind) {
+                GenerationKind.OUTLINE -> container.missionManager.storeOutline(row.missionId, valid)
+                GenerationKind.FLIGHT_PLAN -> container.missionManager.storePlan(requireNotNull(row.sortieId), valid)
+            }
+            // The store's own reason is the end of it: a target that has moved on does not move back, so a
+            // retry would be refused for the same reason.
+            if (stored is StoreOutcome.Refused) {
+                return failGeneration(generations, row.id, stored.reason, client, turn.sessionId)
+            }
+
+            generations.markSucceeded(row.id, clock.millis())
+            // Only a generation that stored its answer gives up its session; every other end resumes it (invariant 6).
+            // A stop the daemon refuses changes nothing: the outcome was already decided before it was attempted.
+            giveUpSession(client, turn.sessionId)
+            return Result.success()
+        }
     }
 
     private suspend fun promptFor(container: AppContainer, row: Generation, sortie: Sortie?): String {
@@ -181,13 +271,31 @@ class GenerationWorker(
         return CoachPromptBuilder.prompt(input)
     }
 
-    private suspend fun failRow(
+    /**
+     * The one permanent end: the row is FAILED with the reason it ended for, the session this generation got
+     * is given up, and nothing is retried. A stop the daemon refuses changes nothing — the outcome was already
+     * decided before it was attempted.
+     */
+    private suspend fun failGeneration(
         generations: GenerationDao,
         generationId: Long,
-        reason: String,
+        message: String,
+        client: DaemonClient?,
+        sessionId: String?,
     ): Result {
-        generations.markFailed(generationId, reason, clock.millis())
+        generations.markFailed(generationId, message, clock.millis())
+        if (client != null && sessionId != null) giveUpSession(client, sessionId)
         return Result.failure()
+    }
+
+    /** The stop on its own: a session the daemon won't give up is the daemon's to clean up. */
+    private suspend fun giveUpSession(client: DaemonClient, sessionId: String) {
+        try {
+            stopCoachSession(client, sessionId)
+        } catch (stopped: CancellationException) {
+            throw stopped
+        } catch (_: Exception) {
+        }
     }
 
     companion object {
@@ -224,3 +332,21 @@ class GenerationWorker(
  * retry, and the stored session id and cursor make that retry a continuation of the same turn.
  */
 private val TURN_LIMIT: Duration = 20.minutes
+
+/** §7.5.3's two repairs, counted on the row so they belong to the generation and not to one run. */
+private const val MAX_REPAIRS = 2
+
+/** DESIGN 10 compares the major only, so the row names majors: the client's 1.0 reads "1.x". */
+private val liftoffProtocolMajor: String = majorOf(PROTOCOL_VERSION)?.let { "$it.x" } ?: PROTOCOL_VERSION
+
+/**
+ * The sentence Mission Control's Test connection shows for a major this client doesn't speak, so a
+ * generation that died this way reads the same as the row that says why. A daemon that named no major
+ * keeps its own refusal's words rather than being given a blank or invented one.
+ */
+private fun mismatchMessage(mismatch: ConnectionOutcome.ProtocolMismatch): String {
+    val daemonMajor = majorOf(mismatch.daemonVersion) ?: return mismatch.message
+    return "Liftoff speaks rho protocol $liftoffProtocolMajor, the daemon speaks $daemonMajor.x"
+}
+
+private fun majorOf(version: String): Int? = version.trim().substringBefore('.').toIntOrNull()
