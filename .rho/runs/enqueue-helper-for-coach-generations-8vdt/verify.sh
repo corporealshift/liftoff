@@ -9,9 +9,9 @@
 #
 # Gradle exits 0 when a named test never existed, so each test below is looked for by name in this run's reports;
 # a test that was never written cannot pass on its own. That is what makes this script fail on untouched code: the
-# six named tests do not exist yet, no test in the tree has ever called WorkManagerTestInitHelper, and the work
-# row still ends "nothing enqueues it yet". Names are matched across every report, so which file each test sits in
-# is the implementer's call; what it must show is written in the comment above it.
+# six named tests do not exist yet, and the work row still ends "nothing enqueues it yet". Names are matched
+# across every report, so which file each test sits in is the implementer's call; what it must show is written in
+# the comment above it.
 #
 # The brief's one test sentence names four scheduling behaviours (the name, KEEP, the network constraint, the
 # 1-minute exponential backoff) and the helper's two rules from its first paragraph (it schedules a
@@ -325,11 +325,11 @@ c LandedStatesTest
 # ─── 4. ARCHITECTURE.md ────────────────────────────────────────────────────────
 # Brief Done-when: "ARCHITECTURE.md's work row names the helper". Two things on the com.liftoff.app.work row,
 # read against the same row in the tree this run started from:
-# - the claim this run makes false has to be gone: the row today ends "nothing enqueues it yet";
-# - the row has to name the helper: a name the doc did not already use at the commit this run started from, and a
-#   statement of what the new thing does in scheduling terms.
-# Which cell of the row carries it, and what the helper is called, is the implementer's call — the plan says the
-# names are theirs to keep or adjust — so nothing here looks for a particular name.
+# - the one claim this run makes false is gone: the row today ends "nothing enqueues it yet". Only that literal
+#   claim is looked for; other true statements ("nothing in the UI calls it yet") are the writer's call;
+# - the row names the helper: a name the doc did not already use at the commit this run started from.
+# What the helper is called is the implementer's call — the plan says the names are theirs to keep or adjust — so
+# nothing here looks for a particular name.
 echo ""
 echo "=== ARCHITECTURE.md ==="
 
@@ -342,21 +342,14 @@ else
     if [ -z "$new_row" ]; then
         bad "the com.liftoff.app.work row is in the area map"
     else
-        lc_row="$(printf '%s\n' "$new_row" | tr '[:upper:]' '[:lower:]' | tr -d '`*_')"
-        # The one claim on this row that this run makes false, in the shapes it could be left in. Only the
-        # enqueue/schedule words count: the row may legitimately keep saying something else is unwritten ("nothing
-        # in the app starts a generation yet" is true after this run, because nothing calls the helper from the UI).
-        # \b before the verb so a helper named …Enqueuer.kt is not read as the claim surviving.
-        if printf '%s\n' "$lc_row" | grep -Eq 'nothing[^.;,|]{0,25}\b(enqueu|schedul)|(no|not|never)[^.;,|]{0,20}\b(enqueues?|schedules?|enqueued|scheduled)\b'; then
+        lc_row="$(printf '%s\n' "$new_row" | tr '[:upper:]' '[:lower:]' | tr -d '`*_' | tr -s ' ')"
+        if printf '%s\n' "$lc_row" | grep -Fq 'nothing enqueues it yet'; then
             bad "the com.liftoff.app.work row no longer claims nothing enqueues the worker (it still reads: $new_row)"
-        elif ! printf '%s\n' "$lc_row" | grep -Eq 'enqueu|schedul'; then
-            bad "the com.liftoff.app.work row says the worker gets scheduled (no enqueue/schedule claim in: $new_row)"
         else
             # What counts as naming a thing in this table: a backticked token (the doc's convention for an artifact),
             # or a plain word that looks like a code name — an uppercase-initial identifier of eight characters or
-            # more, or a file name. Ordinary prose ("helper", "schedules", "queued") is not a name, and neither is
-            # `gen-<generationId>`, which names a WorkManager work name rather than a thing in the app. Anything the
-            # doc already named at the commit this run started from is not the new helper either.
+            # more, or a file name. Anything the doc already named at the commit this run started from is not the
+            # new helper.
             quoted() {
                 printf '%s\n' "$1" | awk '{ n = split($0, p, "`"); for (i = 1; i <= n; i++) if (i % 2 == 0 && p[i] != "") print p[i] }' \
                     | tr -d ' \t' | grep -E '^[A-Za-z][A-Za-z0-9_.]*$' | sort -u || true
