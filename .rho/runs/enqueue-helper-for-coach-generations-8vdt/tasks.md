@@ -30,7 +30,7 @@ tests to it. The names below are spelled exactly as verify.sh spells them.
   change the delay to WorkManager's 30 000 default, drop the input) each makes the run fail, then the
   helper is restored byte-for-byte from a copy kept under `app/build/` before committing.
 
-- [ ] 2. Unique work under `gen-<generationId>`, and `KEEP` by its effect
+- [x] 2. Unique work under `gen-<generationId>`, and `KEEP` by its effect
   Covers: two more tests in `GenerationEnqueuerTest.kt` that ask WorkManager what it actually stored,
   through `getWorkInfosForUniqueWork("gen-N")`: calling the helper twice for one generation leaves exactly
   one item under that name, still pending, and it is the item the first call scheduled (the same work id —
