@@ -9,10 +9,14 @@ import androidx.work.workDataOf
 import com.liftoff.app.LiftoffApplication
 import com.liftoff.app.coach.CoachFixtures
 import com.liftoff.app.data.Equipment
+import com.liftoff.app.data.FlightPlanSource
 import com.liftoff.app.data.Generation
 import com.liftoff.app.data.GenerationKind
 import com.liftoff.app.data.GenerationStatus
 import com.liftoff.app.data.MissionStatus
+import com.liftoff.app.data.Sortie
+import com.liftoff.app.data.SortieState
+import com.liftoff.app.data.SortieType
 import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.rho.DaemonScript
 import com.liftoff.app.rho.FakeDaemon
@@ -28,6 +32,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -141,6 +146,65 @@ class GenerationWorkerTest {
         assertEquals("$generationId-0", prompted["client_id"]?.jsonPrimitive?.contentOrNull)
     }
 
+    /**
+     * lift Flight Plan happy path: the sortie PLANNED, and the plan stored with source GENERATED. Seeded with
+     * onAppOpen(), confirm(id), then a scrub of the index-0 sortie, which leaves index 1 — a LIFT under the
+     * default RLRLR pattern — current and PENDING; the row is kind FLIGHT_PLAN with that sortie's id and the
+     * lift fixture is the reply.
+     */
+    @Test
+    fun aLiftPlanGenerationMarksTheSortiePlannedAndStoresAGeneratedPlan() {
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.LIFT_PLAN)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        runBlocking { container.missionManager.confirm(mission.id) }
+        // With run generation off (the default), confirm already wrote the simple plan on the index-0 run, so
+        // scrubbing it is what moves the week onto the lift sortie the coach is asked for.
+        val scrubbed = sortieAt(mission.id, 0)
+        assertEquals(SortieType.RUN, scrubbed.type)
+        runBlocking { container.missionManager.scrub(scrubbed.id) }
+
+        val lift = sortieAt(mission.id, 1)
+        assertEquals("index 1 is a LIFT under RLRLR", SortieType.LIFT, lift.type)
+        assertAwaitingGeneration(lift)
+
+        val generationId = insertFlightPlanGeneration(mission.id, lift.id)
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+        assertPlannedWithAGeneratedPlan(generationId, lift.id)
+    }
+
+    /**
+     * run Flight Plan happy path: the same, for the run. Seeded with setGenerateRunPlans(true) before
+     * onAppOpen() — which is what leaves a run sortie for the coach instead of writing the app's own simple
+     * plan on it — then confirm(id), leaving index 0 a current PENDING RUN; the row is kind FLIGHT_PLAN with
+     * that sortie's id and the run fixture is the reply.
+     */
+    @Test
+    fun aRunPlanGenerationMarksTheSortiePlannedAndStoresAGeneratedPlan() {
+        // Before onAppOpen(): confirm() is what prepares the current sortie, and it reads this setting then.
+        runBlocking { container.settingsStore.setGenerateRunPlans(true) }
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.RUN_PLAN)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        runBlocking { container.missionManager.confirm(mission.id) }
+
+        val run = sortieAt(mission.id, 0)
+        assertEquals("index 0 is a RUN under RLRLR", SortieType.RUN, run.type)
+        assertAwaitingGeneration(run)
+
+        val generationId = insertFlightPlanGeneration(mission.id, run.id)
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+        assertPlannedWithAGeneratedPlan(generationId, run.id)
+    }
+
     private fun runWorker(generationId: Long): ListenableWorker.Result = runBlocking {
         withTimeout(turnWait) {
             TestListenableWorkerBuilder<GenerationWorker>(context)
@@ -148,6 +212,52 @@ class GenerationWorkerTest {
                 .build()
                 .doWork()
         }
+    }
+
+    private fun sortieAt(missionId: Long, index: Int): Sortie =
+        runBlocking { container.database.sortieDao().getForMission(missionId).single { it.index == index } }
+
+    private fun insertFlightPlanGeneration(missionId: Long, sortieId: Long): Long = runBlocking {
+        container.database.generationDao().insert(
+            Generation(
+                kind = GenerationKind.FLIGHT_PLAN,
+                missionId = missionId,
+                sortieId = sortieId,
+                status = GenerationStatus.QUEUED,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    /**
+     * What the worker is starting from: this sortie is the current one and nothing has planned it yet, so the
+     * PLANNED state and the stored plan below are both things this run did. `storePlan` refuses a sortie that
+     * is not the current one, so a case that did not check this would pass on a plan confirm() had already
+     * written.
+     */
+    private fun assertAwaitingGeneration(sortie: Sortie) {
+        val current = currentSortie(runBlocking { container.database.sortieDao().getForMission(sortie.missionId) })
+        assertNotNull("no sortie is current in this mission", current)
+        assertEquals("the worker is asked about the current sortie", sortie.id, current!!.id)
+        assertEquals(SortieState.PENDING, runBlocking { container.database.sortieDao().get(sortie.id) }!!.state)
+        assertNull("the app already wrote a plan on this sortie", runBlocking { container.database.flightPlanDao().getPlan(sortie.id) })
+    }
+
+    /** The row's end state, the sortie it planned, the plan it stored, and the labels it asked the session with. */
+    private fun assertPlannedWithAGeneratedPlan(generationId: Long, sortieId: Long) {
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertEquals(GenerationKind.FLIGHT_PLAN, row.kind)
+        assertEquals(sortieId, row.sortieId)
+        assertNotNull(row.finishedAt)
+
+        assertEquals("the sortie the row named", SortieState.PLANNED, runBlocking { container.database.sortieDao().get(sortieId) }!!.state)
+        val plan = runBlocking { container.database.flightPlanDao().getPlan(sortieId) }
+        assertNotNull("no FlightPlan was stored on sortie $sortieId", plan)
+        assertEquals(FlightPlanSource.GENERATED, plan!!.plan.source)
+
+        val labels = frameFor("rho.session.create").jsonObject("options")["labels"]?.jsonArray?.map { it.jsonPrimitive.content }
+        assertEquals(listOf("liftoff", "liftoff:flight-plan"), labels)
     }
 
     /** The params of the one frame this worker sent calling [method], failing if there was not exactly one. */
