@@ -124,7 +124,8 @@ suspend fun runCoachTurn(
             EventType.STATE_CHANGE -> {
                 val target = event.payload<StateChangeData>()?.to?.let { TURN_ENDS[it] }
                 // Compared against the prompt's own id, so a state_change from before it never ends this turn.
-                if (target != null && event.id > promptId) end = target
+                // Only the first one after the prompt is the end; a later one is a state the turn already left.
+                if (target != null && end == null && event.id > promptId) end = target
             }
         }
     }
@@ -156,7 +157,12 @@ suspend fun runCoachTurn(
 
             // The catch-up read and the buffered pushes go through one handling; ids already seen
             // are skipped, so the two overlapping is expected rather than a double count.
-            for (event in eventsAfter(client, session, lastCursor)) handle(event)
+            // The batch stops at the end it finds, the way the pushed loop below does, so a page holding
+            // two ends reports the first.
+            for (event in eventsAfter(client, session, lastCursor)) {
+                if (end != null) break
+                handle(event)
+            }
 
             while (end == null) {
                 val buffered = pushed.tryReceive().getOrNull() ?: break

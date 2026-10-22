@@ -432,6 +432,104 @@ class CoachTurnRunnerTest {
     }
 
     /**
+     * The turn ends at the *first* state_change after the prompt that ends it, even when one events_after
+     * page holds two of them. Both ends are seeded with [FakeDaemon.logEvent] so they reach the runner
+     * through the catch-up read and neither as a push: the pushed path already stopped at the first, so the
+     * same log has to give the same end whichever way the events arrived. The prompt is re-sent under the
+     * client_id it was first sent with, which is what puts the two seeded ends after it.
+     */
+    @Test
+    fun twoEndingStateChangesAfterThePromptStopAtTheFirst(): Unit = runBlocking {
+        val clientId = "turn-10"
+        val client = connectedClient()
+        withTimeout(answerWindow) {
+            client.callOrThrow("rho.session.send_prompt", buildJsonObject {
+                put("session_id", daemon.sessionId)
+                put("content", "carry on")
+                put("client_id", clientId)
+            })
+        }
+        val promptId = promptEventId(clientId)
+
+        val reply = "the reply the daemon gave before it blocked"
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", reply)
+        })
+        val blockedId = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "blocked")
+            put("reason", "waiting on the equipment list")
+        })
+        val idleId = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "idle")
+            put("reason", "the session was reset after the block")
+        })
+        val afterTheEnd = "a reply from after the turn had already ended"
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", afterTheEnd)
+        })
+
+        val cursors = mutableListOf<String>()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = daemon.sessionId,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "carry on",
+                    clientId = clientId,
+                    cursor = promptId,
+                    limit = turnLimit,
+                    onCursor = { cursors.add(it) },
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        assertEquals(
+            "the prompt was logged once, so the re-send answered with the original event_id",
+            1,
+            daemon.log.count {
+                it["type"]?.jsonPrimitive?.contentOrNull == EventType.MESSAGE &&
+                    it["data"]?.jsonObject?.get("client_id")?.jsonPrimitive?.contentOrNull == clientId
+            },
+        )
+        assertEquals(
+            "the runner re-sent the prompt under the same client_id",
+            2,
+            daemon.framesFor("rho.session.send_prompt").size,
+        )
+        assertTrue("both seeded ends come after the prompt this turn re-sent: $promptId then $blockedId", blockedId > promptId)
+        assertTrue("the blocked state_change is the earlier of the two ends: $blockedId then $idleId", blockedId < idleId)
+        assertEquals(
+            "the catch-up read asked for everything after the prompt this turn re-sent",
+            promptId,
+            frameFor("rho.session.events_after")["last_event_id"]?.jsonPrimitive?.contentOrNull,
+        )
+        assertEquals(
+            "the page held on past the end this turn stopped at",
+            afterTheEnd,
+            daemon.log.last()["data"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull,
+        )
+
+        assertEquals(
+            "the turn ends at the first state_change after the prompt, not at the last one on the page: $blockedId then $idleId",
+            TurnEnd.Blocked,
+            outcome.end,
+        )
+        assertEquals("the cursor this turn left is the blocked state_change", blockedId, outcome.cursor)
+        assertEquals("the cursor callback saw that same end", blockedId, cursors.last())
+        assertTrue("the idle after the end was never read: $cursors", !cursors.contains(idleId))
+        assertEquals(
+            "the reply read before the end is the one reported, not the one after it",
+            reply,
+            outcome.lastAssistantText,
+        )
+    }
+
+    /**
      * "a turn with no end inside a short limit reports timed out". The limit is a parameter, so this test
      * hands in a fraction of a second, and the runner returns the timeout as a value instead of letting
      * the wait escape. The turn is scripted with an assistant message and no state_change, so there is a
