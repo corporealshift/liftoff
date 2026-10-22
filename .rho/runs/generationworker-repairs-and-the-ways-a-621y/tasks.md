@@ -86,7 +86,7 @@ run detached into a log under `app/build/` with an `EXIT=$?` sentinel and no pip
   `grep -m1 -E '^\|[^|]*com\.liftoff\.app\.work' ARCHITECTURE.md` and apply those greps' rejections to the
   cells they read (field 4).
 
-- [ ] The whole gate, once
+- [x] The whole gate, once
   Run the CI gate detached on the finished tree: `timeout 1800 bash gradlew.sh :app:assembleDebug
   :app:testDebugUnitTest --no-build-cache` into a log under `app/build/` with an `EXIT=$?` sentinel and no
   pipe. A hang that writes no `TEST-*.xml` (the build kills a test task at five minutes) is re-run on the same
