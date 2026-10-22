@@ -49,7 +49,7 @@ test must show.
   `aRunPlanGenerationMarksTheSortiePlannedAndStoresAGeneratedPlan`.
   Done when both pass in a run of this class.
 
-- [ ] The two row guards
+- [x] The two row guards
   Add to `GenerationWorkerTest`: a `doWork()` for an id that has no row, and a `doWork()` for a row already
   `SUCCEEDED` with its `finishedAt`, `error`, `nabuSessionId` and `lastEventId` filled in. Both cases must show
   the fake received no session frame at all; the finished row must still read exactly as it was seeded.
