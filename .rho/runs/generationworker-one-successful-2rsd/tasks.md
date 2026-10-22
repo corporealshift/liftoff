@@ -19,7 +19,7 @@ test must show.
   `Result.retry()`. No test exists yet and none is written here.
   Done when `bash gradlew.sh :app:compileDebugKotlin` passes and the file is committed.
 
-- [ ] `GenerationWorkerTest`: the harness and the outline happy path
+- [x] `GenerationWorkerTest`: the harness and the outline happy path
   New file `app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt`, Robolectric `@Config(sdk = [34])`,
   built the way `verify.sh`'s section 2 header spells it out: the application's own container
   (`ApplicationProvider` + `LiftoffApplication.container`, never a second `AppContainer`), one `FakeDaemon` per
