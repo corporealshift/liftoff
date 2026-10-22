@@ -28,6 +28,12 @@ if no row → `Result.success()` if `row.status in FINISHED_STATUSES` (SUCCEEDED
 - `failRow(generations, id, reason)` = `markFailed(id, reason, clock.millis())` + `Result.failure()`.
 - companion: `labelsFor` (invariant 7 — no label starts with `run:`), `descriptionOf(row, sortie)` one-liner naming the row.
 - file-private `private val TURN_LIMIT: Duration = 20.minutes` (the turn's own deadline, not WorkManager's).
+- Change sites, as of HEAD (line numbers from a fresh read): the connection `when` is 68-71 (`else -> Result.retry()`
+  is where the mismatch arm goes); `catch (dropped: DaemonException) -> Result.retry()` is 104-107;
+  `storeFinishedTurn`'s `outcome.end != Idle && != Completed → retry` is 148, `lastAssistantText == null → retry` is
+  149, `CoachReplyResult.Invalid → retry` is 159, `StoreOutcome.Refused → retry` is 167; the existing success-path
+  `stopCoachSession(client, outcome.sessionId)` is 171. `stopCoachSession` is a top-level function in
+  `CoachTurnRunner.kt` and is already imported here.
 
 **`app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt`** — the harness to reuse, not rebuild.
 Robolectric `@Config(sdk = [34])`. `@Before seedContainer`: start `FakeDaemon`, write host/port/token
@@ -41,6 +47,13 @@ TestListenableWorkerBuilder<GenerationWorker>(context).setInputData(workDataOf(G
 `assertAwaitingGeneration(sortie)`; `assertPlannedWithAGeneratedPlan`; `eventId(event)`; `jsonObject(key)`.
 Existing tests (7) cover the three happy paths, missing row, already-finished row, resume-with-a-stored-session-id,
 and one stop frame after success. `daemon.sessionId` is the fake's single session id.
+
+Helper signatures worth knowing before writing a case: `insertFlightPlanGeneration(missionId, sortieId): Long`
+(inserts a `QUEUED` `FLIGHT_PLAN` row with `createdAt = System.currentTimeMillis()`), `sortieAt(missionId, index):
+Sortie`, `assertAwaitingGeneration(sortie)` (the sortie is current, `PENDING`, and has no plan yet),
+`assertPlannedWithAGeneratedPlan(generationId, sortieId)`, `eventId(event): String`, `jsonObject(key)`.
+**None of the seven existing cases asserts the old retry behaviour on blocked, an invalid reply or a refused
+store**, so no existing test has to be rewritten for this run — the class only gains cases.
 
 **`app/src/main/java/com/liftoff/app/work/CoachTurnRunner.kt`** — `runCoachTurn(client, sessionId, options, prompt,
 clientId, cursor, limit, onSessionId, onCursor): TurnOutcome`. `TurnEnd { Idle, Completed, Blocked, Paused, Error, TimedOut }`;
@@ -77,7 +90,14 @@ that dies mid-turn throws a `DaemonException` with `code == null`.
   RpcCodes.PERMANENT`. `RpcCodes.PERMANENT` deliberately excludes `UNAUTHORIZED`, `PROTOCOL_MISMATCH` and
   `INTERNAL_ERROR` (`rho/protocol/RpcCodes.kt` 28-38).
 - `StoreOutcome` (`data/MissionManager.kt` 37-40): `Stored`, `Refused(reason: String)`; reasons are short sentences
-  like `"sortie $sortieId is not the current sortie"`, `"sortie is ${sortie.state}"`.
+  like `"sortie $sortieId is not the current sortie"`, `"sortie is ${sortie.state}"`. `storePlan`'s refusals are
+  221-251, `storeOutline`'s are 113-125.
+- `MissionManager.scrub(sortieId, reason?)` (137-150) needs the mission `ACTIVE` and that sortie current, then
+  `update`s the sortie to `SortieState.SCRUBBED` (`domain/Sorties.kt` 49-54) and `advance`s the mission — it does
+  **not** delete the row. So scrubbing the sortie a `FLIGHT_PLAN` row names gets past the worker's existence guard
+  (63-66) and into `storePlan`, whose checks run in the order 221 → 223 → 243 → 246 → 249, so the refusal that
+  fires is `"sortie is SCRUBBED"` (247), not "is not the current sortie". `onAppOpen()` alone leaves a `DRAFT`
+  mission, so a case that scrubs has to `confirm(missionId)` first.
 - `FakeDaemon` (`app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt`): `script(vararg DaemonScript)` scripts **one
   turn** and `nextTurn()` repeats the last turn when the list runs out; `DaemonScript.Assistant(content)`,
   `State(to, reason)`, `Ask`, `Permission`. `refuseProtocolMismatch(v)` refuses `rho.hello` with
@@ -132,3 +152,18 @@ that dies mid-turn throws a `DaemonException` with `code == null`.
   and retries, cancellation, supersede and app wiring are not built yet", and "In progress — GenerationWorker
   exists; …". The clause window stops at `.`, `;` and `,`, so a claim about something else that really is unwritten
   is not read as the old one.
+
+## Facts the tasks step checked against the tree (2026-10-22, HEAD `93837fa`)
+
+- **None of the ten names `verify.sh` looks for exists yet**, and none of the seven existing
+  `GenerationWorkerTest` cases asserts the behaviour this run changes (no case scripts blocked, an invalid reply or a
+  refused store), so the class only gains cases — nothing has to be rewritten.
+- **`storePlan`'s refusal for a scrubbed sortie is `"sortie is SCRUBBED"`**: the state check (246-248) runs before
+  the current-sortie check (249-252), and `advance` has already moved the current sortie on by then.
+- **`RpcCodes.PERMANENT`** is `{PARSE_ERROR -32700, INVALID_REQUEST -32600, METHOD_NOT_FOUND -32601, INVALID_PARAMS
+  -32602, SESSION_NOT_FOUND -32001, INVALID_TRANSITION -32002, WORKSPACE_UNTRUSTED -32008}`. `PERMISSION_DENIED`,
+  `ALREADY_RESOLVED`, `CURSOR_UNKNOWN`, `INTERNAL_ERROR`, `UNAUTHORIZED` and `PROTOCOL_MISMATCH` are not permanent.
+  `INVALID_REQUEST` is the code to script a permanent refusal with.
+- **`FakeDaemon.refuseMethod` is a public `ConcurrentHashMap<String, Pair<Int, String>>`** (line 85), read at 146 for
+  any method; `refuseProtocolMismatch` (170) and `answerHelloWithProtocol` (176) both set the `rho.hello` entry.
+- **`GenerationWorkerTest.turnWait` is 30 seconds** (line 67), used by `runWorker` (408).
