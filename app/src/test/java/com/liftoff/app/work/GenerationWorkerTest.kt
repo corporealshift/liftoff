@@ -205,6 +205,81 @@ class GenerationWorkerTest {
         assertPlannedWithAGeneratedPlan(generationId, run.id)
     }
 
+    /**
+     * a missing row returns failure, and do nothing: an id no `Generation` row has. `doWork()` returns
+     * Result.failure(), the fake receives no session frame — no create, no prompt — and no frame of any other
+     * kind either, and no row is written for the id it was given.
+     */
+    @Test
+    fun aGenerationRowThatDoesNotExistReturnsFailureAndSendsNothingToTheDaemon() {
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        // A row this mission did have, taken back out again: the id is one the worker is genuinely asked
+        // for, with nothing behind it.
+        val goneId = runBlocking {
+            val generations = container.database.generationDao()
+            val id = generations.insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+            generations.delete(generations.get(id)!!)
+            id
+        }
+        assertNull("row $goneId survived its delete", runBlocking { container.database.generationDao().get(goneId) })
+        val rowsBefore = runBlocking { container.database.generationDao().countAll() }
+
+        val result = runWorker(goneId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        assertNothingReachedTheDaemon()
+        assertNull("the worker wrote a row for the id it was given", runBlocking { container.database.generationDao().get(goneId) })
+        val rowsAfter = runBlocking { container.database.generationDao().getAll() }
+        assertEquals("the worker wrote rows of its own: $rowsAfter", rowsBefore, rowsAfter.size.toLong())
+    }
+
+    /**
+     * a SUCCEEDED row is left unchanged: a row that already finished, with its finishedAt, error,
+     * nabuSessionId and lastEventId filled in. `doWork()` returns Result.success() and the row still reads
+     * exactly as it was seeded — not marked RUNNING, not re-stamped, not stored over — and the fake receives
+     * no session frame.
+     */
+    @Test
+    fun aGenerationRowThatAlreadyFinishedIsLeftAsItIsAndReportedAsDone() {
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val seeded = Generation(
+            kind = GenerationKind.OUTLINE,
+            missionId = mission.id,
+            status = GenerationStatus.SUCCEEDED,
+            nabuSessionId = "session-the-finished-generation-ran-on",
+            lastEventId = "01E000000000000000000000007",
+            attempt = 2,
+            error = "left there by the attempt that finished it",
+            createdAt = SEEDED_CREATED_AT,
+            finishedAt = SEEDED_FINISHED_AT,
+        )
+        val generationId = runBlocking { container.database.generationDao().insert(seeded) }
+        // The seeded row as the table holds it, so the equality below means "nothing changed it", not
+        // "Room reads it back differently".
+        val expected = seeded.copy(id = generationId)
+        assertEquals("the table does not hold the row it was given", expected, runBlocking { container.database.generationDao().get(generationId) })
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals("the row was marked RUNNING", GenerationStatus.SUCCEEDED, row.status)
+        assertEquals("the row was re-stamped", SEEDED_FINISHED_AT, row.finishedAt)
+        assertEquals("the row's error was written over", seeded.error, row.error)
+        assertEquals("the row's session was written over", seeded.nabuSessionId, row.nabuSessionId)
+        assertEquals("the row's cursor was written over", seeded.lastEventId, row.lastEventId)
+        assertEquals("the row no longer reads as it was seeded", expected, row)
+
+        assertNothingReachedTheDaemon()
+    }
+
     private fun runWorker(generationId: Long): ListenableWorker.Result = runBlocking {
         withTimeout(turnWait) {
             TestListenableWorkerBuilder<GenerationWorker>(context)
@@ -260,6 +335,16 @@ class GenerationWorkerTest {
         assertEquals(listOf("liftoff", "liftoff:flight-plan"), labels)
     }
 
+    /**
+     * The row guards run before anything is opened, so the daemon sees nothing: no session created, no
+     * prompt sent, and no frame of any other kind — not even the hello the connection check would send.
+     */
+    private fun assertNothingReachedTheDaemon() {
+        assertTrue("the worker created a session: ${daemon.framesFor("rho.session.create")}", daemon.framesFor("rho.session.create").isEmpty())
+        assertTrue("the worker sent a prompt: ${daemon.framesFor("rho.session.send_prompt")}", daemon.framesFor("rho.session.send_prompt").isEmpty())
+        assertTrue("the worker sent the daemon this: ${daemon.frames}", daemon.frames.isEmpty())
+    }
+
     /** The params of the one frame this worker sent calling [method], failing if there was not exactly one. */
     private fun frameFor(method: String): JsonObject {
         val frames = daemon.framesFor(method)
@@ -286,5 +371,8 @@ class GenerationWorkerTest {
         const val COACH_WORKSPACE = "/repo/coach"
         const val DATABASE_NAME = "liftoff.db"
         const val SETTINGS_FILE = "settings"
+        // A finished row's own stamps, fixed so the test can tell them from anything the worker wrote.
+        const val SEEDED_CREATED_AT = 1_760_000_000_000L
+        const val SEEDED_FINISHED_AT = 1_760_000_600_000L
     }
 }
