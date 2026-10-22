@@ -15,7 +15,7 @@ build a second harness or a second `AppContainer`. While iterating, compile with
 run detached into a log under `app/build/` with an `EXIT=$?` sentinel and no pipe. Commits follow CLAUDE.md:
 `area: lowercase summary`, named files staged, never `git add -A`.
 
-- [ ] The FAILED-and-stop helper, and the permanent ends of a turn
+- [x] The FAILED-and-stop helper, and the permanent ends of a turn
   `GenerationWorker.kt`: one private helper carrying every permanent end — `markFailed(id, message,
   clock.millis())`, then `stopCoachSession` when a session exists for this generation (the last id
   `onSessionId` reported, or the row's stored one; no id ⇒ no stop), then `Result.failure()`; a stop that
