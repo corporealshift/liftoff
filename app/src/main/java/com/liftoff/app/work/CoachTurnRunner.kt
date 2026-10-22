@@ -71,7 +71,8 @@ private const val PERMISSION_MODE_AUTO = "auto"
  * Runs one turn on [sessionId], or starts a session for [options] when handed none.
  *
  * [limit] covers the whole turn from this call, so a session that never reaches the prompt is
- * caught too. The client is the caller's: this never closes it.
+ * caught too. The client is the caller's: this never closes it. A connection that goes away
+ * mid-turn throws a [DaemonException] with no code rather than reporting a turn that ended.
  */
 suspend fun runCoachTurn(
     client: DaemonClient,
@@ -88,7 +89,15 @@ suspend fun runCoachTurn(
     // incoming has replay = 0, so an event pushed before a collector exists is gone for good, and
     // the daemon plays its whole turn inside the frame that answers the prompt.
     val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-        client.incoming.collect { pushed.send(it) }
+        // trySend, not send: the watcher below closes this channel the moment the connection is gone,
+        // and a push that arrives after that is not the failure the caller should be given.
+        client.incoming.collect { pushed.trySend(it) }
+    }
+    // incoming is a SharedFlow and never completes, so a socket that dies mid-turn would otherwise be
+    // waited out and reported as a turn that finished.
+    val dropped = launch {
+        val reason = client.awaitClosed()
+        pushed.close(DaemonException("the daemon connection closed before this turn ended: $reason"))
     }
 
     var session = sessionId ?: ""
@@ -168,10 +177,13 @@ suspend fun runCoachTurn(
                 val buffered = pushed.tryReceive().getOrNull() ?: break
                 handleIncoming(buffered)
             }
+            // receive throws the cause the watcher closed this channel with, so a connection that went
+            // away mid-turn leaves here as a DaemonException with no code, not as a turn that ended.
             while (end == null) handleIncoming(pushed.receive())
         }
     } finally {
         collector.cancel()
+        dropped.cancel()
     }
 
     // No end found inside the limit is the timeout, and the cursor that comes back is the furthest

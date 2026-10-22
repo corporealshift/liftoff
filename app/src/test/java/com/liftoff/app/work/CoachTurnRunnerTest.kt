@@ -3,6 +3,7 @@ package com.liftoff.app.work
 import com.liftoff.app.rho.DaemonScript
 import com.liftoff.app.rho.FakeDaemon
 import com.liftoff.app.rho.net.DaemonClient
+import com.liftoff.app.rho.net.DaemonException
 import com.liftoff.app.rho.net.Rpc
 import com.liftoff.app.rho.protocol.EventType
 import com.liftoff.app.rho.protocol.RhoJson
@@ -17,11 +18,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -29,9 +32,9 @@ import kotlin.time.Duration.Companion.seconds
  * [runCoachTurn] against [FakeDaemon] over a real localhost socket: plain JUnit 4, no Robolectric,
  * no virtual time, because the fake plays its turn on real threads.
  *
- * The runner's own limit is a couple of seconds and every wait around it is bounded well below the
- * build's five-minute test-task timeout, so a turn that never ends fails this test rather than the
- * build.
+ * The runner's own limit is a couple of seconds, or an hour where the test wants a limit that never
+ * matters; every wait around it is bounded by this class's own window, well below the build's five-minute
+ * test-task timeout, so a turn that never ends fails this test rather than the build.
  */
 class CoachTurnRunnerTest {
     private lateinit var daemon: FakeDaemon
@@ -48,6 +51,12 @@ class CoachTurnRunnerTest {
 
     /** The runner's limit plus room for the fake to answer, so a hang fails here, not the build. */
     private val answerWindow = 15.seconds
+
+    /**
+     * The limit for a turn whose connection is about to drop: an hour, so the dropped connection is the
+     * only thing that can end the wait, and [answerWindow] is what proves it came long before the limit.
+     */
+    private val droppedTurnLimit = 1.hours
 
     @Before
     fun startDaemon() {
@@ -589,6 +598,66 @@ class CoachTurnRunnerTest {
     }
 
     /**
+     * A connection that drops mid-turn throws, rather than waiting out its limit and reporting timed out.
+     * The turn is scripted with an assistant message and no state_change, so the end this runner is looking
+     * for is one the fake will never log, and its limit is an hour: nothing but the dropped connection can
+     * end the wait, and the test's own window is what shows the connection came first. The fake is stopped
+     * from the cursor callback, at the moment this turn's reply has been read and its cursor reported — the
+     * phone losing wifi mid-turn. What has to come back is a [DaemonException] with no code, a call that
+     * never got an answer, so the caller resumes from what it already stored instead of treating a dead
+     * daemon as a turn that finished and spending its repair budget on it.
+     */
+    @Test
+    fun aConnectionThatDropsMidTurnThrowsInsteadOfWaitingOutItsLimit(): Unit = runBlocking {
+        val reply = "the daemon answered, then its socket went away"
+        daemon.script(DaemonScript.Assistant(reply))
+
+        val client = connectedClient()
+        val cursors = mutableListOf<String>()
+        var dropped: DaemonException? = null
+        try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = daemon.sessionId,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "carry on",
+                    clientId = "turn-11",
+                    cursor = null,
+                    limit = droppedTurnLimit,
+                    onCursor = { id ->
+                        cursors.add(id)
+                        if (contentOf(id) == reply) daemon.stop()
+                    },
+                )
+            }
+        } catch (thrown: DaemonException) {
+            dropped = thrown
+        }
+
+        val furthest = daemon.log.last()
+        assertEquals(EventType.MESSAGE, furthest["type"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            "this turn had a reply and no end for the runner to find",
+            reply,
+            furthest["data"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull,
+        )
+
+        val replyId = eventId(furthest)
+        assertTrue("the reply's cursor had already gone out through onCursor: $cursors", cursors.contains(replyId))
+        assertEquals("the cursor stopped at the furthest event this attempt read", replyId, cursors.last())
+
+        val failure = dropped
+        assertTrue("a daemon that dies mid-turn is not a turn that ended: $cursors", failure != null)
+        assertNull("a call that never got an answer has no daemon code to act on: ${failure?.code}", failure?.code)
+        assertFalse("a dropped connection is not a refusal, so reconnecting is still worth it", failure!!.isPermanent)
+        assertTrue(
+            "the wait ended on the connection, not on the $droppedTurnLimit limit: ${failure.message}",
+            failure.message?.contains("connection") == true,
+        )
+    }
+
+    /**
      * "Also add a small helper that sends rho.session.stop {session_id}". One call, one frame, carrying
      * the id it was given — an id that is not the fake's own, so the frame shows the pass-through rather
      * than a default. The turn before it ran out of its limit and stopped nothing itself: stopping stays
@@ -665,6 +734,10 @@ class CoachTurnRunnerTest {
         assertTrue("this event has no id: $event", id != null)
         return id!!
     }
+
+    /** The text the fake logged under [id], or null for an event that carries none. */
+    private fun contentOf(id: String): String? =
+        daemon.log.firstOrNull { eventId(it) == id }?.get("data")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
 
     /** The id the fake gave the prompt sent under [clientId], read back out of its log. */
     private fun promptEventId(clientId: String): String {
