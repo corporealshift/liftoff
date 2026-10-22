@@ -65,7 +65,7 @@ run detached into a log under `app/build/` with an `EXIT=$?` sentinel and no pip
   `afterTwoFailedRepairsTheGenerationFailsWithTheLastErrorsAndStoresNothing`.
   Done when both pass and the class is green in one cold run of `GenerationWorkerTest`.
 
-- [ ] The outcomes that still retry
+- [x] The outcomes that still retry
   Test-only: `State("paused")` and `State("error")` each, asserting `Result.retry()`, the row still `RUNNING`
   with the session id and cursor that turn reported still on it, `error` still null, `attempt` unchanged, and
   no `rho.session.stop` frame. Expect no production change; if one is needed it is only that the retry path
