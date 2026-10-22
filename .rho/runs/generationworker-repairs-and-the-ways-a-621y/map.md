@@ -105,3 +105,30 @@ that dies mid-turn throws a `DaemonException` with `code == null`.
   Both rows are grepped by a run's `verify.sh`, so wording must name each thing the brief demands, one clause each.
 - Invariant 6 (a stored session id + cursor make a retry a continuation of the same turn) and invariant 7 (no label
   starts with `run:`) are cited in the worker's own comments.
+
+## Facts the verify step checked against the tree (2026-10-22)
+
+- **Milestone table has three columns** — `| Milestone | Title | Status |` (header at line 77). So in
+  `awk -F'|'` the Status cell is field `$4` for every milestone row; the area-map table has the same shape, so the
+  `com.liftoff.app.work` row's status cell ("Partly (…)") is also `$4`. That cell is where the
+  "the repairs and failure outcomes are not written yet" claim sits.
+- **Classes the brief's "must not break" list maps to** (all exist, so naming them cannot block a green run):
+  `work/GenerationWorkerTest.kt`, `work/CoachTurnRunnerTest.kt`, `rho/DaemonConnectionCheckTest.kt`,
+  `ui/control/ConnectionViewModelTest.kt`, `data/MissionManagerOutlineTest.kt`, `data/MissionManagerPlanTest.kt`,
+  `coach/CoachPromptGoldenFileTest.kt`.
+- **The known suite flake** is `doneBodyweightSetStepperShowsBW` in `ui/inflight/InFlightScreenTest.kt` (line 601).
+- **The exported schema is one file**: `app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json`. This run's
+  `brief.md` landed in `d2d6b2e run: brief`, so the schema baseline to compare against is its parent
+  `8936b90` (the merged GenerationWorker PR #34).
+- **Baseline the verify step measured on the untouched tree** (one detached `verify.sh` run, 2026-10-22): gate
+  `BUILD SUCCESSFUL in 2m 35s`, `> Task :app:testDebugUnitTest` executed (not FROM-CACHE), reports total
+  **593 tests, 0 failures, 0 errors, 0 skipped**. verify.sh itself read **9 passed / 12 failed, EXIT=1**: the 12
+  failures are exactly the ten named tests ("did not run") plus the two ARCHITECTURE.md rows. So the suite a green
+  run of this brief must reach is 593 + the new tests, and a whole-suite gate on this tree costs about 2½ minutes.
+- **The M3 Status-cell rejection was tried against candidate rows**, so a work session can reword that cell freely.
+  It rejects only the three shapes the cell has today or that restate them: a cell starting `Not started`, a cell
+  ending in a bare `does not`, and a claim that the worker `does not exist` / `is not written`. It accepts
+  "Core flow built; the worker does not yet cancel or supersede", "Partial: the worker runs one turn …; repairs
+  and retries, cancellation, supersede and app wiring are not built yet", and "In progress — GenerationWorker
+  exists; …". The clause window stops at `.`, `;` and `,`, so a claim about something else that really is unwritten
+  is not read as the old one.
