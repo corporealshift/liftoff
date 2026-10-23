@@ -25,6 +25,8 @@ import com.liftoff.app.rho.net.Rpc
 import com.liftoff.app.rho.protocol.EventType
 import com.liftoff.app.rho.protocol.RhoJson
 import com.liftoff.app.rho.protocol.RpcCodes
+import java.net.InetAddress
+import java.net.ServerSocket
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
@@ -36,6 +38,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -1170,6 +1173,120 @@ class GenerationWorkerTest {
         assertEquals("an errored turn stored sorties: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
 
         assertSessionLeftOpen()
+    }
+
+    /**
+     * offline mark: the settings the container reads point at a loopback port this test opened and closed, so
+     * the connection check is refused and `Unreachable` is what the worker gets. It must show Result.Retry, the
+     * row still RUNNING and not FAILED with finishedAt null and its session id and cursor as they were, error
+     * exactly 'Mission Control offline', Generation.isCoachOffline true for that row, and nothing at all
+     * reaching the scripted daemon — not even the hello the check would have sent, let alone a prompt.
+     */
+    @Test
+    fun anUnreachableDaemonMarksTheGenerationOfflineAndRetries() {
+        // A turn is queued up and never asked for: the daemon under test is the one nothing listens on.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        // Seeded with an earlier attempt's session and cursor, so "as they were" is a position this row had.
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    nabuSessionId = "session-of-the-earlier-attempt",
+                    lastEventId = "cursor-of-the-earlier-attempt",
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+
+        pointSettingsAtNothing()
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Retry)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.RUNNING, row.status)
+        assertNull("an unreachable daemon stamped the row as finished", row.finishedAt)
+        assertEquals("an unreachable daemon moved the row off its session", "session-of-the-earlier-attempt", row.nabuSessionId)
+        assertEquals("an unreachable daemon moved the row off its cursor", "cursor-of-the-earlier-attempt", row.lastEventId)
+        assertEquals(0, row.attempt)
+
+        assertEquals("the row does not carry the offline mark", Generation.COACH_OFFLINE, row.error)
+        assertTrue("a row carrying '${Generation.COACH_OFFLINE}' is not offline", row.isCoachOffline)
+
+        assertNothingReachedTheDaemon()
+        assertEquals(
+            "an unreachable daemon stored something",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+    }
+
+    /**
+     * the mark cleared: the row the name above leaves behind — RUNNING with 'Mission Control offline' on it —
+     * run again with the settings pointed back at the live fake. It must show error null and
+     * Generation.isCoachOffline false afterwards, the row not FAILED and carrying no 'coach unreachable' text,
+     * and the generation running on to SUCCEEDED with its reply stored. What clears the mark is a daemon that
+     * answered, not a generation that finished.
+     */
+    @Test
+    fun aLaterRunThatReachesTheDaemonClearsTheOfflineMark() {
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        pointSettingsAtNothing()
+        val offline = runWorker(generationId)
+        assertTrue("the first run returned $offline", offline is ListenableWorker.Result.Retry)
+        val marked = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertTrue("this test's own row carries no mark to clear: ${marked.error}", marked.isCoachOffline)
+
+        pointSettingsAtTheLiveFake()
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertNull("the run that reached the daemon left the offline mark on the row", row.error)
+        assertFalse("a row whose daemon answered is still offline", row.isCoachOffline)
+        assertTrue("the row that reached the daemon carries a coach-unreachable message: ${row.error}", "coach unreachable" !in row.error.orEmpty())
+        assertNotNull(row.finishedAt)
+
+        assertEquals(
+            "the reply the daemon answered with was not stored",
+            MissionStatus.ACTIVE,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        val sorties = runBlocking { container.database.sortieDao().getForMission(mission.id) }
+        assertNotNull("the stored outline left no current sortie: $sorties", currentSortie(sorties))
+    }
+
+    /**
+     * Points the settings the container reads at a loopback port nothing is listening on: a socket opened on a
+     * free port and closed again, so the check is refused rather than waiting out its own 5-second connect
+     * timeout. The host is the loopback address the socket was bound to, so the refusal is the port's own.
+     */
+    private fun pointSettingsAtNothing() = runBlocking {
+        val closedPort = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        container.settingsStore.setDaemonHost("127.0.0.1")
+        container.settingsStore.setDaemonPort(closedPort)
+    }
+
+    /** Back at the live fake, for the run that follows. */
+    private fun pointSettingsAtTheLiveFake() = runBlocking {
+        container.settingsStore.setDaemonHost(daemon.host())
+        container.settingsStore.setDaemonPort(daemon.port())
     }
 
     private fun runWorker(generationId: Long): ListenableWorker.Result = runBlocking {

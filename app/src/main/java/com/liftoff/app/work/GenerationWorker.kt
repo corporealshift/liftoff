@@ -72,7 +72,11 @@ class GenerationWorker(
         }
 
         return when (val connection = container.daemonConnectionCheck().check()) {
-            is ConnectionOutcome.Connected -> runGeneration(container, generations, row, mission, sortie)
+            // The daemon answered, so whatever the row carried about Mission Control is out of date.
+            is ConnectionOutcome.Connected -> {
+                generations.setCoachOfflineMark(generationId, null)
+                runGeneration(container, generations, row, mission, sortie)
+            }
 
             // A major this client doesn't speak answers the same way every time, and the check used its
             // own socket, so there is no session here to give up.
@@ -84,6 +88,14 @@ class GenerationWorker(
                 sessionId = null,
             )
 
+            // Nothing is listening, which is the one thing the row can say while it waits for a coach.
+            is ConnectionOutcome.Unreachable -> {
+                generations.setCoachOfflineMark(generationId, Generation.COACH_OFFLINE)
+                Result.retry()
+            }
+
+            // A host or a token that isn't set, or a token the daemon won't take, is a setting of Liftoff's
+            // own, not Mission Control being down, so the row carries no claim about the coach.
             else -> Result.retry()
         }
     }
@@ -97,11 +109,19 @@ class GenerationWorker(
         sortie: Sortie?,
     ): Result {
         val client = container.daemonClient()
+        // A socket that never opened is a daemon that isn't there, not a turn that dropped mid-way, so it is
+        // answered here rather than falling into the catch below with the turns.
+        try {
+            client.connect()
+        } catch (_: DaemonException) {
+            client.close()
+            generations.setCoachOfflineMark(row.id, Generation.COACH_OFFLINE)
+            return Result.retry()
+        }
         // The id this turn actually ran on, held here so the catch can give it up even when the turn threw
         // before it could report an outcome.
         var reportedSessionId: String? = null
         return try {
-            client.connect()
             val settings = container.settingsStore.settings.first()
             // Held here because a repair turn runs on the same session, with the same labels and description.
             val options = CoachSessionOptions(
