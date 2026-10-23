@@ -116,7 +116,7 @@ daemon.sessionId, lastEventId = …)`), as the existing resumed case does; `inse
   Done when: both names pass and every existing `GenerationWorkerTest` case still passes — the ones that reach the
   daemon and the ones that do not.
 
-- [ ] 6. The 8th attempt that cannot connect fails for good
+- [x] 6. The 8th attempt that cannot connect fails for good
   On the offline path, `runAttemptCount >= 7` (WorkManager counts from 0, so 7 is the 8th) marks the row FAILED with
   `coach unreachable` and returns `failure` instead of stamping the offline mark; the row's own `attempt` is a
   different counter and stays out of it. `runWorker` gains an optional run-attempt count passed to
