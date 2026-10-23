@@ -26,6 +26,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.Clock
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
@@ -171,7 +173,8 @@ class GenerationWorker(
     /**
      * Validate, store, mark SUCCEEDED, then give up the session. A turn that ends blocked, or a store that
      * refuses its target, is over for the same reason every time, so it ends through [failGeneration];
-     * anything else leaves the row and the session for the retry.
+     * anything else hands the session back to the daemon and leaves the row where the turn stopped, for the
+     * next attempt to pick up.
      *
      * A reply that fails validation is handed back to the same session with the validator's own error
      * lines (§7.3 step 5), and the turn that comes back is judged exactly like this one. The cap is the
@@ -203,7 +206,12 @@ class GenerationWorker(
             if (turn.end == TurnEnd.Blocked) {
                 return failGeneration(generations, row.id, "coach needed input", client, turn.sessionId)
             }
-            if (turn.end != TurnEnd.Idle && turn.end != TurnEnd.Completed) return Result.retry()
+            // A turn that stopped part-way is handed back to the daemon to carry on: the row keeps its session
+            // id and cursor, and the next attempt reads from where this one stopped (invariant 6).
+            if (turn.end != TurnEnd.Idle && turn.end != TurnEnd.Completed) {
+                handSessionBack(client, turn.sessionId)
+                return Result.retry()
+            }
 
             // A coach that said nothing has answered, just badly, so it is judged like any other reply rather
             // than waited out again under the client_id the daemon already dedupes.
@@ -294,6 +302,20 @@ class GenerationWorker(
             stopCoachSession(client, sessionId)
         } catch (stopped: CancellationException) {
             throw stopped
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * The resume on its own: a session the daemon won't hand back is the daemon's to sort out, and the next
+     * attempt reads its real state anyway. Swallowed exactly as [giveUpSession] swallows a refused stop, so a
+     * refusal here — permanent or not — can never reach the catch that fails the generation.
+     */
+    private suspend fun handSessionBack(client: DaemonClient, sessionId: String) {
+        try {
+            client.callOrThrow("rho.session.resume", buildJsonObject { put("session_id", sessionId) })
+        } catch (refused: CancellationException) {
+            throw refused
         } catch (_: Exception) {
         }
     }

@@ -1036,16 +1036,17 @@ class GenerationWorkerTest {
     }
 
     /**
-     * a paused turn is retried, not finished: `Result.retry()`, and the row is left exactly as a resume needs it
-     * — RUNNING, with the session id and the cursor the paused turn reported still on it, no error text, its
-     * attempt untouched and no finishedAt. Scripted as an assistant line then [DaemonScript.State] "paused" on an
-     * OUTLINE row over a mission seeded with onAppOpen() only. A coach that paused mid-turn has not answered, so
-     * the next run continues this same turn (invariant 6) instead of asking again. Nothing is stored, and the
-     * session is left open: no `rho.session.stop` frame, because the turn that resumes needs the session it
-     * paused in.
+     * a paused turn hands its session back to the daemon: exactly one `rho.session.resume` frame, naming the
+     * session the turn stopped in — the id the row still holds afterwards — then `Result.retry()`, with the row
+     * left exactly as a resume needs it: RUNNING, with that session id and the cursor the paused turn reported
+     * still on it, no error text, its attempt untouched and no finishedAt. Scripted as an assistant line then
+     * [DaemonScript.State] "paused" on an OUTLINE row over a mission seeded with onAppOpen() only. A coach that
+     * paused mid-turn has not answered, so the next run continues this same turn (invariant 6) instead of asking
+     * again. Nothing is stored, and the session is left open: no `rho.session.stop` frame, because the turn that
+     * resumes needs the session it paused in.
      */
     @Test
-    fun aPausedTurnRetriesAndLeavesTheRowRunningWithItsSessionAndCursor() {
+    fun aPausedTurnSendsAResumeForTheSessionItStoppedIn() {
         daemon.script(
             DaemonScript.Assistant("The week is laid out; I need a moment before the plans."),
             DaemonScript.State("paused", "the coach stopped part-way through the turn"),
@@ -1062,9 +1063,12 @@ class GenerationWorkerTest {
         assertEquals("$generationId-0", frameFor("rho.session.send_prompt")["client_id"]?.jsonPrimitive?.contentOrNull)
 
         val paused = daemon.log.single { it["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull == "paused" }
+        val resumedSession = frameFor("rho.session.resume")["session_id"]?.jsonPrimitive?.contentOrNull
+        assertEquals("the resume named a session other than the one the turn stopped in", daemon.sessionId, resumedSession)
+
         val row = runBlocking { container.database.generationDao().get(generationId) }!!
         assertEquals(GenerationStatus.RUNNING, row.status)
-        assertEquals("the row lost the session its paused turn stopped in", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the row lost the session its paused turn stopped in", resumedSession, row.nabuSessionId)
         assertEquals("the row's cursor is not where the paused turn stopped", eventId(paused), row.lastEventId)
         assertNull("the retry left error text on a row that is still running", row.error)
         assertEquals("the retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
@@ -1077,6 +1081,51 @@ class GenerationWorkerTest {
             runBlocking { container.database.missionDao().get(mission.id) }!!.status,
         )
         assertEquals("a paused turn stored sorties: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
+
+        assertSessionLeftOpen()
+    }
+
+    /**
+     * a resume the daemon refuses for good is swallowed the way a refused stop is: [FakeDaemon.refuseMethod]
+     * answers `rho.session.resume` with a code in `RpcCodes.PERMANENT`, and the outcome is still
+     * `Result.retry()` — a refusal of the resume never reaches the catch that ends a generation on a permanent
+     * code. The row is not FAILED: still RUNNING with its session id and the cursor the paused turn reported,
+     * `error` null rather than the daemon's words, its attempt unchanged, no finishedAt, nothing stored, and its
+     * session left open. The next attempt reads the session's real state, which is what a swallowed refusal
+     * leaves the row in place for.
+     */
+    @Test
+    fun aRefusedResumeStillRetriesAndLeavesTheRowRunningWithItsSessionAndCursor() {
+        daemon.refuseMethod["rho.session.resume"] = RpcCodes.INVALID_TRANSITION to "the session is not paused"
+        daemon.script(
+            DaemonScript.Assistant("The week is laid out; I need a moment before the plans."),
+            DaemonScript.State("paused", "the coach stopped part-way through the turn"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Retry)
+
+        val paused = daemon.log.single { it["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull == "paused" }
+        val resumed = frameFor("rho.session.resume")
+        assertEquals("the resume went into another session", daemon.sessionId, resumed["session_id"]?.jsonPrimitive?.contentOrNull)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.RUNNING, row.status)
+        assertEquals("the row lost the session its paused turn stopped in", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the row's cursor is not where the paused turn stopped", eventId(paused), row.lastEventId)
+        assertNull("a refused resume wrote the daemon's words onto the row", row.error)
+        assertEquals("the retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
+        assertNull("a refused resume stamped a row that has not finished", row.finishedAt)
+
+        assertEquals(
+            "a refused resume stored an outline",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertEquals("a refused resume stored sorties: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
 
         assertSessionLeftOpen()
     }
