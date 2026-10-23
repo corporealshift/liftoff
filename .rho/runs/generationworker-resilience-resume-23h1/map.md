@@ -156,6 +156,44 @@ Deliberately not checked: the wording of the two `ARCHITECTURE.md` rows; the ref
 `NotConfigured` / `AuthenticationRejected` keeping today's plain retry; the DAO query as a test of its own; and any
 UI test.
 
+## Task split (tasks.md, 2026-10-23)
+
+Seven tasks; each of the eight names `verify.sh` requires is written by exactly one of them.
+
+1. `Generation.isCoachOffline` + the constant + the DAO `@Query` + `GenerationDaoTest` →
+   `isCoachOfflineIsTrueOnlyForARowStillWaitingOnTheCoach`.
+2. `FakeDaemon`: the `rho.session.resume` handler + `client_id` registration for a message seeded through
+   `logEvent`, proved by `aGenerationWhosePromptAlreadyLandedResumesFromTheStoredCursorAndStoresTheReply` and
+   `aRetriedGenerationSendsItsPromptAgainUnderTheSameClientIdAndTheDaemonDeliversItOnce`.
+3. `CoachTurnRunner`'s second catch-up read and the skip of ends already acted on →
+   `aCursorAtTheEndOfTheTurnStillFindsTheReplyTheWorkerAlreadyRead`.
+4. Worker: paused end sends `rho.session.resume` then `retry` (refusal swallowed) →
+   `aPausedTurnSendsAResumeForTheSessionItStoppedIn`.
+5. Worker: the `Unreachable` arm stamps the offline mark, `Connected` clears it, plus the closed-port test helper →
+   `anUnreachableDaemonMarksTheGenerationOfflineAndRetries`, `aLaterRunThatReachesTheDaemonClearsTheOfflineMark`.
+6. Worker: `runAttemptCount >= 7` → FAILED `coach unreachable` + `failure`, and `runWorker`'s optional
+   `setRunAttemptCount` → `theEighthAttemptThatCannotConnectFailsTheGenerationAsCoachUnreachable`.
+7. The two `ARCHITECTURE.md` rows, then the whole gate run detached.
+
+**Why the re-send case (task 2) must seed the whole log.** `send_prompt` answers a repeat with the earlier
+`event_id` and `return`s before `play(nextTurn())` (FakeDaemon.kt 231-249), so a re-sent prompt plays **no new turn**.
+A case that lets the first run send the prompt and end paused leaves the second run's read from the cursor with
+nothing after it and no pushes — it would hang to the test's own timeout unless the runner's second read (task 3)
+already existed. Seeding prompt → `paused` → reply → idle through `logEvent` makes run 1 stop at the paused end
+(`handle` takes the first end after `promptId`, CoachTurnRunner.kt 137) and run 2 find the reply and the idle end from
+the cursor run 1 stored, so the case proves only the dedup and the client_id, which is what it is asked to prove.
+
+**The two existing retry cases are compatible with a new resume frame.** `aPausedTurnRetriesAndLeavesTheRowRunning…`
+(798) and `aTurnThatEndsInErrorRetries…` (842) each call `frameFor` for `rho.session.create` and
+`rho.session.send_prompt` and `assertSessionLeftOpen()` (no `rho.session.stop`); neither enumerates every frame, so
+adding a `rho.session.resume` to the paused arm leaves both green. Renaming 798 to this run's name is allowed —
+`verify.sh` checks the class as a whole, not that old name.
+
+**`ARCHITECTURE.md` line 82 (the M3 row)** ends with "resilience beyond those outcomes (WorkManager's retry policy),
+cancellation, supersede and app wiring still to come". Only the resilience clause is this run's to drop;
+cancellation, supersede and app wiring are still not built, so the row keeps them. Line 36 (the
+`com.liftoff.app.work` row) has no such list — it just describes what `GenerationWorker.kt` does today.
+
 ## Facts worth not re-deriving
 
 - **One real `verify.sh` run against the untouched tree (2026-10-23, HEAD `15dc3b8`)**: gate attempt 1 died at the
