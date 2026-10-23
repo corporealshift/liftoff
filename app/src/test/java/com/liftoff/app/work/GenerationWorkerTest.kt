@@ -358,6 +358,176 @@ class GenerationWorkerTest {
     }
 
     /**
+     * a prompt the daemon already has is not written a second time: the row is QUEUED with the fake's own
+     * `sessionId` and a cursor at the session event that sits before this row's own prompt, and the fake's log is
+     * seeded with that prompt as a user message carrying client_id `<id>-0`, then the assistant reply, then an
+     * idle end. `doWork()` returns `Result.success()` with no `rho.session.create` frame at all, the catch-up read
+     * starts at the cursor the row stored, the reply the log already held is stored on the mission, and the row
+     * ends SUCCEEDED with its cursor moved forward to the seeded idle end. The log holds exactly one user message
+     * for that client_id: the re-send is answered with the id of the prompt that already landed, so it plays no
+     * second turn and the turn is finished by reading what the stored cursor had not reached yet.
+     */
+    @Test
+    fun aGenerationWhosePromptAlreadyLandedResumesFromTheStoredCursorAndStoresTheReply() {
+        // The session this row's earlier attempt opened, as the log holds it. The cursor is the event before this
+        // row's prompt, so the catch-up read still has the prompt, the reply and the end to come to.
+        val seededCursor = daemon.logEvent(EventType.SESSION, buildJsonObject { put("workspace", COACH_WORKSPACE) })
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    nabuSessionId = daemon.sessionId,
+                    lastEventId = seededCursor,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+        val clientId = "$generationId-0"
+        // The turn as the earlier attempt left it, seeded rather than scripted: a prompt this daemon already
+        // took plays no turn when it is sent again, so there is nothing here for a script to play.
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "user")
+            put("content", "the prompt this generation already sent")
+            put("client_id", clientId)
+        })
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", CoachFixtures.fixture(CoachFixtures.OUTLINE))
+        })
+        val idle = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "idle")
+            put("reason", "the turn this row's prompt started had already finished")
+        })
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        assertTrue(
+            "a row that already named its session was given a new one: ${daemon.framesFor("rho.session.create")}",
+            daemon.framesFor("rho.session.create").isEmpty(),
+        )
+        assertEquals(
+            "the catch-up read did not start at the stored cursor",
+            seededCursor,
+            firstFrameFor("rho.session.events_after")["last_event_id"]?.jsonPrimitive?.contentOrNull,
+        )
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertEquals("the row ended on a session other than the one it was given", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the row did not reach the end the log already held", idle, row.lastEventId)
+        assertTrue("the cursor moved back to where the row left it: $seededCursor", row.lastEventId!! > seededCursor)
+        assertNotNull(row.finishedAt)
+
+        // Reaching the end is what stores the reply, so the mission is the other half of the resume.
+        val storedMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+        assertEquals(MissionStatus.ACTIVE, storedMission.status)
+        assertNotNull(
+            "the resumed outline left no current sortie",
+            currentSortie(runBlocking { container.database.sortieDao().getForMission(mission.id) }),
+        )
+
+        assertEquals("this row's prompt reached the log a second time under $clientId", 1, userMessagesFor(clientId))
+    }
+
+    /**
+     * a generation asked a second time sends its prompt again under the client_id the row holds, and the daemon
+     * delivers it once: the log is seeded with this row's prompt as a user message carrying client_id `<id>-0`,
+     * then a paused end, then the assistant reply, then an idle end, and the row goes through `doWork()` twice.
+     * The first run stops at the paused end — `Result.retry()`, the row RUNNING with its cursor at that paused
+     * event, nothing stored and its session left open — and the second reads on from the cursor the first one
+     * left, finding the reply and the idle end: `Result.success()`, the outline stored, the row SUCCEEDED. Both
+     * `rho.session.send_prompt` frames carry the same `<generationId>-<attempt>`, built from the attempt the row
+     * holds rather than from WorkManager's count, the log holds exactly one user message for it, and there is no
+     * second `rho.session.create` frame: the second run is the same session, not a new generation of the same
+     * prompt.
+     */
+    @Test
+    fun aRetriedGenerationSendsItsPromptAgainUnderTheSameClientIdAndTheDaemonDeliversItOnce() {
+        val seededCursor = daemon.logEvent(EventType.SESSION, buildJsonObject { put("workspace", COACH_WORKSPACE) })
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    nabuSessionId = daemon.sessionId,
+                    lastEventId = seededCursor,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+        // The paused end is seeded between the prompt and the reply so the first run stops there and the second
+        // has a turn already played, further along the log, to catch up with.
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "user")
+            put("content", "the prompt this generation already sent")
+            put("client_id", "$generationId-0")
+        })
+        val paused = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "paused")
+            put("reason", "the coach stopped part-way through the turn")
+        })
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", CoachFixtures.fixture(CoachFixtures.OUTLINE))
+        })
+        val idle = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "idle")
+            put("reason", "the turn this row's prompt started had already finished")
+        })
+
+        val first = runWorker(generationId)
+        assertTrue("the run that met the paused end returned $first", first is ListenableWorker.Result.Retry)
+        val afterFirst = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.RUNNING, afterFirst.status)
+        assertEquals("the first run's cursor is not the end it stopped at", paused, afterFirst.lastEventId)
+        assertEquals(
+            "the run that stopped paused stored an outline",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertSessionLeftOpen()
+
+        val second = runWorker(generationId)
+        assertTrue("the run that resumed from the stored cursor returned $second", second is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertEquals("the second run did not reach the idle end the log held", idle, row.lastEventId)
+        assertEquals("the paused retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
+        assertNotNull(row.finishedAt)
+        assertEquals(
+            "the resumed run stored nothing on the mission",
+            MissionStatus.ACTIVE,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+
+        val clientId = "$generationId-${row.attempt}"
+        val prompts = promptsSent()
+        assertEquals("the generation was asked twice and the daemon took $prompts", 2, prompts.size)
+        prompts.forEachIndexed { index, frame ->
+            assertEquals("the ${index + 1}th prompt went into another session", daemon.sessionId, frame["session_id"]?.jsonPrimitive?.contentOrNull)
+            assertEquals(
+                "the ${index + 1}th prompt was not sent under the client_id the row holds",
+                clientId,
+                frame["client_id"]?.jsonPrimitive?.contentOrNull,
+            )
+        }
+        assertEquals("the re-send wrote this row's prompt into the log a second time under $clientId", 1, userMessagesFor(clientId))
+        assertTrue(
+            "the second run opened a session of its own: ${daemon.framesFor("rho.session.create")}",
+            daemon.framesFor("rho.session.create").isEmpty(),
+        )
+    }
+
+    /**
      * one `rho.session.stop` frame after success: exactly one, and it comes after the prompt frame — the stop
      * is what a generation that finished and stored its answer leaves behind, and nothing else sends it. The
      * session it gives up is the one that turn ran on.
@@ -1012,6 +1182,25 @@ class GenerationWorkerTest {
         val params = RhoJson.decodeFromString(Rpc.serializer(), frames.first()).params?.jsonObject
         assertTrue("the $method frame carried no params: ${frames.first()}", params != null)
         return params!!
+    }
+
+    /**
+     * The params of the first frame this worker sent calling [method], failing if it sent none. A resumed turn
+     * reads more than once, so a case that cares which read came first cannot use [frameFor].
+     */
+    private fun firstFrameFor(method: String): JsonObject {
+        val frames = daemon.framesFor(method)
+        assertTrue("no $method frame was sent: ${daemon.frames}", frames.isNotEmpty())
+        val params = RhoJson.decodeFromString(Rpc.serializer(), frames.first()).params?.jsonObject
+        assertTrue("the $method frame carried no params: ${frames.first()}", params != null)
+        return params!!
+    }
+
+    /** How many user messages in the fake's log carry [clientId] — the prompt a daemon that dedupes by client_id keeps to one. */
+    private fun userMessagesFor(clientId: String): Int = daemon.log.count {
+        val data = it["data"]?.jsonObject
+        data?.get("role")?.jsonPrimitive?.contentOrNull == "user" &&
+            data["client_id"]?.jsonPrimitive?.contentOrNull == clientId
     }
 
     /** Every `rho.session.send_prompt` frame's params, in the order the daemon received them. */
