@@ -96,7 +96,7 @@ daemon.sessionId, lastEventId = …)`), as the existing resumed case does; `inse
   Done when: that name passes and every case in `GenerationWorkerTest` passes, including the paused and
   ends-in-error cases written against the old behaviour.
 
-- [ ] 5. An unreachable daemon marks the row offline, and a reached daemon clears it
+- [x] 5. An unreachable daemon marks the row offline, and a reached daemon clears it
   Split the `else -> Result.retry()` arm in `doWork()`: `Unreachable` becomes its own path that stamps the offline
   mark (the task 1 query, with the task 1 constant) on the row and returns `retry`; `NotConfigured` and
   `AuthenticationRejected` keep today's plain retry with no mark. A `client.connect()` that throws with no code takes
