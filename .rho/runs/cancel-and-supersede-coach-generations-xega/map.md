@@ -130,6 +130,54 @@ The three row helpers the brief names already exist and are tested (`GenerationD
 - `app/src/test/java/com/liftoff/app/data/GenerationDaoTest.kt` — already exercises `markCancelled` and both
   `getNewestNonCancelled…` reads, including the tie-break and "all cancelled → null".
 
+## `app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt` — the push a mid-turn cancel rides on
+
+`append(type, data)` (303-323) appends the event to `log` **and pushes it as a `rho.session.event` to every
+subscribed connection**. `rho.session.stop` (274-280) goes through `append`, so the stop the cancel helper sends is
+itself the `completed` state_change that ends a turn still being read by the worker. A scripted turn with an
+Assistant step and no `DaemonScript.State` therefore never ends on its own — `play` (338) just runs out — which is
+what makes the cancelled-mid-turn test forced rather than racy. `rho.session.send_prompt` calls `play(nextTurn())`,
+so each new prompt takes the next scripted turn.
+
+## `verify.sh` for this run (written 2026-10-23)
+
+`.rho/runs/cancel-and-supersede-coach-generations-xega/verify.sh` — copied whole from
+`.rho/runs/generationworker-resilience-resume-23h1/verify.sh` (gate machinery, `index_reports`, `t`, `c`), with the
+header and the test list rewritten. Six named tests, all new to this run (checked: none of the six strings occurs
+under `app/src/test` today):
+
+- `cancellingAGenerationStopsItsSessionAndMarksTheRowCancelled` — row CANCELLED + `finishedAt`; exactly one
+  `rho.session.stop` naming the row's session; the work the enqueuer scheduled reads `WorkInfo.State.CANCELLED`
+  under the same unique name; nothing stored.
+- `cancellingAGenerationWithTheDaemonUnreachableStillCancelsTheRowAndItsWork` — closed loopback port; no throw;
+  row CANCELLED; work still CANCELLED. (Decision: local-first.)
+- `cancellingAGenerationThatAlreadyFinishedLeavesTheRowAndItsStoredResultAlone` — SUCCEEDED and FAILED rows read
+  exactly as seeded, stored result intact, no stop frame at all. Whether leftover work is also cancelled for a
+  finished id is deliberately not pinned.
+- `aWorkerWhoseGenerationWasCancelledMidTurnStoresNothingAndEndsAsDone` — turn scripted with no end state, worker
+  started off the test thread, cancel after the prompt frame arrives; nothing stored, row CANCELLED,
+  `Result.Success`. No stop-frame count asserted.
+- `aSupersededFlightPlanGenerationStoresNothingAndTheNewerGenerationStillStoresItsPlan` — older row stores nothing,
+  reads CANCELLED, returns success; then the newer row stores its plan and reads SUCCEEDED.
+- `aSupersededOutlineGenerationStoresNothingAndTheNewerGenerationStillStoresItsOutline` — same for two OUTLINE rows
+  on one Mission.
+
+Whole-class checks (must not break): `GenerationWorkerTest` (25 existing tests), `GenerationEnqueuerTest`,
+`GenerationDaoTest`, `CoachTurnRunnerTest`, `MissionManagerOutlineTest`, `MissionManagerPlanTest`,
+`AppContainerTest`. `GenerationCancellerTest` is **not** class-checked: naming a new class would dictate the file
+the cancel tests live in, and the six method names are matched across every report.
+
+No doc-row check (ARCHITECTURE.md's M3 row is reviewed by Kyle in the PR). Schema check compares `app/schemas`
+against `28a7763^` (the commit that added this run's brief.md) both committed and in the working tree after the
+gate. Gate: `timeout 1800 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, results dir
+cleared first, retried up to 3× only on the known `doneBodyweightSetStepperShowsBW` flake, a daemon/memory death,
+or a hung suite that wrote no reports.
+
+Measured against untouched code (one detached run of a copy under `app/build/`, 2026-10-23): gate attempt 1 passed
+in 2m13s, `BUILD SUCCESSFUL`, reports **618 tests, 0 failures, 0 errors, 0 skipped**, `:app:testDebugUnitTest`
+executed (not FROM-CACHE); the six new names all reported "did not run"; the seven class checks and the schema
+check passed; **Result: 9 passed, 6 failed → EXIT=1**. That is the script doing its job.
+
 ## Build facts on this machine
 
 - `gradlew.sh` sits at the repository root; scratch scripts go under `app/build/` after `mkdir -p app/build`,
