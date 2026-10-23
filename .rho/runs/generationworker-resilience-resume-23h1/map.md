@@ -96,8 +96,12 @@ Helpers: `sortieAt` (885), `insertFlightPlanGeneration` (888), `insertOutlineGen
 Existing cases (18) include `aGenerationRowWithASessionIdAlreadyStoredIsResumedWithoutCreatingAnotherSession` (296,
 seeds a cursor with `daemon.logEvent(EventType.MESSAGE, ...)` and inserts a row carrying `nabuSessionId` +
 `lastEventId`), `aPausedTurnRetriesAndLeavesTheRowRunningWithItsSessionAndCursor` (798 — asserts Retry, the create
-frame, `client_id == "$generationId-0"`, RUNNING, session + cursor kept, `error` null, `attempt` 0, session left
-open; asserts **no** resume frame today), and `aTurnThatEndsInErrorRetries...` (842).
+frame, `client_id == "$generationId-0"`, RUNNING, session + cursor kept, `error` null, `attempt` 0, `finishedAt`
+null, nothing stored on the mission, and `assertSessionLeftOpen()`; it says nothing about a resume frame either
+way, so the plan's step 4 adds the resume assertion to it without contradicting anything it already says), and
+`aTurnThatEndsInErrorRetries...` (842). **Neither (296) nor (798) can serve as proof of this run's work: both
+already exist and pass on today's code**, so `verify.sh` names only tests that do not exist yet, and the class
+check is what keeps those two green.
 
 **`app/src/test/java/com/liftoff/app/work/CoachTurnRunnerTest.kt`** (751 lines) — `twoEndingStateChangesAfterThePrompt
 StopAtTheFirst` (451) is the shape the brief's re-send case copies: it sends a prompt under `clientId`, seeds the
@@ -124,7 +128,41 @@ newest-non-cancelled reads. This is where the new `error` query and `isCoachOffl
 - `GenerationEnqueuer` (37 lines): one unique one-time request per generation, name `gen-<generationId>`, `KEEP`,
   network constraint, 1-minute exponential backoff.
 
+## What this run's verify.sh requires
+
+`bash .rho/runs/generationworker-resilience-resume-23h1/verify.sh` exits 0 only when the brief is done. Read the
+script itself for what each name must show — its comments are the source, and a later review may rewrite it.
+
+1. The CI gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, with stale reports
+   deleted first, retried only on the known flake, a build killed by a daemon or memory error, or a hung suite that
+   wrote no reports. A compile error or a real failed assertion is not retried.
+2. Eight named tests, each looked for by name in `app/build/test-results/testDebugUnitTest/TEST-*.xml`, failing if
+   absent, skipped, or not passing — all eight are new to this run:
+   `aPausedTurnSendsAResumeForTheSessionItStoppedIn`,
+   `aGenerationWhosePromptAlreadyLandedResumesFromTheStoredCursorAndStoresTheReply`,
+   `aCursorAtTheEndOfTheTurnStillFindsTheReplyTheWorkerAlreadyRead`,
+   `aRetriedGenerationSendsItsPromptAgainUnderTheSameClientIdAndTheDaemonDeliversItOnce`,
+   `anUnreachableDaemonMarksTheGenerationOfflineAndRetries`,
+   `aLaterRunThatReachesTheDaemonClearsTheOfflineMark`,
+   `theEighthAttemptThatCannotConnectFailsTheGenerationAsCoachUnreachable`,
+   `isCoachOfflineIsTrueOnlyForARowStillWaitingOnTheCoach`.
+3. Whole classes that must have run with every test passing: `GenerationWorkerTest`, `GenerationEnqueuerTest`,
+   `GenerationDaoTest`, `CoachTurnRunnerTest`, `DaemonConnectionCheckTest`, `MissionManagerOutlineTest`,
+   `MissionManagerPlanTest`, `CoachPromptGoldenFileTest`.
+4. `app/schemas/com.liftoff.app.data.LiftoffDatabase` byte-identical to the tree this run's brief.md was committed
+   on top of, committed and working tree.
+
+Deliberately not checked: the wording of the two `ARCHITECTURE.md` rows; the refused-resume decision;
+`NotConfigured` / `AuthenticationRejected` keeping today's plain retry; the DAO query as a test of its own; and any
+UI test.
+
 ## Facts worth not re-deriving
+
+- **One real `verify.sh` run against the untouched tree (2026-10-23, HEAD `15dc3b8`)**: gate attempt 1 died at the
+  build's own test-task timeout ("Timeout has been exceeded", `BUILD FAILED in 6m 17s`) — the hang the brief warns
+  about — the script's retry path stopped the daemons and re-ran it, attempt 2 passed in 1m 21s, **610 tests, 0
+  failures, 0 errors, 0 skipped**. Result: `10 passed, 8 failed` — the gate, the eight class checks and the schema
+  check green, all eight named tests reported `did not run`, exit 1. That is the script working as intended.
 
 - `doWork` calls `markRunning` (61) **before** the connection check, so a row the worker marks offline is always
   RUNNING by then, never QUEUED. QUEUED only matters for `isCoachOffline`, which a Launchpad row read can hold.
@@ -134,8 +172,9 @@ newest-non-cancelled reads. This is where the new `error` query and `isCoachOffl
 - The row's `attempt` is **not** WorkManager's attempt count: only `bumpAttempt` (repairs) changes it, so
   `client_id = "<id>-<row.attempt>"` stays put across WorkManager retries. The two counters must not be merged.
 - `ARCHITECTURE.md` line 36 (the `com.liftoff.app.work` area-map row) and line 82 (the M3 row) both currently end
-  with a claim that resilience beyond the current outcomes is still to come. Both rows are grepped by a run's
-  `verify.sh`; wording must name each thing the brief demands, one clause each.
+  with a claim that resilience beyond the current outcomes is still to come. The plan's Files updates both rows;
+  this run's `verify.sh` does **not** read either row — doc wording is reviewed by the owner in the pull request,
+  and grepping a document fails correct work worded differently.
 - `CLAUDE.md`: gate `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`; commit messages
   `area: lowercase summary`; stage named files only; §2 vocabulary (`Mission`, `Sortie`, `FlightPlan`,
   `Generation` — never "session" for a sortie); snake_case JSON; LF; short comments (why, not what).
