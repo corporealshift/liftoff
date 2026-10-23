@@ -178,6 +178,37 @@ in 2m13s, `BUILD SUCCESSFUL`, reports **618 tests, 0 failures, 0 errors, 0 skipp
 executed (not FROM-CACHE); the six new names all reported "did not run"; the seven class checks and the schema
 check passed; **Result: 9 passed, 6 failed → EXIT=1**. That is the script doing its job.
 
+## Tasks for this run (written 2026-10-23)
+
+`.rho/runs/cancel-and-supersede-coach-generations-xega/tasks.md` — five tasks, each ending in a commit, and which
+one writes each of the six names:
+
+1. Share `gen-<generationId>` (`GenerationEnqueuer.kt:36` is `private` today), write `GenerationCanceller.kt`, add
+   the container accessor, and write `GenerationCancellerTest.kt` with
+   `cancellingAGenerationStopsItsSessionAndMarksTheRowCancelled` and
+   `cancellingAGenerationWithTheDaemonUnreachableStillCancelsTheRowAndItsWork`. This task builds the cancel harness
+   (application's container + `FakeDaemon` + `initializeTestWorkManager`/`closeWorkDatabase`).
+2. `cancellingAGenerationThatAlreadyFinishedLeavesTheRowAndItsStoredResultAlone` — the finished-row clause, against
+   task 1's harness; tests-only if task 1 already guards the status.
+3. The guard in `storeFinishedTurn` plus `aWorkerWhoseGenerationWasCancelledMidTurnStoresNothingAndEndsAsDone`.
+4. `aSupersededFlightPlanGenerationStoresNothingAndTheNewerGenerationStillStoresItsPlan` and
+   `aSupersededOutlineGenerationStoresNothingAndTheNewerGenerationStillStoresItsOutline` — tests-only, and also the
+   plan's step 3: a cold run of `GenerationWorkerTest` and `GenerationEnqueuerTest` whole.
+5. `ARCHITECTURE.md`'s M3 row, then the whole gate once, detached. No new test; the gate's report totals go in the
+   commit body, because a gate run leaves no repo artifact.
+
+## Checked while writing the tasks
+
+- `app/src/test/java/com/liftoff/app/AppContainerTest.kt` (206 lines, 7 tests) touches no WorkManager and no
+  `generationEnqueuer()`; it checks the container builds the connection check and a client from the stored settings
+  and returns the same store/database. So a new per-call cancel accessor cannot break it, as long as constructing a
+  container still touches nothing WorkManager-related.
+- No cancel helper exists in the main sources today: the only `CANCELLED` in `com.liftoff.app.work` is
+  `GenerationWorker.kt:378`'s `FINISHED_STATUSES`.
+- `ARCHITECTURE.md:82` ends today with "cancellation, supersede and app wiring still to come" — the clause task 5
+  replaces.
+- `GenerationWorkerTest.kt` has exactly 25 `@Test` methods; `assertAwaitingGeneration(sortie: Sortie)` is at 1389.
+
 ## Build facts on this machine
 
 - `gradlew.sh` sits at the repository root; scratch scripts go under `app/build/` after `mkdir -p app/build`,
