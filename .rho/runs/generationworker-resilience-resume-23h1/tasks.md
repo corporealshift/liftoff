@@ -62,7 +62,7 @@ daemon.sessionId, lastEventId = …)`), as the existing resumed case does; `inse
   Done when: those two names pass in `GenerationWorkerTest`, and `CoachTurnRunnerTest` plus the `com.liftoff.app.rho`
   test classes still pass unchanged (the plan's Risks says to run them, not assume it).
 
-- [ ] 3. The runner finds a reply its cursor already walked past
+- [x] 3. The runner finds a reply its cursor already walked past
   `CoachTurnRunner`'s single catch-up read is the gap: when the stored cursor is past the prompt, the read from the
   cursor yields nothing, `end` stays null, and the turn sits in `pushed.receive()` until the 20-minute limit while
   the test's own 30-second wait ends it. Add the second read — from the prompt's own id — for when the cursor is
