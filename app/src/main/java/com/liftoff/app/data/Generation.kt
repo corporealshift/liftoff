@@ -17,4 +17,15 @@ data class Generation(
     @ColumnInfo(name = "error") val error: String? = null,
     @ColumnInfo(name = "createdAt") val createdAt: Long,
     @ColumnInfo(name = "finishedAt") val finishedAt: Long? = null
-)
+) {
+    companion object {
+        // The text a worker writes on a row that is still waiting on the coach. A generation that gave up
+        // carries its own message, so the two states never overlap.
+        const val COACH_OFFLINE = "Mission Control offline"
+    }
+
+    // The offline mark alone: a row that has already failed is not still waiting.
+    val isCoachOffline: Boolean
+        get() = error == COACH_OFFLINE &&
+            (status == GenerationStatus.QUEUED || status == GenerationStatus.RUNNING)
+}

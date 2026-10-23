@@ -184,9 +184,18 @@ class FakeDaemon {
 
     /**
      * Put an event in the log without a prompt or a connection, for a turn that happened before this
-     * client arrived. Returns its id, which is what a cursor is given back.
+     * client arrived. Returns its id, which is what a cursor is given back. A seeded user message that
+     * carries a `client_id` counts as a prompt this daemon already took, so a re-send of it is deduped
+     * the way [handle]'s `rho.session.send_prompt` dedupes one it received.
      */
-    fun logEvent(type: String, data: JsonObject): String = append(type, data).eventId()
+    fun logEvent(type: String, data: JsonObject): String {
+        val id = append(type, data).eventId()
+        val clientId = text(data["client_id"])
+        if (type == EventType.MESSAGE && text(data["role"]) == "user" && clientId != null) {
+            promptIds.putIfAbsent(clientId, id)
+        }
+        return id
+    }
 
     fun host(): String = server.hostName
 
@@ -268,6 +277,19 @@ class FakeDaemon {
                     put("reason", "stopped")
                 })
                 answer(ws, id, JsonObject(emptyMap()))
+            }
+
+            "rho.session.resume" -> {
+                // A paused session goes back to running. "running" is not one of the state_changes that end
+                // a turn, so a client reading this event cannot mistake the resume for its turn having ended.
+                val event = append(EventType.STATE_CHANGE, buildJsonObject {
+                    put("to", "running")
+                    put("reason", "resumed")
+                })
+                answer(ws, id, buildJsonObject {
+                    put("session_id", sessionId)
+                    put("event", event)
+                })
             }
 
             // A method this fake has no script for still gets an answer, so a test that calls one

@@ -25,6 +25,8 @@ import com.liftoff.app.rho.net.Rpc
 import com.liftoff.app.rho.protocol.EventType
 import com.liftoff.app.rho.protocol.RhoJson
 import com.liftoff.app.rho.protocol.RpcCodes
+import java.net.InetAddress
+import java.net.ServerSocket
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
@@ -36,6 +38,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -355,6 +358,256 @@ class GenerationWorkerTest {
         val prompted = frameFor("rho.session.send_prompt")
         assertEquals(daemon.sessionId, prompted["session_id"]?.jsonPrimitive?.contentOrNull)
         assertEquals("$generationId-0", prompted["client_id"]?.jsonPrimitive?.contentOrNull)
+    }
+
+    /**
+     * a prompt the daemon already has is not written a second time: the row is QUEUED with the fake's own
+     * `sessionId` and a cursor at the session event that sits before this row's own prompt, and the fake's log is
+     * seeded with that prompt as a user message carrying client_id `<id>-0`, then the assistant reply, then an
+     * idle end. `doWork()` returns `Result.success()` with no `rho.session.create` frame at all, the catch-up read
+     * starts at the cursor the row stored, the reply the log already held is stored on the mission, and the row
+     * ends SUCCEEDED with its cursor moved forward to the seeded idle end. The log holds exactly one user message
+     * for that client_id: the re-send is answered with the id of the prompt that already landed, so it plays no
+     * second turn and the turn is finished by reading what the stored cursor had not reached yet.
+     */
+    @Test
+    fun aGenerationWhosePromptAlreadyLandedResumesFromTheStoredCursorAndStoresTheReply() {
+        // The session this row's earlier attempt opened, as the log holds it. The cursor is the event before this
+        // row's prompt, so the catch-up read still has the prompt, the reply and the end to come to.
+        val seededCursor = daemon.logEvent(EventType.SESSION, buildJsonObject { put("workspace", COACH_WORKSPACE) })
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    nabuSessionId = daemon.sessionId,
+                    lastEventId = seededCursor,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+        val clientId = "$generationId-0"
+        // The turn as the earlier attempt left it, seeded rather than scripted: a prompt this daemon already
+        // took plays no turn when it is sent again, so there is nothing here for a script to play.
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "user")
+            put("content", "the prompt this generation already sent")
+            put("client_id", clientId)
+        })
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", CoachFixtures.fixture(CoachFixtures.OUTLINE))
+        })
+        val idle = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "idle")
+            put("reason", "the turn this row's prompt started had already finished")
+        })
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        assertTrue(
+            "a row that already named its session was given a new one: ${daemon.framesFor("rho.session.create")}",
+            daemon.framesFor("rho.session.create").isEmpty(),
+        )
+        assertEquals(
+            "the catch-up read did not start at the stored cursor",
+            seededCursor,
+            firstFrameFor("rho.session.events_after")["last_event_id"]?.jsonPrimitive?.contentOrNull,
+        )
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertEquals("the row ended on a session other than the one it was given", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the row did not reach the end the log already held", idle, row.lastEventId)
+        assertTrue("the cursor moved back to where the row left it: $seededCursor", row.lastEventId!! > seededCursor)
+        assertNotNull(row.finishedAt)
+
+        // Reaching the end is what stores the reply, so the mission is the other half of the resume.
+        val storedMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+        assertEquals(MissionStatus.ACTIVE, storedMission.status)
+        assertNotNull(
+            "the resumed outline left no current sortie",
+            currentSortie(runBlocking { container.database.sortieDao().getForMission(mission.id) }),
+        )
+
+        assertEquals("this row's prompt reached the log a second time under $clientId", 1, userMessagesFor(clientId))
+    }
+
+    /**
+     * a cursor the worker already walked past is not where the turn is decided from: the log is seeded as the resume
+     * above left it — this row's prompt as a user message carrying client_id `<id>-0`, then the assistant reply, then
+     * the idle end — but the row's `lastEventId` is that idle end, so the read from the cursor has nothing after it.
+     * `doWork()` returns `Result.success()` all the same: the runner reads again from the prompt's own id and decides
+     * the turn as if the cursor had never passed them — the first end after the prompt, the last reply before it — so
+     * the outline is stored on the mission and the row ends SUCCEEDED on the session it was given, with attempt 0 and
+     * no error. The cursor is not moved back behind the reply it re-read: the row still ends on the idle end it was
+     * seeded with. Exactly one `rho.session.send_prompt` frame carries this row's client_id, and the log holds one
+     * user message for it: nothing here plays a second turn.
+     */
+    @Test
+    fun aCursorAtTheEndOfTheTurnStillFindsTheReplyTheWorkerAlreadyRead() {
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    nabuSessionId = daemon.sessionId,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+        val clientId = "$generationId-0"
+        // The turn as the earlier attempt left it in the log: prompt, reply, end.
+        val promptId = daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "user")
+            put("content", "the prompt this generation already sent")
+            put("client_id", clientId)
+        })
+        val reply = daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", CoachFixtures.fixture(CoachFixtures.OUTLINE))
+        })
+        val idle = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "idle")
+            put("reason", "the turn this row's prompt started had already finished")
+        })
+        // The cursor is the end of the turn, so the read from it has nothing left to catch up with.
+        runBlocking { container.database.generationDao().saveLastEventId(generationId, idle) }
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        assertTrue(
+            "a row that already named its session was given a new one: ${daemon.framesFor("rho.session.create")}",
+            daemon.framesFor("rho.session.create").isEmpty(),
+        )
+        val reads = daemon.framesFor("rho.session.events_after").map { frame ->
+            RhoJson.decodeFromString(Rpc.serializer(), frame).params?.jsonObject?.get("last_event_id")?.jsonPrimitive?.contentOrNull
+        }
+        assertEquals("the first read did not start at the cursor the row holds", idle, reads.first())
+        assertTrue("no read started at the prompt this row already sent: $reads", reads.contains(promptId))
+
+        val prompts = promptsSent()
+        assertEquals("this row sent its prompt more than once: $prompts", 1, prompts.size)
+        assertEquals(clientId, prompts.single()["client_id"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(daemon.sessionId, prompts.single()["session_id"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("this row's prompt reached the log a second time under $clientId", 1, userMessagesFor(clientId))
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertEquals("the row ended on a session other than the one it was given", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the cursor moved back from the end the row was seeded with", idle, row.lastEventId)
+        assertTrue("the cursor sits behind the reply it had already read: $reply", row.lastEventId!! > reply)
+        assertEquals("the row counted an attempt it did not make", 0, row.attempt)
+        assertNull("a turn that finished left an error on its row", row.error)
+        assertNotNull(row.finishedAt)
+
+        // Reaching the end is what stores the reply, so the mission is the other half of it.
+        val storedMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+        assertEquals(MissionStatus.ACTIVE, storedMission.status)
+        assertNotNull(
+            "the reply the log already held was not stored",
+            currentSortie(runBlocking { container.database.sortieDao().getForMission(mission.id) }),
+        )
+    }
+
+    /**
+     * a generation asked a second time sends its prompt again under the client_id the row holds, and the daemon
+     * delivers it once: the log is seeded with this row's prompt as a user message carrying client_id `<id>-0`,
+     * then a paused end, then the assistant reply, then an idle end, and the row goes through `doWork()` twice.
+     * The first run stops at the paused end — `Result.retry()`, the row RUNNING with its cursor at that paused
+     * event, nothing stored and its session left open — and the second reads on from the cursor the first one
+     * left, finding the reply and the idle end: `Result.success()`, the outline stored, the row SUCCEEDED. Both
+     * `rho.session.send_prompt` frames carry the same `<generationId>-<attempt>`, built from the attempt the row
+     * holds rather than from WorkManager's count, the log holds exactly one user message for it, and there is no
+     * second `rho.session.create` frame: the second run is the same session, not a new generation of the same
+     * prompt.
+     */
+    @Test
+    fun aRetriedGenerationSendsItsPromptAgainUnderTheSameClientIdAndTheDaemonDeliversItOnce() {
+        val seededCursor = daemon.logEvent(EventType.SESSION, buildJsonObject { put("workspace", COACH_WORKSPACE) })
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    nabuSessionId = daemon.sessionId,
+                    lastEventId = seededCursor,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+        // The paused end is seeded between the prompt and the reply so the first run stops there and the second
+        // has a turn already played, further along the log, to catch up with.
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "user")
+            put("content", "the prompt this generation already sent")
+            put("client_id", "$generationId-0")
+        })
+        val paused = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "paused")
+            put("reason", "the coach stopped part-way through the turn")
+        })
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", CoachFixtures.fixture(CoachFixtures.OUTLINE))
+        })
+        val idle = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "idle")
+            put("reason", "the turn this row's prompt started had already finished")
+        })
+
+        val first = runWorker(generationId)
+        assertTrue("the run that met the paused end returned $first", first is ListenableWorker.Result.Retry)
+        val afterFirst = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.RUNNING, afterFirst.status)
+        assertEquals("the first run's cursor is not the end it stopped at", paused, afterFirst.lastEventId)
+        assertEquals(
+            "the run that stopped paused stored an outline",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertSessionLeftOpen()
+
+        val second = runWorker(generationId)
+        assertTrue("the run that resumed from the stored cursor returned $second", second is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertEquals("the second run did not reach the idle end the log held", idle, row.lastEventId)
+        assertEquals("the paused retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
+        assertNotNull(row.finishedAt)
+        assertEquals(
+            "the resumed run stored nothing on the mission",
+            MissionStatus.ACTIVE,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+
+        val clientId = "$generationId-${row.attempt}"
+        val prompts = promptsSent()
+        assertEquals("the generation was asked twice and the daemon took $prompts", 2, prompts.size)
+        prompts.forEachIndexed { index, frame ->
+            assertEquals("the ${index + 1}th prompt went into another session", daemon.sessionId, frame["session_id"]?.jsonPrimitive?.contentOrNull)
+            assertEquals(
+                "the ${index + 1}th prompt was not sent under the client_id the row holds",
+                clientId,
+                frame["client_id"]?.jsonPrimitive?.contentOrNull,
+            )
+        }
+        assertEquals("the re-send wrote this row's prompt into the log a second time under $clientId", 1, userMessagesFor(clientId))
+        assertTrue(
+            "the second run opened a session of its own: ${daemon.framesFor("rho.session.create")}",
+            daemon.framesFor("rho.session.create").isEmpty(),
+        )
     }
 
     /**
@@ -786,16 +1039,17 @@ class GenerationWorkerTest {
     }
 
     /**
-     * a paused turn is retried, not finished: `Result.retry()`, and the row is left exactly as a resume needs it
-     * — RUNNING, with the session id and the cursor the paused turn reported still on it, no error text, its
-     * attempt untouched and no finishedAt. Scripted as an assistant line then [DaemonScript.State] "paused" on an
-     * OUTLINE row over a mission seeded with onAppOpen() only. A coach that paused mid-turn has not answered, so
-     * the next run continues this same turn (invariant 6) instead of asking again. Nothing is stored, and the
-     * session is left open: no `rho.session.stop` frame, because the turn that resumes needs the session it
-     * paused in.
+     * a paused turn hands its session back to the daemon: exactly one `rho.session.resume` frame, naming the
+     * session the turn stopped in — the id the row still holds afterwards — then `Result.retry()`, with the row
+     * left exactly as a resume needs it: RUNNING, with that session id and the cursor the paused turn reported
+     * still on it, no error text, its attempt untouched and no finishedAt. Scripted as an assistant line then
+     * [DaemonScript.State] "paused" on an OUTLINE row over a mission seeded with onAppOpen() only. A coach that
+     * paused mid-turn has not answered, so the next run continues this same turn (invariant 6) instead of asking
+     * again. Nothing is stored, and the session is left open: no `rho.session.stop` frame, because the turn that
+     * resumes needs the session it paused in.
      */
     @Test
-    fun aPausedTurnRetriesAndLeavesTheRowRunningWithItsSessionAndCursor() {
+    fun aPausedTurnSendsAResumeForTheSessionItStoppedIn() {
         daemon.script(
             DaemonScript.Assistant("The week is laid out; I need a moment before the plans."),
             DaemonScript.State("paused", "the coach stopped part-way through the turn"),
@@ -812,9 +1066,12 @@ class GenerationWorkerTest {
         assertEquals("$generationId-0", frameFor("rho.session.send_prompt")["client_id"]?.jsonPrimitive?.contentOrNull)
 
         val paused = daemon.log.single { it["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull == "paused" }
+        val resumedSession = frameFor("rho.session.resume")["session_id"]?.jsonPrimitive?.contentOrNull
+        assertEquals("the resume named a session other than the one the turn stopped in", daemon.sessionId, resumedSession)
+
         val row = runBlocking { container.database.generationDao().get(generationId) }!!
         assertEquals(GenerationStatus.RUNNING, row.status)
-        assertEquals("the row lost the session its paused turn stopped in", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the row lost the session its paused turn stopped in", resumedSession, row.nabuSessionId)
         assertEquals("the row's cursor is not where the paused turn stopped", eventId(paused), row.lastEventId)
         assertNull("the retry left error text on a row that is still running", row.error)
         assertEquals("the retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
@@ -827,6 +1084,51 @@ class GenerationWorkerTest {
             runBlocking { container.database.missionDao().get(mission.id) }!!.status,
         )
         assertEquals("a paused turn stored sorties: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
+
+        assertSessionLeftOpen()
+    }
+
+    /**
+     * a resume the daemon refuses for good is swallowed the way a refused stop is: [FakeDaemon.refuseMethod]
+     * answers `rho.session.resume` with a code in `RpcCodes.PERMANENT`, and the outcome is still
+     * `Result.retry()` — a refusal of the resume never reaches the catch that ends a generation on a permanent
+     * code. The row is not FAILED: still RUNNING with its session id and the cursor the paused turn reported,
+     * `error` null rather than the daemon's words, its attempt unchanged, no finishedAt, nothing stored, and its
+     * session left open. The next attempt reads the session's real state, which is what a swallowed refusal
+     * leaves the row in place for.
+     */
+    @Test
+    fun aRefusedResumeStillRetriesAndLeavesTheRowRunningWithItsSessionAndCursor() {
+        daemon.refuseMethod["rho.session.resume"] = RpcCodes.INVALID_TRANSITION to "the session is not paused"
+        daemon.script(
+            DaemonScript.Assistant("The week is laid out; I need a moment before the plans."),
+            DaemonScript.State("paused", "the coach stopped part-way through the turn"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Retry)
+
+        val paused = daemon.log.single { it["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull == "paused" }
+        val resumed = frameFor("rho.session.resume")
+        assertEquals("the resume went into another session", daemon.sessionId, resumed["session_id"]?.jsonPrimitive?.contentOrNull)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.RUNNING, row.status)
+        assertEquals("the row lost the session its paused turn stopped in", daemon.sessionId, row.nabuSessionId)
+        assertEquals("the row's cursor is not where the paused turn stopped", eventId(paused), row.lastEventId)
+        assertNull("a refused resume wrote the daemon's words onto the row", row.error)
+        assertEquals("the retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
+        assertNull("a refused resume stamped a row that has not finished", row.finishedAt)
+
+        assertEquals(
+            "a refused resume stored an outline",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertEquals("a refused resume stored sorties: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
 
         assertSessionLeftOpen()
     }
@@ -873,10 +1175,179 @@ class GenerationWorkerTest {
         assertSessionLeftOpen()
     }
 
-    private fun runWorker(generationId: Long): ListenableWorker.Result = runBlocking {
+    /**
+     * offline mark: the settings the container reads point at a loopback port this test opened and closed, so
+     * the connection check is refused and `Unreachable` is what the worker gets. It must show Result.Retry, the
+     * row still RUNNING and not FAILED with finishedAt null and its session id and cursor as they were, error
+     * exactly 'Mission Control offline', Generation.isCoachOffline true for that row, and nothing at all
+     * reaching the scripted daemon — not even the hello the check would have sent, let alone a prompt.
+     */
+    @Test
+    fun anUnreachableDaemonMarksTheGenerationOfflineAndRetries() {
+        // A turn is queued up and never asked for: the daemon under test is the one nothing listens on.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        // Seeded with an earlier attempt's session and cursor, so "as they were" is a position this row had.
+        val generationId = runBlocking {
+            container.database.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = mission.id,
+                    status = GenerationStatus.QUEUED,
+                    nabuSessionId = "session-of-the-earlier-attempt",
+                    lastEventId = "cursor-of-the-earlier-attempt",
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+
+        pointSettingsAtNothing()
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Retry)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.RUNNING, row.status)
+        assertNull("an unreachable daemon stamped the row as finished", row.finishedAt)
+        assertEquals("an unreachable daemon moved the row off its session", "session-of-the-earlier-attempt", row.nabuSessionId)
+        assertEquals("an unreachable daemon moved the row off its cursor", "cursor-of-the-earlier-attempt", row.lastEventId)
+        assertEquals(0, row.attempt)
+
+        assertEquals("the row does not carry the offline mark", Generation.COACH_OFFLINE, row.error)
+        assertTrue("a row carrying '${Generation.COACH_OFFLINE}' is not offline", row.isCoachOffline)
+
+        assertNothingReachedTheDaemon()
+        assertEquals(
+            "an unreachable daemon stored something",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+    }
+
+    /**
+     * the mark cleared: the row the name above leaves behind — RUNNING with 'Mission Control offline' on it —
+     * run again with the settings pointed back at the live fake. It must show error null and
+     * Generation.isCoachOffline false afterwards, the row not FAILED and carrying no 'coach unreachable' text,
+     * and the generation running on to SUCCEEDED with its reply stored. What clears the mark is a daemon that
+     * answered, not a generation that finished.
+     */
+    @Test
+    fun aLaterRunThatReachesTheDaemonClearsTheOfflineMark() {
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        pointSettingsAtNothing()
+        val offline = runWorker(generationId)
+        assertTrue("the first run returned $offline", offline is ListenableWorker.Result.Retry)
+        val marked = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertTrue("this test's own row carries no mark to clear: ${marked.error}", marked.isCoachOffline)
+
+        pointSettingsAtTheLiveFake()
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertNull("the run that reached the daemon left the offline mark on the row", row.error)
+        assertFalse("a row whose daemon answered is still offline", row.isCoachOffline)
+        assertTrue("the row that reached the daemon carries a coach-unreachable message: ${row.error}", "coach unreachable" !in row.error.orEmpty())
+        assertNotNull(row.finishedAt)
+
+        assertEquals(
+            "the reply the daemon answered with was not stored",
+            MissionStatus.ACTIVE,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        val sorties = runBlocking { container.database.sortieDao().getForMission(mission.id) }
+        assertNotNull("the stored outline left no current sortie: $sorties", currentSortie(sorties))
+    }
+
+    /**
+     * the 8th attempt: the same closed port, with WorkManager's run-attempt count at 7 — WorkManager counts from
+     * 0, so 7 is the 8th. It must show Result.Failure, the row FAILED with error exactly 'coach unreachable' and
+     * finishedAt stamped, Generation.isCoachOffline false for it, and the row not left RUNNING with the offline
+     * mark. The row's own attempt is a different counter and stays 0. The attempt before it is shown on a second
+     * row so the threshold is the 8th rather than merely some number that fails: that one is still Retry, still
+     * RUNNING and still carrying the mark.
+     */
+    @Test
+    fun theEighthAttemptThatCannotConnectFailsTheGenerationAsCoachUnreachable() {
+        // A turn is queued up and never asked for: the daemon under test is the one nothing listens on.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        pointSettingsAtNothing()
+
+        val result = runWorker(generationId, runAttemptCount = 7)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        assertEquals("coach unreachable", row.error)
+        assertNotNull("the row that gave up was not stamped", row.finishedAt)
+        assertFalse("the 8th attempt left the row RUNNING with the offline mark", row.isCoachOffline)
+        assertEquals("the 8th attempt bumped the row's own attempt", 0, row.attempt)
+        assertNull("the 8th attempt recorded a session it never reached", row.nabuSessionId)
+
+        assertNothingReachedTheDaemon()
+        assertEquals(
+            "a generation that gave up stored something",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+
+        // The 7th is still waiting, which is what makes 7 the 8th attempt and not just some number that fails.
+        val seventhId = insertOutlineGeneration(mission.id)
+        val seventh = runWorker(seventhId, runAttemptCount = 6)
+        assertTrue("the 7th attempt returned $seventh", seventh is ListenableWorker.Result.Retry)
+        val waiting = runBlocking { container.database.generationDao().get(seventhId) }!!
+        assertEquals(GenerationStatus.RUNNING, waiting.status)
+        assertEquals(Generation.COACH_OFFLINE, waiting.error)
+        assertTrue("the 7th attempt is not offline", waiting.isCoachOffline)
+        assertNull("the 7th attempt stamped a row that is still waiting", waiting.finishedAt)
+    }
+
+    /**
+     * Points the settings the container reads at a loopback port nothing is listening on: a socket opened on a
+     * free port and closed again, so the check is refused rather than waiting out its own 5-second connect
+     * timeout. The host is the loopback address the socket was bound to, so the refusal is the port's own.
+     */
+    private fun pointSettingsAtNothing() = runBlocking {
+        val closedPort = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        container.settingsStore.setDaemonHost("127.0.0.1")
+        container.settingsStore.setDaemonPort(closedPort)
+    }
+
+    /** Back at the live fake, for the run that follows. */
+    private fun pointSettingsAtTheLiveFake() = runBlocking {
+        container.settingsStore.setDaemonHost(daemon.host())
+        container.settingsStore.setDaemonPort(daemon.port())
+    }
+
+    /**
+     * [runAttemptCount] is WorkManager's own count of how many times this row has been run, 0 for the first;
+     * the row's `attempt` is a different counter and the worker never sees it as this.
+     */
+    private fun runWorker(generationId: Long, runAttemptCount: Int = 0): ListenableWorker.Result = runBlocking {
         withTimeout(turnWait) {
             TestListenableWorkerBuilder<GenerationWorker>(context)
                 .setInputData(workDataOf(GenerationWorker.GENERATION_ID to generationId))
+                .setRunAttemptCount(runAttemptCount)
                 .build()
                 .doWork()
         }
@@ -1012,6 +1483,25 @@ class GenerationWorkerTest {
         val params = RhoJson.decodeFromString(Rpc.serializer(), frames.first()).params?.jsonObject
         assertTrue("the $method frame carried no params: ${frames.first()}", params != null)
         return params!!
+    }
+
+    /**
+     * The params of the first frame this worker sent calling [method], failing if it sent none. A resumed turn
+     * reads more than once, so a case that cares which read came first cannot use [frameFor].
+     */
+    private fun firstFrameFor(method: String): JsonObject {
+        val frames = daemon.framesFor(method)
+        assertTrue("no $method frame was sent: ${daemon.frames}", frames.isNotEmpty())
+        val params = RhoJson.decodeFromString(Rpc.serializer(), frames.first()).params?.jsonObject
+        assertTrue("the $method frame carried no params: ${frames.first()}", params != null)
+        return params!!
+    }
+
+    /** How many user messages in the fake's log carry [clientId] — the prompt a daemon that dedupes by client_id keeps to one. */
+    private fun userMessagesFor(clientId: String): Int = daemon.log.count {
+        val data = it["data"]?.jsonObject
+        data?.get("role")?.jsonPrimitive?.contentOrNull == "user" &&
+            data["client_id"]?.jsonPrimitive?.contentOrNull == clientId
     }
 
     /** Every `rho.session.send_prompt` frame's params, in the order the daemon received them. */

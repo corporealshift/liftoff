@@ -55,6 +55,11 @@ interface GenerationDao {
     @Query("UPDATE generation SET attempt = attempt + 1 WHERE id = :id")
     suspend fun bumpAttempt(id: Long)
 
+    // The offline mark travels on error alone, and only while the row is still waiting on the coach: a row that
+    // has already decided its outcome keeps the reason it failed for. Passing null clears the mark.
+    @Query("UPDATE generation SET error = :error WHERE id = :id AND status IN ('QUEUED', 'RUNNING')")
+    suspend fun setCoachOfflineMark(id: Long, error: String?)
+
     // Newest by createdAt, tie-break id: the table records no activity, and a cancelled row is a dead end that
     // must not stand in as the current generation.
     @Query(
