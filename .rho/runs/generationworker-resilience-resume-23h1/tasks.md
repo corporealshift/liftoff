@@ -78,7 +78,7 @@ daemon.sessionId, lastEventId = …)`), as the existing resumed case does; `inse
   Done when: that name passes, and `CoachTurnRunnerTest` (including
   `twoEndingStateChangesAfterThePromptStopAtTheFirst`) and all of `GenerationWorkerTest` are green.
 
-- [ ] 4. A paused turn hands its session back
+- [x] 4. A paused turn hands its session back
   In `storeFinishedTurn`, the arm that today returns `retry` for any end that is not Idle/Completed sends
   `rho.session.resume` for the session the turn stopped in first, then returns `retry` and leaves the session open.
   A resume the daemon refuses — permanently or not — is swallowed the way `giveUpSession` swallows a refused stop, so
