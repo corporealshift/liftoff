@@ -45,7 +45,7 @@ tests to it. The names below are spelled exactly as verify.sh spells them.
   name so two generations share one name (expect the second test to fail), then restore the helper from the
   copy under `app/build/`.
 
-- [ ] 3. Expose the helper from `AppContainer`, and prove it only schedules
+- [x] 3. Expose the helper from `AppContainer`, and prove it only schedules
   Covers: `app/src/main/java/com/liftoff/app/AppContainer.kt` gains the member that exposes the helper,
   calling `WorkManager.getInstance(appContext)` **inside the call** — never in a field or a `lazy`, so
   building a container touches nothing WorkManager-related (that is what keeps `AppContainerTest` and the
