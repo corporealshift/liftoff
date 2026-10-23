@@ -4,11 +4,13 @@ import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
+import androidx.work.WorkManager
 import com.liftoff.app.data.LiftoffDatabase
 import com.liftoff.app.rho.DaemonConnectionCheck
 import com.liftoff.app.rho.net.DaemonClient
 import com.liftoff.app.settings.Settings
 import com.liftoff.app.settings.SettingsStore
+import com.liftoff.app.work.GenerationEnqueuer
 import kotlinx.coroutines.flow.first
 
 class AppContainer(context: Context) {
@@ -27,6 +29,14 @@ class AppContainer(context: Context) {
     val missionManager: com.liftoff.app.data.MissionManager by lazy {
         com.liftoff.app.data.MissionManager(database, settingsStore)
     }
+
+    /**
+     * The helper that schedules a GenerationWorker run for a Generation row the caller already made.
+     * WorkManager is asked for per call rather than held, so building a container touches nothing
+     * WorkManager-related — which is what AppContainerTest and the screen tests count on.
+     */
+    fun generationEnqueuer(): GenerationEnqueuer =
+        GenerationEnqueuer(WorkManager.getInstance(appContext))
 
     /**
      * The daemon's settings, host and token trimmed, read at the moment a caller asks so a settings

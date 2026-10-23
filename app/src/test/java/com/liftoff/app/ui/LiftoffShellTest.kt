@@ -41,6 +41,12 @@ class LiftoffShellTest {
         }
     }
 
+    // Mission Control opens on a click, so its heads wait like the tabs do before they are asserted.
+    private fun waitForHead(head: String) {
+        waitFor(hasText(head))
+        composeRule.onNodeWithText(head).assertIsDisplayed()
+    }
+
     @Before
     fun setup() {
         // Trigger onAppOpen before the UI is composed so Launchpad shows Draft content.
@@ -108,14 +114,14 @@ class LiftoffShellTest {
     fun missionControlSurvivesRecreation() {
         // Open Mission Control via the sliders button.
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
-        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
+        waitForHead("CONNECTION")
 
         // Recreate the activity.
         composeRule.activityRule.scenario.recreate()
         composeRule.waitForIdle()
 
         // Mission Control should still be open.
-        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
+        waitForHead("CONNECTION")
     }
 
     @Test
@@ -124,7 +130,7 @@ class LiftoffShellTest {
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
 
         // First section head should be displayed.
-        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
+        waitForHead("CONNECTION")
 
         // The bottom navigation bar icons should NOT be visible on Mission Control screen.
         val navItemMatcher = SemanticsMatcher.expectValue(SemanticsProperties.ContentDescription, listOf("Launchpad"))
@@ -139,8 +145,8 @@ class LiftoffShellTest {
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
 
         // Check the eyebrow and title are displayed.
-        composeRule.onNodeWithText("SETTINGS").assertIsDisplayed()
-        composeRule.onNodeWithText("MISSION CONTROL").assertIsDisplayed()
+        waitForHead("SETTINGS")
+        waitForHead("MISSION CONTROL")
     }
 
     @Test
@@ -150,7 +156,7 @@ class LiftoffShellTest {
         waitFor(hasText("No history yet."))
 
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
-        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
+        waitForHead("CONNECTION")
 
         // Click the back button in Mission Control.
         composeRule.onNodeWithContentDescription("Back").performClick()
@@ -166,7 +172,7 @@ class LiftoffShellTest {
         waitFor(missionTitle)
 
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
-        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
+        waitForHead("CONNECTION")
 
         // System back should close Mission Control and return to the tab it was opened from.
         pressBack()
@@ -187,7 +193,7 @@ class LiftoffShellTest {
 
         // When Mission Control is open, the nav bar should be dark icons (cream background).
         composeRule.onNodeWithContentDescription("Mission Control").performClick()
-        composeRule.onNodeWithText("CONNECTION").assertIsDisplayed()
+        waitForHead("CONNECTION")
 
         composeRule.waitForIdle()
         assert(light()) { "Nav bar icons should be dark on Mission Control" }
