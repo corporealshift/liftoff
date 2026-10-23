@@ -88,11 +88,9 @@ class GenerationWorker(
                 sessionId = null,
             )
 
-            // Nothing is listening, which is the one thing the row can say while it waits for a coach.
-            is ConnectionOutcome.Unreachable -> {
-                generations.setCoachOfflineMark(generationId, Generation.COACH_OFFLINE)
-                Result.retry()
-            }
+            // Nothing is listening, which is the one thing the row can say while it waits for a coach — until
+            // the 8th attempt says it for good.
+            is ConnectionOutcome.Unreachable -> coachUnreachable(generations, generationId)
 
             // A host or a token that isn't set, or a token the daemon won't take, is a setting of Liftoff's
             // own, not Mission Control being down, so the row carries no claim about the coach.
@@ -115,8 +113,7 @@ class GenerationWorker(
             client.connect()
         } catch (_: DaemonException) {
             client.close()
-            generations.setCoachOfflineMark(row.id, Generation.COACH_OFFLINE)
-            return Result.retry()
+            return coachUnreachable(generations, row.id)
         }
         // The id this turn actually ran on, held here so the catch can give it up even when the turn threw
         // before it could report an outcome.
@@ -165,6 +162,20 @@ class GenerationWorker(
             client.close()
         }
     }
+
+    /**
+     * A coach nothing can reach. WorkManager's own attempt count decides how long the row waits: every attempt
+     * before the 8th leaves the offline mark on it and comes back, the 8th names the coach on the row and stops.
+     * The row's [Generation.attempt] counts this generation's repairs, not WorkManager's runs, so it stays out
+     * of the decision.
+     */
+    private suspend fun coachUnreachable(generations: GenerationDao, generationId: Long): Result =
+        if (runAttemptCount < GIVE_UP_AT_ATTEMPT) {
+            generations.setCoachOfflineMark(generationId, Generation.COACH_OFFLINE)
+            Result.retry()
+        } else {
+            failGeneration(generations, generationId, COACH_UNREACHABLE, client = null, sessionId = null)
+        }
 
     /**
      * The runner reports the session id and each forward cursor move through plain callbacks, while the
@@ -377,6 +388,12 @@ private val TURN_LIMIT: Duration = 20.minutes
 
 /** §7.5.3's two repairs, counted on the row so they belong to the generation and not to one run. */
 private const val MAX_REPAIRS = 2
+
+/** WorkManager counts attempts from 0, so 7 is the 8th attempt to reach for the coach. */
+private const val GIVE_UP_AT_ATTEMPT = 7
+
+/** What a generation that never got a coach says on the row. */
+private const val COACH_UNREACHABLE = "coach unreachable"
 
 /** DESIGN 10 compares the major only, so the row names majors: the client's 1.0 reads "1.x". */
 private val liftoffProtocolMajor: String = majorOf(PROTOCOL_VERSION)?.let { "$it.x" } ?: PROTOCOL_VERSION

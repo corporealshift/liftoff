@@ -1273,6 +1273,56 @@ class GenerationWorkerTest {
     }
 
     /**
+     * the 8th attempt: the same closed port, with WorkManager's run-attempt count at 7 — WorkManager counts from
+     * 0, so 7 is the 8th. It must show Result.Failure, the row FAILED with error exactly 'coach unreachable' and
+     * finishedAt stamped, Generation.isCoachOffline false for it, and the row not left RUNNING with the offline
+     * mark. The row's own attempt is a different counter and stays 0. The attempt before it is shown on a second
+     * row so the threshold is the 8th rather than merely some number that fails: that one is still Retry, still
+     * RUNNING and still carrying the mark.
+     */
+    @Test
+    fun theEighthAttemptThatCannotConnectFailsTheGenerationAsCoachUnreachable() {
+        // A turn is queued up and never asked for: the daemon under test is the one nothing listens on.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        pointSettingsAtNothing()
+
+        val result = runWorker(generationId, runAttemptCount = 7)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        assertEquals("coach unreachable", row.error)
+        assertNotNull("the row that gave up was not stamped", row.finishedAt)
+        assertFalse("the 8th attempt left the row RUNNING with the offline mark", row.isCoachOffline)
+        assertEquals("the 8th attempt bumped the row's own attempt", 0, row.attempt)
+        assertNull("the 8th attempt recorded a session it never reached", row.nabuSessionId)
+
+        assertNothingReachedTheDaemon()
+        assertEquals(
+            "a generation that gave up stored something",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+
+        // The 7th is still waiting, which is what makes 7 the 8th attempt and not just some number that fails.
+        val seventhId = insertOutlineGeneration(mission.id)
+        val seventh = runWorker(seventhId, runAttemptCount = 6)
+        assertTrue("the 7th attempt returned $seventh", seventh is ListenableWorker.Result.Retry)
+        val waiting = runBlocking { container.database.generationDao().get(seventhId) }!!
+        assertEquals(GenerationStatus.RUNNING, waiting.status)
+        assertEquals(Generation.COACH_OFFLINE, waiting.error)
+        assertTrue("the 7th attempt is not offline", waiting.isCoachOffline)
+        assertNull("the 7th attempt stamped a row that is still waiting", waiting.finishedAt)
+    }
+
+    /**
      * Points the settings the container reads at a loopback port nothing is listening on: a socket opened on a
      * free port and closed again, so the check is refused rather than waiting out its own 5-second connect
      * timeout. The host is the loopback address the socket was bound to, so the refusal is the port's own.
@@ -1289,10 +1339,15 @@ class GenerationWorkerTest {
         container.settingsStore.setDaemonPort(daemon.port())
     }
 
-    private fun runWorker(generationId: Long): ListenableWorker.Result = runBlocking {
+    /**
+     * [runAttemptCount] is WorkManager's own count of how many times this row has been run, 0 for the first;
+     * the row's `attempt` is a different counter and the worker never sees it as this.
+     */
+    private fun runWorker(generationId: Long, runAttemptCount: Int = 0): ListenableWorker.Result = runBlocking {
         withTimeout(turnWait) {
             TestListenableWorkerBuilder<GenerationWorker>(context)
                 .setInputData(workDataOf(GenerationWorker.GENERATION_ID to generationId))
+                .setRunAttemptCount(runAttemptCount)
                 .build()
                 .doWork()
         }
