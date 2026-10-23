@@ -128,7 +128,7 @@ daemon.sessionId, lastEventId = …)`), as the existing resumed case does; `inse
   instead, check the threshold before touching the assertions.
   Done when: that name passes, task 5's two names still pass, and the whole `GenerationWorkerTest` class is green.
 
-- [ ] 7. The two architecture rows, then the whole gate
+- [x] 7. The two architecture rows, then the whole gate
   `ARCHITECTURE.md`: the `com.liftoff.app.work` area-map row (line 36) and the M3 row (line 82) drop the claim that
   resilience beyond the current outcomes is still to come — say what the worker does now (resume, resume-from-a-stored
   session and cursor, the offline mark and the 8th-attempt failure). Only that claim: the M3 row's "still to come"
