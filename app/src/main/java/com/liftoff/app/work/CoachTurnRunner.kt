@@ -73,6 +73,7 @@ private const val PERMISSION_MODE_AUTO = "auto"
  * [limit] covers the whole turn from this call, so a session that never reaches the prompt is
  * caught too. The client is the caller's: this never closes it. A connection that goes away
  * mid-turn throws a [DaemonException] with no code rather than reporting a turn that ended.
+ * A [cursor] that sits past this turn's own prompt is read a second time from that prompt's id.
  */
 suspend fun runCoachTurn(
     client: DaemonClient,
@@ -106,7 +107,10 @@ suspend fun runCoachTurn(
     var lastAssistantId = ""
     var lastAssistantText: String? = null
     var end: TurnEnd? = null
+    var endId = ""
     val seen = HashSet<String>()
+    // Non-null only while re-reading from the prompt's own id.
+    var actedOnAtOrBefore: String? = null
 
     fun moveCursorTo(id: String) {
         // Ids are ULID-shaped and fixed width, so log order is id order and this needs no clock.
@@ -117,8 +121,15 @@ suspend fun runCoachTurn(
         }
     }
 
-    fun handle(event: Event) {
-        if (!seen.add(event.id)) return
+    /** A paused or error the stored cursor had already reached was acted on by the attempt that read it. */
+    fun alreadyActedOn(target: TurnEnd, id: String): Boolean {
+        val at = actedOnAtOrBefore ?: return false
+        return id <= at && (target == TurnEnd.Paused || target == TurnEnd.Error)
+    }
+
+    /** Handles [event], and reports whether it is the end this turn stops at. */
+    fun handle(event: Event): Boolean {
+        if (!seen.add(event.id)) return false
         moveCursorTo(event.id)
         when (event.type) {
             EventType.MESSAGE -> {
@@ -134,9 +145,16 @@ suspend fun runCoachTurn(
                 val target = event.payload<StateChangeData>()?.to?.let { TURN_ENDS[it] }
                 // Compared against the prompt's own id, so a state_change from before it never ends this turn.
                 // Only the first one after the prompt is the end; a later one is a state the turn already left.
-                if (target != null && end == null && event.id > promptId) end = target
+                if (target != null && event.id > promptId && !alreadyActedOn(target, event.id)) {
+                    if (end == null) {
+                        end = target
+                        endId = event.id
+                    }
+                    return true
+                }
             }
         }
+        return false
     }
 
     suspend fun handleIncoming(item: Incoming) {
@@ -169,8 +187,20 @@ suspend fun runCoachTurn(
             // The batch stops at the end it finds, the way the pushed loop below does, so a page holding
             // two ends reports the first.
             for (event in eventsAfter(client, session, lastCursor)) {
-                if (end != null) break
-                handle(event)
+                if (handle(event)) break
+            }
+
+            // A row's cursor can sit past this turn's own prompt, when an earlier attempt read the prompt and
+            // everything after it. Reading again from the prompt's id decides the turn as if the cursor had
+            // never passed them: the first end after the prompt, the last reply before it.
+            val handed = cursor
+            if (promptId.isNotEmpty() && handed != null && handed > promptId && (end == null || lastAssistantText == null)) {
+                actedOnAtOrBefore = handed
+                for (event in eventsAfter(client, session, promptId)) {
+                    if (endId.isNotEmpty() && event.id >= endId) break
+                    if (handle(event)) break
+                }
+                actedOnAtOrBefore = null
             }
 
             while (end == null) {
