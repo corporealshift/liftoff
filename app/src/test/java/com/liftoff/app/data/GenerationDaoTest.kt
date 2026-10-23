@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -174,6 +175,78 @@ class GenerationDaoTest {
         assertEquals("session-77", after.nabuSessionId)
         assertEquals(GenerationStatus.RUNNING, after.status)
         assertNull(after.finishedAt)
+    }
+
+    // The offline mark is the only error that means "still waiting on the coach"; a generation that gave up
+    // carries its own message, and the mark query cannot reach a row that has already decided its outcome.
+    @Test
+    fun isCoachOfflineIsTrueOnlyForARowStillWaitingOnTheCoach() = runBlocking {
+        val queued = queueGeneration(GenerationKind.OUTLINE, missionId = 1, sortieId = null, createdAt = 1_000)
+        generationDao.setCoachOfflineMark(queued.id, Generation.COACH_OFFLINE)
+        val isQueued = generationDao.get(queued.id)!!
+        assertEquals(Generation.COACH_OFFLINE, isQueued.error)
+        assertTrue(isQueued.isCoachOffline)
+
+        val running = queueGeneration(
+            GenerationKind.FLIGHT_PLAN, missionId = 1, sortieId = 10, createdAt = 2_000,
+            status = GenerationStatus.RUNNING,
+            nabuSessionId = "session-1", lastEventId = "evt-1", attempt = 2,
+        )
+        generationDao.setCoachOfflineMark(running.id, Generation.COACH_OFFLINE)
+        val isRunning = generationDao.get(running.id)!!
+        assertTrue(isRunning.isCoachOffline)
+        // The mark is one column: the row is still mid-generation, with its session, cursor and attempt intact.
+        assertEquals(GenerationStatus.RUNNING, isRunning.status)
+        assertEquals("session-1", isRunning.nabuSessionId)
+        assertEquals("evt-1", isRunning.lastEventId)
+        assertEquals(2, isRunning.attempt)
+        assertNull(isRunning.finishedAt)
+
+        // A waiting row with no error text is not offline, in either status.
+        assertFalse(queueGeneration(GenerationKind.OUTLINE, 1, null, createdAt = 3_000).isCoachOffline)
+        assertFalse(
+            queueGeneration(GenerationKind.FLIGHT_PLAN, 1, 11, createdAt = 4_000, status = GenerationStatus.RUNNING)
+                .isCoachOffline
+        )
+
+        // Nor is one carrying any other error text, however close it reads.
+        val otherText = queueGeneration(
+            GenerationKind.FLIGHT_PLAN, 1, 12, createdAt = 5_000, status = GenerationStatus.RUNNING
+        )
+        generationDao.setCoachOfflineMark(otherText.id, "coach needed input")
+        assertFalse(generationDao.get(otherText.id)!!.isCoachOffline)
+        val nearMiss = queueGeneration(GenerationKind.OUTLINE, 1, null, createdAt = 6_000, status = GenerationStatus.RUNNING)
+        generationDao.setCoachOfflineMark(nearMiss.id, "mission control offline")
+        assertFalse(generationDao.get(nearMiss.id)!!.isCoachOffline)
+
+        // Clearing the mark puts error back to null and leaves the rest of the row where it was.
+        generationDao.setCoachOfflineMark(running.id, null)
+        val cleared = generationDao.get(running.id)!!
+        assertNull(cleared.error)
+        assertFalse(cleared.isCoachOffline)
+        assertEquals(GenerationStatus.RUNNING, cleared.status)
+        assertEquals(2, cleared.attempt)
+
+        // A generation that failed for good is not offline, and its reason survives the mark query.
+        val failed = queueGeneration(GenerationKind.OUTLINE, 1, null, createdAt = 7_000)
+        generationDao.markFailed(failed.id, error = "coach unreachable", finishedAt = 8_000)
+        val isFailed = generationDao.get(failed.id)!!
+        assertEquals("coach unreachable", isFailed.error)
+        assertFalse(isFailed.isCoachOffline)
+
+        generationDao.setCoachOfflineMark(failed.id, Generation.COACH_OFFLINE)
+        val stillFailed = generationDao.get(failed.id)!!
+        assertEquals(GenerationStatus.FAILED, stillFailed.status)
+        assertEquals("coach unreachable", stillFailed.error)
+        assertEquals(8_000L, stillFailed.finishedAt!!)
+        assertFalse(stillFailed.isCoachOffline)
+
+        // The status half of the helper is what keeps the two states apart: a row that stopped waiting while it
+        // still carries the mark is not offline.
+        generationDao.markCancelled(queued.id, finishedAt = 9_000)
+        val givenUp = generationDao.get(queued.id)!!
+        assertEquals(Generation.COACH_OFFLINE, givenUp.error)
+        assertFalse(givenUp.isCoachOffline)
     }
 
     @Test
