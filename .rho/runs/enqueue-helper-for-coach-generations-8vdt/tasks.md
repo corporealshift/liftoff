@@ -63,7 +63,7 @@ tests to it. The names below are spelled exactly as verify.sh spells them.
   with no WorkManager setup; and the "creates no rows" test is shown to bite — make the helper insert the
   row it was handed, watch that test fail, then restore the helper from the copy under `app/build/`.
 
-- [ ] 4. ARCHITECTURE.md's two rows, then the whole gate
+- [x] 4. ARCHITECTURE.md's two rows, then the whole gate
   Covers: `ARCHITECTURE.md:36`, the `com.liftoff.app.work` row — replace its closing claim "nothing
   enqueues it yet" with the helper named as an artifact the doc does not already use (a backticked name
   such as `GenerationEnqueuer.kt`); edit the row in place, one clause, leaving the rest of its wording
