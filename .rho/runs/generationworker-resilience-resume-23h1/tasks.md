@@ -25,7 +25,7 @@ it. And a row that already has a session id and a cursor is inserted directly (`
 daemon.sessionId, lastEventId = …)`), as the existing resumed case does; `insertOutlineGeneration` and
 `insertFlightPlanGeneration` seed neither.
 
-- [ ] 1. The offline mark on the row: the query and the helper
+- [x] 1. The offline mark on the row: the query and the helper
   `GenerationDao` gains one `@Query` that sets or clears `error` on a QUEUED or RUNNING row only, leaving status,
   session id, cursor, attempt and `finishedAt` alone; `Generation` gains `isCoachOffline` plus the
   `Mission Control offline` constant it compares against, which the worker will write in task 5. No schema change:
