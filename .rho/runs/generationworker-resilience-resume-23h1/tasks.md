@@ -39,7 +39,7 @@ daemon.sessionId, lastEventId = …)`), as the existing resumed case does; `inse
   passes with that name in `app/build/test-results/testDebugUnitTest/TEST-*.xml`, and `git diff` shows no change
   under `app/schemas`.
 
-- [ ] 2. `FakeDaemon`: a resume handler, and a seeded prompt that counts as already sent
+- [x] 2. `FakeDaemon`: a resume handler, and a seeded prompt that counts as already sent
   The fake gets a `rho.session.resume` handler (today the method falls to the catch-all `{ok:true}` at 275, so a
   resume frame is visible but the fake does nothing for it), and a user message seeded through `logEvent` registers
   its `client_id` in `promptIds` the way `send_prompt` already does — otherwise a re-send under that client_id
