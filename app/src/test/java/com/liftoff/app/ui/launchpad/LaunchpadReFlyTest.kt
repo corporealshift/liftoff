@@ -189,7 +189,13 @@ class LaunchpadReFlyTest {
     fun pendingScreenShowsReFlyBesideScrubWhenASourceExists() {
         runBlocking {
             val (source, current) = landedSourceThenPending()
-            val viewModel = LaunchpadViewModel(db, manager, scope)
+            val viewModel = LaunchpadViewModel(
+                db = db,
+                manager = manager,
+                scope = scope,
+                queueGeneration = { },
+                cancelGeneration = { },
+            )
             render(viewModel)
 
             awaitOnScreen("RE-FLY")
@@ -221,7 +227,13 @@ class LaunchpadReFlyTest {
     fun pendingScreenShowsAMutedLineAndNoReFlyWhenNoSourceExists() {
         runBlocking {
             val current = pendingWithNothingLanded()
-            val viewModel = LaunchpadViewModel(db, manager, scope)
+            val viewModel = LaunchpadViewModel(
+                db = db,
+                manager = manager,
+                scope = scope,
+                queueGeneration = { },
+                cancelGeneration = { },
+            )
             render(viewModel)
 
             awaitOnScreen("SCRUB")
@@ -247,7 +259,13 @@ class LaunchpadReFlyTest {
         runBlocking {
             val (source, current) = landedSourceThenPending()
             val sourceBefore = flightPlanDao.getPlan(source.id)!!
-            val viewModel = LaunchpadViewModel(db, manager, scope)
+            val viewModel = LaunchpadViewModel(
+                db = db,
+                manager = manager,
+                scope = scope,
+                queueGeneration = { },
+                cancelGeneration = { },
+            )
             render(viewModel)
 
             awaitOnScreen("RE-FLY")

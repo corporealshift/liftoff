@@ -78,7 +78,14 @@ class LaunchpadDraftControlsTest {
     private suspend fun draft(pattern: String): LaunchpadViewModel {
         settingsStore.setDefaultPattern(pattern)
         manager.onAppOpen()
-        return LaunchpadViewModel(db, manager, scope)
+        // No generation is queued or cancelled by anything this class drives, so both helpers are no-ops.
+        return LaunchpadViewModel(
+            db = db,
+            manager = manager,
+            scope = scope,
+            queueGeneration = { },
+            cancelGeneration = { },
+        )
     }
 
     // draftDrawsOneStepperPair — the draft draws its −/+ pair once, in the bottom bar beside the

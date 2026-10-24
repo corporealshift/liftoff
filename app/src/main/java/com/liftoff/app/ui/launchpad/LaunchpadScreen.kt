@@ -31,6 +31,7 @@ import com.liftoff.app.ui.sortie.FlightPlanSection
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatWeekDate
 import com.liftoff.app.ui.theme.*
+import kotlinx.coroutines.CoroutineScope
 
 @Composable
 fun LaunchpadScreen(
@@ -38,11 +39,23 @@ fun LaunchpadScreen(
     onOpenInFlight: (Long) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(container) {
-        LaunchpadViewModel(container.database, container.missionManager, scope)
-    }
+    val viewModel = remember(container) { launchpadViewModel(container, scope) }
     LaunchpadContent(viewModel = viewModel, onOpenInFlight = onOpenInFlight)
 }
+
+/**
+ * The view model the screen builds, apart from the composable so a test can build the same one. Lambdas,
+ * not `::enqueue`: the container asks WorkManager for itself, and a bound reference would ask every time
+ * the screen composes — including in the shell tests, which never queue anything and initialize no WorkManager.
+ */
+internal fun launchpadViewModel(container: AppContainer, scope: CoroutineScope): LaunchpadViewModel =
+    LaunchpadViewModel(
+        db = container.database,
+        manager = container.missionManager,
+        scope = scope,
+        queueGeneration = { id -> container.generationEnqueuer().enqueue(id) },
+        cancelGeneration = { id -> container.generationCanceller().cancel(id) },
+    )
 
 /** The screen body, apart from AppContainer so a test can render it on its own view model. */
 @Composable

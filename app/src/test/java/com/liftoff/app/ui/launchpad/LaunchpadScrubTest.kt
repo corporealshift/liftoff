@@ -93,7 +93,14 @@ class LaunchpadScrubTest {
         val mission = manager.onAppOpen()
         manager.continueWithoutOutline(mission.id)
 
-        val vm = LaunchpadViewModel(db, manager, scope)
+        // The scrub path queues and cancels nothing, so both helpers are no-ops here.
+        val vm = LaunchpadViewModel(
+            db = db,
+            manager = manager,
+            scope = scope,
+            queueGeneration = { },
+            cancelGeneration = { },
+        )
         val planned = withTimeout(5_000L) {
             vm.state.first { it is LaunchpadState.Planned }
         } as LaunchpadState.Planned
