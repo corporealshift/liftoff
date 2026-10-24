@@ -98,7 +98,7 @@ build's verdict read from the log plus an `EXIT=$?` sentinel and no pipe after t
   of `GenerationWorkerTest` and `GenerationEnqueuerTest` shows every test in both classes green — the plan's step 3
   check that the guard did not move the happy, repair or retry paths.
 
-- [ ] 5. The M3 row, then the whole gate
+- [x] 5. The M3 row, then the whole gate
   Update `ARCHITECTURE.md`'s M3 row (line 82) so it says the worker — including resilience, cancel and supersede —
   is built and that app wiring comes next. It is the only document this run changes; leave the
   `com.liftoff.app.work` package-layout row (line 36) alone. Then run the whole gate once, detached:
