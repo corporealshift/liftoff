@@ -1,6 +1,7 @@
 package com.liftoff.app.work
 
 import android.content.Context
+import androidx.room.withTransaction
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.liftoff.app.AppContainer
@@ -210,6 +211,10 @@ class GenerationWorker(
      * A reply that fails validation is handed back to the same session with the validator's own error
      * lines (§7.3 step 5), and the turn that comes back is judged exactly like this one. The cap is the
      * row's [Generation.attempt], so the repairs belong to the generation rather than to this run.
+     *
+     * A valid reply is written only while the row is still the generation its target is waiting for
+     * (§7.3's regeneration path): the currency check, the store and the mark share one transaction, so a
+     * cancel or a newer generation is either entirely before it or entirely after it, never in between.
      */
     private suspend fun storeFinishedTurn(
         container: AppContainer,
@@ -283,22 +288,63 @@ class GenerationWorker(
                 }
             }
 
-            val stored = when (row.kind) {
-                GenerationKind.OUTLINE -> container.missionManager.storeOutline(row.missionId, valid)
-                GenerationKind.FLIGHT_PLAN -> container.missionManager.storePlan(requireNotNull(row.sortieId), valid)
+            val decision = container.database.withTransaction {
+                if (!isCurrentGeneration(generations, row)) {
+                    if (generations.get(row.id)?.status != GenerationStatus.CANCELLED) {
+                        generations.markCancelled(row.id, clock.millis())
+                    }
+                    StoreDecision.NotCurrent
+                } else {
+                    val stored = when (row.kind) {
+                        GenerationKind.OUTLINE -> container.missionManager.storeOutline(row.missionId, valid)
+                        GenerationKind.FLIGHT_PLAN -> container.missionManager.storePlan(requireNotNull(row.sortieId), valid)
+                    }
+                    if (stored is StoreOutcome.Stored) generations.markSucceeded(row.id, clock.millis())
+                    StoreDecision.Wrote(stored)
+                }
             }
+
+            // A generation nobody is waiting for any more is over rather than failed: nothing was written,
+            // and a retry would only ask the coach the same question again.
+            if (decision is StoreDecision.NotCurrent) {
+                giveUpSession(client, turn.sessionId)
+                return Result.success()
+            }
+
+            val stored = (decision as StoreDecision.Wrote).outcome
             // The store's own reason is the end of it: a target that has moved on does not move back, so a
             // retry would be refused for the same reason.
             if (stored is StoreOutcome.Refused) {
                 return failGeneration(generations, row.id, stored.reason, client, turn.sessionId)
             }
 
-            generations.markSucceeded(row.id, clock.millis())
             // Only a generation that stored its answer gives up its session; every other end resumes it (invariant 6).
             // A stop the daemon refuses changes nothing: the outcome was already decided before it was attempted.
             giveUpSession(client, turn.sessionId)
             return Result.success()
         }
+    }
+
+    /**
+     * Whether this row is still the generation its target is waiting for: not cancelled, and the newest
+     * non-cancelled generation for its sortie (Flight Plan) or for its Mission's outline. Read inside the
+     * store's transaction, which is what makes it a decision about now rather than about the row as this
+     * attempt found it.
+     */
+    private suspend fun isCurrentGeneration(generations: GenerationDao, row: Generation): Boolean {
+        val now = generations.get(row.id) ?: return false
+        if (now.status == GenerationStatus.CANCELLED) return false
+        val newest = when (row.kind) {
+            GenerationKind.OUTLINE -> generations.getNewestNonCancelledOutlineForMission(row.missionId)
+            GenerationKind.FLIGHT_PLAN -> generations.getNewestNonCancelledForSortie(requireNotNull(row.sortieId))
+        }
+        return newest?.id == row.id
+    }
+
+    /** What the store transaction decided: either the store ran and this is what it did, or nothing ran. */
+    private sealed interface StoreDecision {
+        data class Wrote(val outcome: StoreOutcome) : StoreDecision
+        data object NotCurrent : StoreDecision
     }
 
     private suspend fun promptFor(container: AppContainer, row: Generation, sortie: Sortie?): String {
