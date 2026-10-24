@@ -9,7 +9,7 @@ Rules that apply to every task: scratch scripts and logs go under `app/build/` a
 build's verdict read from the log plus an `EXIT=$?` sentinel and no pipe after the build; commit messages are
 `area: lowercase summary`; stage only the named files; never touch `verify.sh`.
 
-- [ ] 1. The cancel helper, exposed from the container
+- [x] 1. The cancel helper, exposed from the container
   Shares the unique work name and builds the cancel side of the rule. `uniqueName` in `GenerationEnqueuer.kt`
   (line 36) stops being private to that file, so the enqueuer and the canceller cannot spell `gen-<generationId>`
   differently. New `app/src/main/java/com/liftoff/app/work/GenerationCanceller.kt`: for a generation id it cancels
