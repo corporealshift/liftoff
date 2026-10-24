@@ -7399,3 +7399,219 @@ Must not break: the Launchpad tests, generation queueing, regenerate and cleanup
 
 Done when: these tests pass, ARCHITECTURE.md is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
 
+**Check:** not met. Everything up to the coach generation worker is built and merged. That covers the Space Age theme, the shell, Mission Control (settings, equipment, Test connection, export/import), the Room data layer, the Mission/sortie domain logic with rollover, the Launchpad and Mission screens, In-Flight for lifts and runs (including reopening after a kill), Landed and its detail view, Re-fly, the coach/ template, schemas, schema checker, validator, prompt builder, the copied rho client, result storing, and the GenerationWorker with repairs, resilience, enqueue, cancel and supersede. Nothing in the app queues a generation yet. The round-17 'Confirm queues the outline' run finished 4 of its 6 tasks and committed them on the unmerged branch rho/confirm-queues-the-outline-bring-in-the-gny6. Those commits are c748582 and 29b1821 (the two manager commits from round 16, cherry-picked), 99aceec (MissionManager.retryOutline and its refusal test), 6a16f32 (LaunchpadViewModel takes enqueue/cancel lambdas and has confirm/continueWithoutOutline/retry plus the not-configured message; every construction site is updated, and LaunchpadScreen has an internal launchpadViewModel(container, scope) factory) and 9dae7bb (the always-visible 'Continue without outline' button and the not-configured line, with two render tests). The run blocked twice on task 5, a view-model test file driven through real WorkManager. The session log shows the local model re-reading map.md, the view model and the screen until the loop guard stopped it; it never wrote a line of the test. Still missing: (1) none of that work is merged, and the view-model actions have no test; (2) the draft shows no live coach status (planning, offline, failed with Retry, not configured); (3) nothing queues a Flight Plan when a sortie becomes current, because MissionManager.advance's AwaitGeneration branch is empty; lift sorties stay PENDING forever, and the 'Generate run plans' toggle has no generated path; (4) there is no Regenerate, and Re-fly, scrub, land and rollover cancel nothing; the worker can also still overwrite a CANCELLED row with FAILED; (5) the Launchpad shows no sortie generation status, no Regenerate button, no 'View in rho', and doesn't apply the §5.4 Re-fly rule; (6) ARCHITECTURE.md marks M3 and M6 incomplete. This round brings in the five finished commits by cherry-pick and tests the view model with recording lambdas instead of WorkManager, which removes the part that stalled. Each later brief lists the API facts it needs so the model doesn't have to re-read files, and keeps WorkManager out of view-model tests.
+
+## Round 18
+
+### 1. Confirm queues the outline: bring in the five finished commits and test the view model
+
+Bring finished work onto this branch, then add one small test file. Nothing else.
+
+Step 1: cherry-pick. The unmerged local branch `rho/confirm-queues-the-outline-bring-in-the-gny6` holds five finished code commits. It is checked out in another worktree, so cherry-pick by sha (do not `git checkout` it). Pick exactly these, in this order, keeping their messages:
+1. `c748582` data: add MissionManager.continueWithoutOutline and move the confirm fixtures to it
+2. `29b1821` data: confirm queues the week's outline, and an open outline row freezes the pattern
+3. `99aceec` data: add MissionManager.retryOutline for a draft whose outline failed
+4. `6a16f32` launchpad: wire the draft's actions to the enqueue and cancel helpers
+5. `9dae7bb` launchpad: draw the draft's way out and the not-configured line
+Do not bring over any `run:` commit or any file under `.rho/runs/`. Then run the gate. If it is red, fix only what it names.
+
+What exists after the picks (you do not need to re-derive this):
+- `MissionManager.confirm(missionId): ConfirmOutcome` (`com.liftoff.app.data`). `ConfirmOutcome` is `Queued(generationId: Long)` or `CoachNotConfigured`. Queued inserts, or reuses, one QUEUED OUTLINE `Generation` row (`sortieId = null`). CoachNotConfigured writes nothing. Either way the Mission stays DRAFT.
+- `MissionManager.continueWithoutOutline(missionId): List<Long>` activates the week, makes sortie 1 current, and returns the ids of the Mission's still-open outline rows.
+- `MissionManager.retryOutline(missionId): ConfirmOutcome`. It refuses with `IllegalStateException` unless the Mission is the current week's DRAFT and its newest non-cancelled OUTLINE row is FAILED.
+- `setPattern` throws `IllegalStateException` while an outline row is QUEUED or RUNNING.
+- `com.liftoff.app.domain.coachIsConfigured(host, token)`. `GenerationDao.observeNewestNonCancelledOutlineForMission(missionId): Flow<Generation?>` and `GenerationDao.getOpenOutlineForMission(missionId): List<Generation>`.
+- `LaunchpadViewModel(db, manager, scope, queueGeneration: (Long) -> Unit, cancelGeneration: suspend (Long) -> Unit)`. Its `confirm()`, `continueWithoutOutline()` and `retry()` each return `Job?`: null when the state isn't `LaunchpadState.Draft`. They enqueue or cancel only after the manager call has returned. `notConfiguredMessage` holds `NOT_CONFIGURED_MESSAGE` after a Confirm or Retry that found no host or token. A later Confirm clears it, and so does a successful continue-without-outline. `state` is `stateIn(scope, Lazily, Loading)`, so wait for it to reach `Draft` before calling an action.
+- `LaunchpadScreen.kt` has `internal fun launchpadViewModel(container, scope)`. It passes lambdas, not bound `::enqueue` references, because those would build WorkManager while composing and break `LiftoffShellTest`, `ShellNavTest` and `MainActivityTest`. Keep it that way.
+
+Step 2: one new test file, `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadConfirmTest.kt`. Do not use WorkManager in it. The enqueue and cancel helpers already have their own tests (`GenerationEnqueuerTest`, `GenerationCancellerTest`). Hand the view model a `queueGeneration` lambda that records the ids it gets, and a `cancelGeneration` lambda that records its ids and marks the row cancelled through `GenerationDao.markCancelled(id, finishedAt)`, the way the real helper does. Copy the harness from `LaunchpadDraftControlsTest`: in-memory Room, a real `SettingsStore` on a cache-dir file, a `MissionManager` with a fixed clock, `@Config(sdk = [34])`, and a scope on `Dispatchers.Unconfined` plus a `Job` that is cancelled before the database closes. Set the host, the token and a default pattern starting with `L` before `onAppOpen()`. Join each returned `Job`. Put a timeout on every wait. CI is ubuntu-latest, UTC. Cases:
+- Confirm with a host and token set: one QUEUED OUTLINE row, its id recorded once by the queue lambda, and the Mission still DRAFT with no sorties.
+- Confirm with a blank host, a whitespace-only host, and a blank token, each on a fresh draft: no row, nothing recorded, and `notConfiguredMessage` set.
+- Continue without outline after a Confirm: the Mission is ACTIVE, sortie 1 is current, the outline id has been passed to the cancel lambda, and the row is CANCELLED.
+- Retry after a FAILED outline row with an error: a new QUEUED row is now the newest non-cancelled outline, the FAILED row keeps its status and error text, and the new id is recorded by the queue lambda.
+
+No Room schema change. In the PR, say which existing tests the cherry-picked commits changed and why: confirm no longer activates the week, so fixtures moved to `continueWithoutOutline`.
+
+Must not break: the worker, enqueue and cancel tests, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control and Test connection, the domain tests, the shell tests, the Launchpad tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary. When something is unclear, decide, record the decision in the plan, and carry on rather than stopping to ask. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: all five commits are on the branch, the four cases pass, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 2. The draft's coach status, derived and live from Room (no UI)
+
+Give the Launchpad draft a live coach status, as state only. A later run draws it. Read DESIGN.md §4.2 and §9 ('Launchpad').
+
+Build on (all on this branch already):
+- `LaunchpadState.Draft(weekStart, pattern, missionId)` and `LaunchpadStates` (`com.liftoff.app.ui.launchpad/LaunchpadState.kt`). `LaunchpadStates.observe()` maps `manager.currentWeekStart` to `missionDao().observeWeek(ws)`, combined with `flightPlanDao().observeChanges()`, and derives one state per emission.
+- `GenerationDao.observeNewestNonCancelledOutlineForMission(missionId): Flow<Generation?>`.
+- `Generation` (`com.liftoff.app.data`): `status` (QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED), `error: String?`, and `isCoachOffline`. `isCoachOffline` is true while `error == Generation.COACH_OFFLINE` and the row is QUEUED or RUNNING.
+- `com.liftoff.app.domain.coachIsConfigured(host, token)` and `SettingsStore.settings` (`daemonHost`, `daemonToken`).
+- `LaunchpadViewModel`'s `confirm()`, `continueWithoutOutline()` and `retry()`.
+
+Add:
+- A plain-Kotlin derivation in `com.liftoff.app.domain`, with no Android or Room types in its signature. It takes the newest non-cancelled outline row's status, error and offline flag (or none), plus whether the coach is configured. It returns one of:
+  - **editable**: no row, or the newest row SUCCEEDED. The pattern can be edited and Confirm is offered.
+  - **planning**: the row is QUEUED or RUNNING and not offline.
+  - **offline**: the row is open and marked offline.
+  - **failed**: carries the reason written on the row, word for word, and offers Retry.
+  - **not configured**: the host or token is blank and no row is open.
+  Planning, offline, failed and not configured all offer 'Continue without outline'.
+- `Draft` carries the derived status. `LaunchpadStates` joins the outline Flow and the settings only on the DRAFT branch, keeps today's behaviour for every other state, and doesn't re-emit for unrelated changes.
+- Update `LaunchpadScreen` only as far as it needs to compile. Don't change what it draws.
+
+No Room schema change.
+
+Tests:
+- Plain JUnit (no Robolectric) for each derivation case, including a FAILED row's reason passed through word for word.
+- Robolectric (`@Config(sdk = [34])`, in-memory Room, every wait bounded, CI ubuntu-latest UTC; no WorkManager). With one subscription to `LaunchpadStates.observe()` for a current-week draft: writing a QUEUED OUTLINE row emits planning, `GenerationDao.setCoachOfflineMark(id, Generation.COACH_OFFLINE)` emits offline, and `markFailed(id, "reason", t)` emits failed with that reason, all without re-subscribing.
+
+Must not break: the Launchpad tests (draft controls, guards, scrub, Re-fly, states, Confirm), the worker tests, In-Flight, Landed, Mission Control, the domain tests, and the build gate. Follow CLAUDE.md conventions. When something is unclear, decide, record it in the plan, and carry on. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 3. Draw the draft's coach status on the Launchpad
+
+Draw the coach status that `LaunchpadState.Draft` now carries. Read DESIGN.md §4.2 and §9 ('Launchpad'), `design/README.md` and `design/screens/launchpad.html`.
+
+Build on: the Draft's derived coach status (editable, planning, offline, failed with reason, not configured) in `com.liftoff.app.ui.launchpad`; `LaunchpadViewModel.confirm()`, `continueWithoutOutline()` and `retry()`; the screen's `internal fun LaunchpadContent(viewModel, onOpenInFlight)` test seam; and the theme parts in `com.liftoff.app.ui.theme` (`UnderlinedTextButton(text, onClick, modifier)`, which upper-cases its label; `PrimaryButton`; the type styles; the ink and red colours). An earlier run added an always-visible 'Continue without outline' button under Confirm in `DraftActions`, and a not-configured line driven by `viewModel.notConfiguredMessage`.
+
+Change the draft screen:
+- **editable**: today's pattern chips, −/+ controls and Confirm.
+- **planning**: the line 'Coach is planning the week…'. The pattern is shown read-only, with no −/+ and no chip toggling. Offer 'Continue without outline'.
+- **offline**: the line 'Mission Control offline — retrying'. Otherwise the same as planning.
+- **failed**: the reason in red, with Retry and 'Continue without outline'.
+- **not configured**: a line saying Mission Control isn't set up (host and token go in Mission Control), with 'Continue without outline'.
+- Remove the always-visible button, so 'Continue without outline' appears only in the states above. Remove the separate `notConfiguredMessage` line too, unless a Confirm tapped with nothing configured would otherwise show nothing. In that case keep whichever single line reads best and record the decision.
+- Use the design's parts only, with no stock M3 visuals.
+
+Tests (Robolectric Compose, `@Config(sdk = [34])`, every wait bounded, CI ubuntu-latest UTC). Render the draft for each status by putting rows in an in-memory database, or through a render seam you add. Don't type into text fields, and don't use WorkManager:
+- each status shows its line and exactly its buttons
+- the −/+ controls are absent while planning
+
+Update the ARCHITECTURE.md M3 row: Confirm queues the outline and the draft shows its status; queueing Flight Plans and the sortie status display come next.
+
+Must not break: the Launchpad tests. Update any that assumed the always-visible button (for example `draftAlwaysOffersContinueWithoutOutline`), and say so in the PR. Also keep Confirm's outline queueing, the worker tests, In-Flight, Landed, Mission Control, the shell tests, the domain tests and the build gate working. Follow CLAUDE.md conventions and the §2 vocabulary. When something is unclear, decide, record it in the plan, and carry on. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass, the M3 row is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 4. Queue a Flight Plan when a sortie becomes current
+
+Ask the coach for a Flight Plan whenever a sortie becomes current and needs one, and honour the 'Generate run plans' toggle. Read DESIGN.md §4.3, §5.3 and §7.2. It calls the harness 'nabu'; it is now 'rho'.
+
+Facts you need (all on this branch):
+- `MissionManager` (`app/src/main/java/com/liftoff/app/data/MissionManager.kt`). Its private `advance(missionId, settings)` closes the Mission when every sortie is done. Otherwise, if the current sortie is PENDING, it calls `prepareCurrent(current, settings.generateRunPlans)` from `domain/SortiePlanning.kt`. For `Preparation.SimplePlan` it writes the simple 'Run' plan and marks the sortie PLANNED. The `Preparation.AwaitGeneration` branch is empty today. `advance` runs inside the transaction of `storeOutline`, `continueWithoutOutline`, `land(sortieId, runDistance, runMinutes)` and `scrub(sortieId, reason)`. All of them read `settingsStore.settings.first()` before the transaction.
+- `prepareCurrent` returns AwaitGeneration for every lift, and for a run only when `generateRunPlans` is on.
+- `Generation(kind = GenerationKind.FLIGHT_PLAN, missionId, sortieId, status = GenerationStatus.QUEUED, createdAt = clock.millis())`, inserted with `GenerationDao.insert(generation): Long`.
+- `com.liftoff.app.domain.coachIsConfigured(daemonHost, daemonToken)`.
+- The enqueue helper `GenerationEnqueuer.enqueue(generationId: Long)` (`com.liftoff.app.work`), reached through `AppContainer.generationEnqueuer()`. It builds WorkManager on each call, so never call it while composing or from a test that hasn't set up WorkManager.
+- `GenerationWorker` calls `MissionManager.storeOutline` when an outline arrives. After a successful store it must enqueue sortie 1's new Flight Plan id itself.
+- `LaunchpadViewModel.continueWithoutOutline()` calls the manager and then the `cancelGeneration` lambda. It also has a `queueGeneration: (Long) -> Unit` lambda. `InFlightViewModel` (`com.liftoff.app.ui.inflight`) calls `land`, `landRun` and `scrub`. `LaunchpadViewModel.confirmScrub` calls `scrub`.
+
+Change:
+- When `advance` finds the current sortie PENDING and needing generation, and the coach is configured, insert one QUEUED FLIGHT_PLAN row for it inside the same transaction. Don't insert a second one if that sortie already has a QUEUED or RUNNING Flight Plan row.
+- Every caller enqueues what was queued, after the transaction commits, never inside it. That covers the worker after `storeOutline`, the Launchpad's continue without outline and scrub, and In-Flight's land, landRun and scrub. Returning the new ids from those `MissionManager` methods is one way; choose what fits. `InFlightViewModel` will need an enqueue input, passed as a lambda from its screen the same way `launchpadViewModel(container, scope)` does it. Update its construction sites.
+- With the toggle off, a run keeps getting the simple 'Run' plan. The toggle is read at that moment, and changing it later never alters an existing plan.
+- With no host or token set, queue nothing. The sortie stays PENDING, and Re-fly and Scrub stay available.
+
+No Room schema change.
+
+Tests (Robolectric `@Config(sdk = [34])`, in-memory Room, every wait bounded, CI ubuntu-latest UTC). Check the manager through the rows it writes and the ids it hands back. Check the view models with a recording enqueue lambda, not WorkManager. Use WorkManager (`WorkManagerTestInitHelper`, work under `gen-<id>`) in at most one worker test, and only if the worker test harness already sets it up. Show that:
+- storing an outline queues sortie 1's Flight Plan (one row), and the worker enqueues it
+- continue without outline queues sortie 1's Flight Plan, and the Launchpad view model enqueues it
+- landing and scrubbing queue the next sortie's Flight Plan, and the view model that did it enqueues it
+- with the toggle on, a current run queues a generation; with it off, the run gets the 'Run' plan and nothing is queued
+- with no host or token, nothing is queued
+
+Update the ARCHITECTURE.md M3 row to say Flight Plans are queued as sorties become current.
+
+Must not break: the worker, enqueue and cancel tests, Confirm's outline queueing and the draft status, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control, the shell tests, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary. When something is unclear, decide, record it in the plan, and carry on. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass, the M3 row is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 5. Regenerate, and cancel open generations on Re-fly, scrub, land and rollover
+
+Let the owner regenerate the current sortie's Flight Plan, and make sure a late coach result can never be left running for a sortie that has moved on. Read DESIGN.md §5.3, §5.4 and §7.2. It calls the harness 'nabu'; it is now 'rho'.
+
+Facts you need (all on this branch):
+- `MissionManager` (`com.liftoff.app.data`) has `refly(sortieId)`, `scrub(sortieId, reason)`, `land(sortieId, runDistance, runMinutes)` and `onAppOpen()` (the week-ended rollover scrubs open sorties with 'week ended'). When a sortie becomes current and needs a Flight Plan it now inserts a QUEUED FLIGHT_PLAN `Generation` row, and its callers enqueue the id after the transaction.
+- `GenerationDao.getNewestNonCancelledForSortie(sortieId)`, plus `markCancelled(id, finishedAt)` and `markFailed(id, error, finishedAt)`.
+- `GenerationCanceller.cancel(generationId: Long)` (`com.liftoff.app.work`, via `AppContainer.generationCanceller()`). It cancels the `gen-<id>` work, marks the row CANCELLED only if it is QUEUED or RUNNING, and stops its rho session if the daemon is reachable.
+- `LaunchpadViewModel` takes `queueGeneration: (Long) -> Unit` and `cancelGeneration: suspend (Long) -> Unit` lambdas, built in `launchpadViewModel(container, scope)` in `LaunchpadScreen.kt`. `InFlightViewModel` has an enqueue input. Give it a cancel input built the same way, as a lambda.
+- The shell (`com.liftoff.app.ui.LiftoffShell`) calls `missionManager.onAppOpen()` on start and resume.
+- `GenerationWorker` (`com.liftoff.app.work`): `failGeneration` calls `markFailed` with no status check, and the mark-running step doesn't check either.
+
+Add:
+- **Regenerate**: a `MissionManager` operation for the current sortie while it is PLANNED or PENDING and the coach is configured. It inserts a new QUEUED FLIGHT_PLAN row and returns that id plus the ids of the sortie's other QUEUED or RUNNING Flight Plan rows. The caller enqueues the new one and cancels the old ones, both after the transaction commits. The current plan stays visible and launchable until the new result replaces it. Expose it as a `regenerate()` action on `LaunchpadViewModel`. It also serves as Retry after a failed Flight Plan. A later run adds the button.
+- **Cleanup**: Re-fly, scrub, land and the week-ended rollover hand back the open FLIGHT_PLAN generation ids of the affected sortie or sorties, and the caller cancels them after the transaction. The callers are `LaunchpadViewModel`, `InFlightViewModel` and the shell's app-open rollover.
+- **Worker gap**: a row CANCELLED mid-turn must stay CANCELLED. Make the worker's failure path and its mark-running step leave an already-CANCELLED row alone, and end the work quietly.
+
+No Room schema change.
+
+Tests (Robolectric `@Config(sdk = [34])`, in-memory Room, every wait bounded, CI ubuntu-latest UTC). Check manager operations through rows and returned ids, and view models with recording lambdas, not WorkManager. Use the existing worker test harness and fake daemon for the worker case:
+- regenerate on a PENDING sortie returns the open row for cancelling and a new QUEUED row; the view model cancels the one and enqueues the other
+- regenerate on a PLANNED sortie keeps the plan in place
+- Re-fly, scrub, land and the week-ended rollover each hand back the sortie's open generation, and the caller leaves it CANCELLED
+- a row cancelled during a turn that then fails stays CANCELLED
+
+Must not break: the worker, enqueue and cancel tests, outline and Flight Plan queueing, the draft status, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control, the shell tests, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary. When something is unclear, decide, record it in the plan, and carry on. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 6. Sortie generation status on the Launchpad, derived and live (no UI)
+
+Give the Launchpad's PENDING and PLANNED states a live coach status, as state only. A later run draws it. Read DESIGN.md §9 ('Launchpad'), §5.4 and §10.
+
+Facts you need (all on this branch):
+- `LaunchpadState.Pending(eyebrow, title, chips, sortieId, sortieIndex, reFlyAvailable)` and `LaunchpadState.Planned(eyebrow, title, chips, plan, sortieId, sortieIndex, sortieType, sortieFocus)`, derived in `LaunchpadStates` (`ui/launchpad/LaunchpadState.kt`). Today `reFlyAvailable` is true whenever `chooseReflySource(current, reflyCandidates(...))` finds a source plan.
+- `GenerationDao.getNewestNonCancelledForSortie(sortieId): Generation?`. Add a Flow version of the same query if there isn't one.
+- `Generation`: `status`, `error` (after an invalid reply it holds the validator's error list, one error per line, after a lead sentence; read `GenerationWorker` to see the exact text it writes), `nabuSessionId` (the rho session id) and `isCoachOffline`.
+- `com.liftoff.app.domain.coachIsConfigured(host, token)` and `SettingsStore.settings`.
+- `LaunchpadViewModel.regenerate()` and `refly()`.
+
+Add:
+- A plain-Kotlin derivation in `com.liftoff.app.domain`, over the newest non-cancelled FLIGHT_PLAN row's values and whether the coach is configured.
+  - For PENDING it gives one of: planning, offline, failed (the reason, plus the list of validator errors split out of the stored error, if any), or not configured. If there is no row and the coach is configured, treat it as failed with a short reason so Retry is offered rather than leaving the owner stuck.
+  - For PLANNED it gives re-planning (a row is QUEUED or RUNNING) or idle.
+  - It also gives the rho session id when the row has one, and whether Re-fly is allowed by §5.4: only when a source plan exists and the generation failed, the coach is offline, or no connection is configured.
+- `Pending` and `Planned` carry the derived status. `reFlyAvailable` follows the §5.4 rule. `LaunchpadStates` joins the generation Flow and the settings only on those branches, and doesn't re-emit for unrelated changes.
+- Update `LaunchpadScreen` only as far as it needs to compile, but keep Re-fly shown only when the new `reFlyAvailable` is true.
+
+No Room schema change.
+
+Tests:
+- Plain JUnit for each derivation case, including the §5.4 Re-fly rule and a failed row with several validator errors.
+- Robolectric (`@Config(sdk = [34])`, in-memory Room, every wait bounded, CI ubuntu-latest UTC, no WorkManager). One subscription to a PENDING sortie's state follows the row from QUEUED to offline to FAILED, and a PLANNED sortie shows re-planning when a new row is queued for it.
+
+Existing Launchpad tests that assume Re-fly is always offered on PENDING may be updated to the §5.4 rule. Say so in the PR.
+
+Must not break: the Launchpad tests, generation queueing, regenerate and cleanup, the worker tests, In-Flight, Landed, Mission Control, the domain tests, and the build gate. Follow CLAUDE.md conventions. When something is unclear, decide, record it in the plan, and carry on. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 7. Draw generation status, Regenerate and View in rho on the Launchpad
+
+Draw the coach status that `LaunchpadState.Pending` and `LaunchpadState.Planned` now carry, and bring ARCHITECTURE.md up to date. Read DESIGN.md §9 ('Launchpad'), §5.4 and §10, `design/README.md` and `design/screens/launchpad.html`.
+
+Build on: the derived sortie generation status on `Pending` and `Planned` (planning, offline, failed with reason and validator errors, not configured, re-planning, the rho session id, and the §5.4 `reFlyAvailable`); `LaunchpadViewModel`'s `regenerate()`, `refly()`, `requestScrub()`/`confirmScrub()` and `launch()`; the `internal fun LaunchpadContent(viewModel, onOpenInFlight)` seam; and the theme parts in `com.liftoff.app.ui.theme` (`UnderlinedTextButton`, `PrimaryButton`, ink-ruled rows, red for errors).
+
+Change:
+- **PLANNED**: an underlined Regenerate text button next to Scrub, as in the mockup. While re-planning, add a short 'Coach is re-planning…' line. The plan stays visible and Launch still works.
+- **PENDING**:
+  - 'Coach is planning…', 'Mission Control offline — retrying', or a line saying Mission Control isn't set up
+  - after a failure: the reason, the validator's errors as a short list, and a Retry that calls `regenerate()`
+  - Scrub
+  - Re-fly only when `reFlyAvailable`
+  - 'View in rho' when a session id exists. It shows the rho session id so the owner can find it in rho's app. A small themed dialog or an inline line is fine.
+- Use the design's parts only, with no stock M3 visuals.
+
+Tests (Robolectric Compose, `@Config(sdk = [34])`, every wait bounded, CI ubuntu-latest UTC). Render the content from rows in an in-memory database or through a render seam. Don't type into text fields, and don't use WorkManager:
+- PLANNED shows Regenerate and the re-planning line
+- PENDING shows planning, offline and failed (with errors and Retry)
+- Re-fly appears only when allowed
+- 'View in rho' shows the session id
+
+Update ARCHITECTURE.md so the package table and milestone statuses match what's built: M1–M6 done. M0 says the coach/ template, schemas, validator and prompt builder exist, and that the live measurement hasn't been run.
+
+Must not break: the Launchpad tests, generation queueing, regenerate and cleanup, the worker tests, In-Flight and reopening, Landed, Re-fly, export/import, Mission Control, the shell tests, the domain tests, and the build gate. Follow CLAUDE.md conventions and the §2 vocabulary. When something is unclear, decide, record it in the plan, and carry on. The full gate can hang once for about 5 minutes on this machine. Run it detached, and re-run it if that happens.
+
+Done when: these tests pass, ARCHITECTURE.md is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
