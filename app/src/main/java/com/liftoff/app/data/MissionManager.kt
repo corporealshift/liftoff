@@ -8,6 +8,7 @@ import com.liftoff.app.coach.CoachRunPlan
 import com.liftoff.app.domain.MissionLifecycle
 import com.liftoff.app.domain.allSortiesDone
 import com.liftoff.app.domain.chooseReflySource
+import com.liftoff.app.domain.coachIsConfigured
 import com.liftoff.app.domain.confirmWithoutOutline
 import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.domain.launch
@@ -37,6 +38,16 @@ import java.time.ZoneId
 sealed interface StoreOutcome {
     data object Stored : StoreOutcome
     data class Refused(val reason: String) : StoreOutcome
+}
+
+/**
+ * What Confirm did with the week. Asking for an outline is not starting the week, so the outcome names the ask:
+ * [Queued] carries the row to schedule, and [CoachNotConfigured] is the caller being told Mission Control isn't
+ * set up.
+ */
+sealed interface ConfirmOutcome {
+    data class Queued(val generationId: Long) : ConfirmOutcome
+    data object CoachNotConfigured : ConfirmOutcome
 }
 
 class MissionManager(
@@ -73,48 +84,76 @@ class MissionManager(
         return mission
     }
 
+    /**
+     * Edit the week's pattern. An outline generation the coach is still working on freezes it: the outline is
+     * being written against the pattern the draft holds right now.
+     */
     suspend fun setPattern(missionId: Long, pattern: String) {
         db.withTransaction {
             val mission = db.missionDao().get(missionId)!!
+            check(db.generationDao().getOpenOutlineForMission(missionId).isEmpty()) {
+                "Pattern can't be changed while Mission Control is planning this week's outline"
+            }
             val updated = overridePattern(mission, pattern)
             db.missionDao().update(updated)
         }
     }
 
-    suspend fun confirm(missionId: Long) {
+    /**
+     * Ask Mission Control for the week's outline (DESIGN.md §4.2): insert one QUEUED OUTLINE [Generation] row for
+     * the current draft and return its id, which is what the caller hands to the enqueuer once the transaction
+     * has committed. Nothing is activated and no sortie is inserted — the outline the worker stores back is what
+     * turns the draft into a week. The open row is the freeze on the pattern; a second Confirm on the same draft
+     * reuses its id, because the same draft asked for twice is the same request.
+     *
+     * With no host or token set nothing is queued and the caller is told, so the owner chooses 'continue without
+     * outline' rather than having a week started without an outline.
+     */
+    suspend fun confirm(missionId: Long): ConfirmOutcome {
         val settings = settingsStore.settings.first()
-        db.withTransaction {
+        if (!coachIsConfigured(settings.daemonHost, settings.daemonToken)) {
+            return ConfirmOutcome.CoachNotConfigured
+        }
+        return db.withTransaction {
             val weekStart = currentWeekOf(clock, zone)
             val mission = db.missionDao().get(missionId)!!
             check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
                 "Can only confirm the current week's draft"
             }
-            val (activeMission, rawSorties) = confirmWithoutOutline(mission)
-            val sorties = rawSorties.map { it.copy(missionId = missionId) }
-            db.missionDao().update(activeMission)
-            db.sortieDao().insertAll(sorties)
-            advance(missionId, settings)
+            val open = db.generationDao().getOpenOutlineForMission(missionId)
+            if (open.isNotEmpty()) return@withTransaction ConfirmOutcome.Queued(open.first().id)
+            val generationId = db.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = missionId,
+                    status = GenerationStatus.QUEUED,
+                    createdAt = clock.millis(),
+                )
+            )
+            ConfirmOutcome.Queued(generationId)
         }
     }
 
     /**
-     * Activate the current week's draft with no outline — the escape hatch DESIGN.md §4.2 draws out of DRAFT.
-     * This is what [confirm] does today; confirm is becoming the path that asks the coach for an outline first,
-     * so the week can be started without waiting for one.
+     * Activate the current week's draft with no outline — the escape hatch DESIGN.md §4.2 draws out of DRAFT, and
+     * what [confirm] did until the coach was asked for an outline. Returns the ids of the mission's outline
+     * generations that were still open, read in this transaction, for the caller to cancel.
      */
-    suspend fun continueWithoutOutline(missionId: Long) {
+    suspend fun continueWithoutOutline(missionId: Long): List<Long> {
         val settings = settingsStore.settings.first()
-        db.withTransaction {
+        return db.withTransaction {
             val weekStart = currentWeekOf(clock, zone)
             val mission = db.missionDao().get(missionId)!!
             check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
-                "Can only confirm the current week's draft"
+                "Can only continue with the current week's draft"
             }
+            val openOutlineIds = db.generationDao().getOpenOutlineForMission(missionId).map { it.id }
             val (activeMission, rawSorties) = confirmWithoutOutline(mission)
             val sorties = rawSorties.map { it.copy(missionId = missionId) }
             db.missionDao().update(activeMission)
             db.sortieDao().insertAll(sorties)
             advance(missionId, settings)
+            openOutlineIds
         }
     }
 

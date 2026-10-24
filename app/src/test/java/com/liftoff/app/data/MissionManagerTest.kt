@@ -81,6 +81,23 @@ class MissionManagerTest {
         ))
     }
 
+    /** Mission Control pointed at something: a host and a token, which is what makes Confirm able to ask. */
+    private suspend fun configureCoach(host: String = "coach.local", token: String = "t0ken") {
+        settingsStore.setDaemonHost(host)
+        settingsStore.setDaemonToken(token)
+    }
+
+    /** The pattern edit the open outline generation must refuse, and the pattern that must still be stored. */
+    private suspend fun assertPatternRefused(missionId: Long, pattern: String, stored: String, openAs: String) {
+        try {
+            manager.setPattern(missionId, pattern)
+            throw AssertionError("Should have thrown with the outline generation $openAs")
+        } catch (expected: IllegalStateException) {
+            // Expected.
+        }
+        assertEquals(stored, missionDao.get(missionId)!!.pattern)
+    }
+
     // ── onAppOpen ────────────────────────────────────────────────────────
 
     @Test
@@ -172,16 +189,72 @@ class MissionManagerTest {
             manager.setPattern(mId, "RR")
             throw AssertionError("Should have thrown")
         } catch (e: IllegalStateException) {
-            // Expected — pattern is frozen after confirm.
+            // Expected — the pattern is frozen once the week is ACTIVE.
         }
     }
 
-    // ── confirm ──────────────────────────────────────────────────────────
+    // ── confirm: the queue path ────────────────────────────────────────────────
 
     @Test
-    fun confirmPlansFirstRunWhenGenerationOff() = runBlocking {
+    fun confirmQueuesOneOutlineGenerationAndLeavesTheDraftUntouched() = runBlocking {
+        configureCoach()
         val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
-        manager.confirm(mId)
+        val queued = manager.confirm(mId) as ConfirmOutcome.Queued
+
+        val rows = db.generationDao().getOpenOutlineForMission(mId)
+        assertEquals(listOf(queued.generationId), rows.map { it.id })
+        assertEquals(GenerationKind.OUTLINE, rows[0].kind)
+        assertEquals(GenerationStatus.QUEUED, rows[0].status)
+        assertNull(rows[0].sortieId)
+        assertEquals(MissionStatus.DRAFT, missionDao.get(mId)!!.status)
+        assertEquals(0, sortieDao.getForMission(mId).size)
+    }
+
+    @Test
+    fun confirmWithoutAHostOrTokenQueuesNothingAndSaysSo() = runBlocking {
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        for ((host, token) in listOf("" to "t0ken", "coach.local" to "", "   " to "   ")) {
+            configureCoach(host, token)
+            assertEquals(ConfirmOutcome.CoachNotConfigured, manager.confirm(mId))
+        }
+        assertEquals(0L, db.generationDao().countAll())
+        val mission = missionDao.get(mId)!!
+        assertEquals(MissionStatus.DRAFT, mission.status)
+        assertEquals("RL", mission.pattern)
+        assertEquals(0, sortieDao.getForMission(mId).size)
+    }
+
+    @Test
+    fun confirmingTheSameDraftTwiceReusesTheOpenOutlineGeneration() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        val first = manager.confirm(mId) as ConfirmOutcome.Queued
+        val second = manager.confirm(mId) as ConfirmOutcome.Queued
+        assertEquals(first.generationId, second.generationId)
+        assertEquals(1, db.generationDao().getOpenOutlineForMission(mId).size)
+    }
+
+    @Test
+    fun theWeeklyPatternIsFrozenWhileAnOutlineGenerationIsOpenAndEditableAgainAfterItFails() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        val generationId = (manager.confirm(mId) as ConfirmOutcome.Queued).generationId
+
+        assertPatternRefused(mId, "RLR", stored = "RL", openAs = "QUEUED")
+        db.generationDao().markRunning(generationId)
+        assertPatternRefused(mId, "RLR", stored = "RL", openAs = "RUNNING")
+
+        db.generationDao().markFailed(generationId, error = "coach gave up", finishedAt = 1L)
+        manager.setPattern(mId, "RLR")
+        assertEquals("RLR", missionDao.get(mId)!!.pattern)
+    }
+
+    // ── continue without outline ───────────────────────────────────────────────
+
+    @Test
+    fun continueWithoutOutlinePlansFirstRunWhenGenerationOff() = runBlocking {
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        manager.continueWithoutOutline(mId)
 
         val mission = missionDao.get(mId)!!
         assertEquals(MissionStatus.ACTIVE, mission.status)
@@ -201,9 +274,9 @@ class MissionManagerTest {
     }
 
     @Test
-    fun confirmLeavesLiftPending() = runBlocking {
+    fun continueWithoutOutlineLeavesLiftPending() = runBlocking {
         val mId = insertMission(LocalDate.of(2026, 1, 12), "LR", MissionStatus.DRAFT)
-        manager.confirm(mId)
+        manager.continueWithoutOutline(mId)
 
         val sorties = sortieDao.getForMission(mId)
         assertEquals(SortieType.LIFT, sorties[0].type)
@@ -212,13 +285,33 @@ class MissionManagerTest {
     }
 
     @Test
-    fun confirmLeavesRunPendingWhenGenerationOn() = runBlocking {
+    fun continueWithoutOutlineLeavesRunPendingWhenGenerationOn() = runBlocking {
         settingsStore.setGenerateRunPlans(true)
         val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.DRAFT)
-        manager.confirm(mId)
+        manager.continueWithoutOutline(mId)
 
         val sorties = sortieDao.getForMission(mId)
         assertEquals(SortieState.PENDING, sorties[0].state)
+    }
+
+    @Test
+    fun continueWithoutOutlineHandsBackEveryOpenOutlineGeneration() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        val queued = (manager.confirm(mId) as ConfirmOutcome.Queued).generationId
+        val running = db.generationDao().insert(Generation(
+            kind = GenerationKind.OUTLINE, missionId = mId, status = GenerationStatus.RUNNING, createdAt = 0L
+        ))
+        // A finished outline row is not open, so it is not handed back to cancel.
+        db.generationDao().insert(Generation(
+            kind = GenerationKind.OUTLINE, missionId = mId, status = GenerationStatus.FAILED, createdAt = 0L
+        ))
+
+        val open = manager.continueWithoutOutline(mId)
+        assertEquals(setOf(queued, running), open.toSet())
+        assertEquals(2, open.size)
+        assertEquals(MissionStatus.ACTIVE, missionDao.get(mId)!!.status)
+        assertEquals(2, sortieDao.getForMission(mId).size)
     }
 
     // ── launch ───────────────────────────────────────────────────────────

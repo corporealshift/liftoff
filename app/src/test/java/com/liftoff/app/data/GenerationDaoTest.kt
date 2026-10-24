@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
 @RunWith(RobolectricTestRunner::class)
@@ -306,5 +307,25 @@ class GenerationDaoTest {
 
         // And another Mission's outline generation is not this one's.
         assertEquals(otherMission.id, generationDao.getNewestNonCancelledOutlineForMission(6)?.id)
+    }
+
+    // The same read as a Flow, for the draft to watch: a cancelled row is dropped rather than reported as the
+    // Mission's current outline, and a Mission with no outline row at all has none.
+    @Test
+    fun theLiveOutlineReadForAMissionDropsACancelledRow() = runBlocking {
+        val older = queueGeneration(GenerationKind.OUTLINE, 5, null, createdAt = 1_000, status = GenerationStatus.FAILED)
+        val newer = queueGeneration(GenerationKind.OUTLINE, 5, null, createdAt = 2_000)
+        queueGeneration(GenerationKind.FLIGHT_PLAN, 5, 20, createdAt = 3_000)
+        queueGeneration(GenerationKind.OUTLINE, 6, null, createdAt = 4_000)
+
+        assertEquals(newer.id, generationDao.observeNewestNonCancelledOutlineForMission(5).first()?.id)
+        assertEquals(listOf(newer.id), generationDao.getOpenOutlineForMission(5).map { it.id })
+
+        generationDao.markCancelled(newer.id, finishedAt = 5_000)
+        assertEquals(older.id, generationDao.observeNewestNonCancelledOutlineForMission(5).first()?.id)
+        assertTrue(generationDao.getOpenOutlineForMission(5).isEmpty())
+
+        assertNull(generationDao.observeNewestNonCancelledOutlineForMission(7).first())
+        assertTrue(generationDao.getOpenOutlineForMission(7).isEmpty())
     }
 }
