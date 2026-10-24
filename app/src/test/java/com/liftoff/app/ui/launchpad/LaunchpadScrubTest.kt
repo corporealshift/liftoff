@@ -91,7 +91,7 @@ class LaunchpadScrubTest {
     private suspend fun plannedLaunchpad(): Pair<LaunchpadViewModel, LaunchpadState.Planned> {
         settingsStore.setDefaultPattern("RL")
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         val vm = LaunchpadViewModel(db, manager, scope)
         val planned = withTimeout(5_000L) {

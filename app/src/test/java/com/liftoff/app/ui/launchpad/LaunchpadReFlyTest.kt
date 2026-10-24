@@ -139,7 +139,7 @@ class LaunchpadReFlyTest {
     private suspend fun landedSourceThenPending(): Pair<Sortie, Sortie> {
         settingsStore.setDefaultPattern("LL")
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         val first = sortieDao.getForMission(mission.id)[0]
         flightPlanDao.writePlan(first.id, liftPlan("Full Body A"))
@@ -157,7 +157,7 @@ class LaunchpadReFlyTest {
     private suspend fun pendingWithNothingLanded(): Sortie {
         settingsStore.setDefaultPattern("LL")
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
         val current = sortieDao.getForMission(mission.id)[0]
         assertEquals(SortieState.PENDING, current.state)
         return current

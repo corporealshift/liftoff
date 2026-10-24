@@ -79,7 +79,7 @@ class MissionManagerPlanTest {
     /** The week the fixture context describes: pattern RLRLR, five PENDING sorties. */
     private suspend fun confirmedWeek(): Mission {
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
         return mission
     }
 

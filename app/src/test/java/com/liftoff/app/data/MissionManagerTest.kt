@@ -165,8 +165,8 @@ class MissionManagerTest {
         manager.setPattern(mId, "RL")
         assertEquals("RL", missionDao.get(mId)!!.pattern)
 
-        // Confirm to make it ACTIVE.
-        manager.confirm(mId)
+        // Continue without an outline to make it ACTIVE.
+        manager.continueWithoutOutline(mId)
 
         try {
             manager.setPattern(mId, "RR")
@@ -226,7 +226,7 @@ class MissionManagerTest {
     @Test
     fun launchRecordsLaunchedAt() = runBlocking {
         val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.DRAFT)
-        manager.confirm(mId)
+        manager.continueWithoutOutline(mId)
 
         val sorties = sortieDao.getForMission(mId)
         assertEquals(SortieState.PLANNED, sorties[0].state)
@@ -339,7 +339,7 @@ class MissionManagerTest {
     @Test
     fun landAdvancesToNextSortie() = runBlocking {
         val mId = insertMission(LocalDate.of(2026, 1, 12), "RR", MissionStatus.DRAFT)
-        manager.confirm(mId) // creates sorties
+        manager.continueWithoutOutline(mId) // creates sorties
 
         val sorties = sortieDao.getForMission(mId)
         assertEquals(SortieType.RUN, sorties[0].type)
@@ -361,7 +361,7 @@ class MissionManagerTest {
     @Test
     fun landingLastSortieClosesMission() = runBlocking {
         val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.DRAFT)
-        manager.confirm(mId) // creates sortie
+        manager.continueWithoutOutline(mId) // creates sortie
         val sId = sortieDao.getForMission(mId)[0].id
 
         // Launch first so the sortie is IN_FLIGHT.
@@ -377,7 +377,7 @@ class MissionManagerTest {
     @Test
     fun scrubStoresReasonAndPreparesNextSortie() = runBlocking {
         val mId = insertMission(LocalDate.of(2026, 1, 12), "RR", MissionStatus.DRAFT)
-        manager.confirm(mId) // creates sorties
+        manager.continueWithoutOutline(mId) // creates sorties
 
         val sorties = sortieDao.getForMission(mId)
         assertEquals(SortieType.RUN, sorties[0].type)
@@ -435,7 +435,7 @@ class MissionManagerTest {
     @Test
     fun scrubbingLastSortieClosesMission() = runBlocking {
         val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.DRAFT)
-        manager.confirm(mId) // creates sortie
+        manager.continueWithoutOutline(mId) // creates sortie
         val sId = sortieDao.getForMission(mId)[0].id
 
         manager.scrub(sId, "weather")

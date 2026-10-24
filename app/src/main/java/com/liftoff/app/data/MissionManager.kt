@@ -98,6 +98,27 @@ class MissionManager(
     }
 
     /**
+     * Activate the current week's draft with no outline — the escape hatch DESIGN.md §4.2 draws out of DRAFT.
+     * This is what [confirm] does today; confirm is becoming the path that asks the coach for an outline first,
+     * so the week can be started without waiting for one.
+     */
+    suspend fun continueWithoutOutline(missionId: Long) {
+        val settings = settingsStore.settings.first()
+        db.withTransaction {
+            val weekStart = currentWeekOf(clock, zone)
+            val mission = db.missionDao().get(missionId)!!
+            check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
+                "Can only confirm the current week's draft"
+            }
+            val (activeMission, rawSorties) = confirmWithoutOutline(mission)
+            val sorties = rawSorties.map { it.copy(missionId = missionId) }
+            db.missionDao().update(activeMission)
+            db.sortieDao().insertAll(sorties)
+            advance(missionId, settings)
+        }
+    }
+
+    /**
      * Store a validated coach outline on a DRAFT Mission: activate it with its notes and with one sortie per
      * pattern letter, in the pattern's own order, each carrying the focus and rationale of the outline entry at
      * the same position; then advance, which is what makes sortie 1 current and prepares it (DESIGN.md §4.2).
