@@ -56,7 +56,7 @@ build's verdict read from the log plus an `EXIT=$?` sentinel and no pipe after t
   Done when: the name passes in a cold run, and it has been shown to bite — one mutation that removes or widens the
   status guard, named in the log by the failing method, then the implementation restored by copy before committing.
 
-- [ ] 3. The worker stores only a current result
+- [x] 3. The worker stores only a current result
   The guard at the moment of writing, in `storeFinishedTurn` (`work/GenerationWorker.kt`, 214-302). Inside one
   `database.withTransaction`, together with the store and `markSucceeded`, re-read the row and the newest
   non-cancelled generation for its sortie (`getNewestNonCancelledForSortie`) or for its Mission's outline
