@@ -81,7 +81,7 @@ build's verdict read from the log plus an `EXIT=$?` sentinel and no pipe after t
   Done when: the name passes in a cold run of `GenerationWorkerTest`, and the whole class ran with its 25 existing
   tests green — the guard's negative control is the happy-path tests, which store and must stay green.
 
-- [ ] 4. A superseded generation stores nothing, and the current one still stores
+- [x] 4. A superseded generation stores nothing, and the current one still stores
   The currency half of the guard, proven in the harness task 3 extended. Tests-only: the guard is already in
   `storeFinishedTurn`. Seed rows with `createdAt` values spaced out rather than leaning on the `id DESC` tie-break,
   and script two turns — one reply per prompt, since `nextTurn()` hands out the next turn per new prompt.
