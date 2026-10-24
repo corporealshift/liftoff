@@ -98,6 +98,35 @@ class MissionManagerTest {
         assertEquals(stored, missionDao.get(missionId)!!.pattern)
     }
 
+    /** One OUTLINE generation for [missionId], oldest in the table so any row the manager writes is the newer one. */
+    private suspend fun seedOutline(missionId: Long, status: GenerationStatus): Generation {
+        val id = db.generationDao().insert(Generation(
+            kind = GenerationKind.OUTLINE,
+            missionId = missionId,
+            status = status,
+            error = if (status == GenerationStatus.FAILED) "coach gave up" else null,
+            createdAt = 0L,
+            finishedAt = if (status == GenerationStatus.FAILED || status == GenerationStatus.SUCCEEDED) 1L else null
+        ))
+        return db.generationDao().get(id)!!
+    }
+
+    /** A Retry that must be refused, with the generation rows, the Mission and its sorties left exactly as they were. */
+    private suspend fun assertRetryRefused(missionId: Long, refusedAs: String) {
+        val rows = db.generationDao().getAll()
+        val mission = missionDao.get(missionId)!!
+        val sorties = sortieDao.getForMission(missionId)
+        try {
+            manager.retryOutline(missionId)
+            throw AssertionError("Should have refused a Retry $refusedAs")
+        } catch (expected: IllegalStateException) {
+            // Expected.
+        }
+        assertEquals(rows, db.generationDao().getAll())
+        assertEquals(mission, missionDao.get(missionId))
+        assertEquals(sorties, sortieDao.getForMission(missionId))
+    }
+
     // ── onAppOpen ────────────────────────────────────────────────────────
 
     @Test
@@ -247,6 +276,64 @@ class MissionManagerTest {
         db.generationDao().markFailed(generationId, error = "coach gave up", finishedAt = 1L)
         manager.setPattern(mId, "RLR")
         assertEquals("RLR", missionDao.get(mId)!!.pattern)
+    }
+
+    // ── retryOutline ───────────────────────────────────────────────────────────
+
+    @Test
+    fun retryOutlineRefusesUnlessTheDraftsNewestOutlineHasFailed() = runBlocking {
+        configureCoach()
+        val missionId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+
+        // Nothing has been asked for yet, so there is no failed outline to retry.
+        assertRetryRefused(missionId, "with no outline generation")
+
+        // The coach is still working on this draft's outline.
+        val queued = seedOutline(missionId, GenerationStatus.QUEUED)
+        assertRetryRefused(missionId, "while the newest outline is still QUEUED")
+        db.generationDao().delete(queued)
+
+        // A SUCCEEDED outline is not a failure: the draft waits on the owner, not on a retry.
+        val succeeded = seedOutline(missionId, GenerationStatus.SUCCEEDED)
+        assertRetryRefused(missionId, "while the newest outline has SUCCEEDED")
+        db.generationDao().delete(succeeded)
+
+        // With no host or token the answer is the outcome confirm gives rather than a throw, and nothing is written.
+        val failed = seedOutline(missionId, GenerationStatus.FAILED)
+        for ((host, token) in listOf("" to "t0ken", "coach.local" to "", "   " to "   ")) {
+            configureCoach(host, token)
+            assertEquals(ConfirmOutcome.CoachNotConfigured, manager.retryOutline(missionId))
+        }
+        assertEquals(listOf(failed), db.generationDao().getAll())
+        assertEquals(MissionStatus.DRAFT, missionDao.get(missionId)!!.status)
+
+        configureCoach()
+        val retried = manager.retryOutline(missionId) as ConfirmOutcome.Queued
+        val newest = db.generationDao().getNewestNonCancelledOutlineForMission(missionId)!!
+        assertEquals(retried.generationId, newest.id)
+        assertEquals(GenerationKind.OUTLINE, newest.kind)
+        assertEquals(GenerationStatus.QUEUED, newest.status)
+        assertNull(newest.sortieId)
+        assertEquals(MissionStatus.DRAFT, missionDao.get(missionId)!!.status)
+        assertEquals(0, sortieDao.getForMission(missionId).size)
+        // The row that failed keeps its status and the reason it failed for.
+        val kept = db.generationDao().get(failed.id)!!
+        assertEquals(GenerationStatus.FAILED, kept.status)
+        assertEquals("coach gave up", kept.error)
+
+        // The new row is the newest non-cancelled outline, so a second Retry refuses until this one finishes.
+        assertRetryRefused(missionId, "while the newest outline is still QUEUED")
+
+        // Last week's draft is not this week's, whatever its outline did.
+        val pastId = insertMission(LocalDate.of(2026, 1, 5), "RL", MissionStatus.DRAFT)
+        seedOutline(pastId, GenerationStatus.FAILED)
+        assertRetryRefused(pastId, "on last week's draft, 2026-01-05")
+
+        // A week that has been started is no longer a draft, even with a FAILED outline behind it.
+        for (row in db.generationDao().getAll()) db.generationDao().delete(row)
+        seedOutline(missionId, GenerationStatus.FAILED)
+        assertEquals(emptyList<Long>(), manager.continueWithoutOutline(missionId))
+        assertRetryRefused(missionId, "on an ACTIVE mission")
     }
 
     // ── continue without outline ───────────────────────────────────────────────

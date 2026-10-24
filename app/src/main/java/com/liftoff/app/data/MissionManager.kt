@@ -135,6 +135,40 @@ class MissionManager(
     }
 
     /**
+     * Ask Mission Control for the week's outline again after the newest one FAILED (DESIGN.md §4.2: the Mission
+     * stays a draft with an error and a retry). Same configured check and same QUEUED OUTLINE row as [confirm],
+     * and the same refusal shape: anything else — a week that isn't the current draft, or an outline that was
+     * never asked for, is still open, or already succeeded — is an [IllegalStateException]. The new row is now
+     * the mission's newest non-cancelled outline, so a second Retry refuses until this one finishes.
+     */
+    suspend fun retryOutline(missionId: Long): ConfirmOutcome {
+        val settings = settingsStore.settings.first()
+        if (!coachIsConfigured(settings.daemonHost, settings.daemonToken)) {
+            return ConfirmOutcome.CoachNotConfigured
+        }
+        return db.withTransaction {
+            val weekStart = currentWeekOf(clock, zone)
+            val mission = db.missionDao().get(missionId)!!
+            check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
+                "Can only retry the outline for the current week's draft"
+            }
+            val newest = db.generationDao().getNewestNonCancelledOutlineForMission(missionId)
+            check(newest != null && newest.status == GenerationStatus.FAILED) {
+                "The outline can only be retried after the newest one has failed"
+            }
+            val generationId = db.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.OUTLINE,
+                    missionId = missionId,
+                    status = GenerationStatus.QUEUED,
+                    createdAt = clock.millis(),
+                )
+            )
+            ConfirmOutcome.Queued(generationId)
+        }
+    }
+
+    /**
      * Activate the current week's draft with no outline — the escape hatch DESIGN.md §4.2 draws out of DRAFT, and
      * what [confirm] did until the coach was asked for an outline. Returns the ids of the mission's outline
      * generations that were still open, read in this transaction, for the caller to cancel.
