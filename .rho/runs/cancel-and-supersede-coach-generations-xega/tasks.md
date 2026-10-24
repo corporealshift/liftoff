@@ -40,7 +40,7 @@ build's verdict read from the log plus an `EXIT=$?` sentinel and no pipe after t
   Done when: a cold run (`--no-build-cache`) of the new class shows both names passing, and
   `GenerationEnqueuerTest` and `AppContainerTest` ran with everything in them green.
 
-- [ ] 2. A cancel does not touch a generation that already finished
+- [x] 2. A cancel does not touch a generation that already finished
   Proves the brief's "does nothing to a row that is already SUCCEEDED, FAILED or CANCELLED" clause against the
   helper and harness task 1 built, in `GenerationCancellerTest.kt`. Seed one SUCCEEDED row whose result was
   genuinely stored (its outline or Flight Plan is on the mission) and one FAILED row carrying an error, both with
