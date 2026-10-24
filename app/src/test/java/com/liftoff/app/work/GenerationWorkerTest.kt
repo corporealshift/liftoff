@@ -5,6 +5,7 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
+import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import com.liftoff.app.LiftoffApplication
 import com.liftoff.app.coach.CoachFixtures
@@ -27,6 +28,9 @@ import com.liftoff.app.rho.protocol.RhoJson
 import com.liftoff.app.rho.protocol.RpcCodes
 import java.net.InetAddress
 import java.net.ServerSocket
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
@@ -1320,6 +1324,63 @@ class GenerationWorkerTest {
         assertEquals(Generation.COACH_OFFLINE, waiting.error)
         assertTrue("the 7th attempt is not offline", waiting.isCoachOffline)
         assertNull("the 7th attempt stamped a row that is still waiting", waiting.finishedAt)
+    }
+
+    /**
+     * cancelled mid-turn: the scripted reply carries no end state, so the fake's turn stays open until the
+     * cancel helper's `rho.session.stop` pushes the `completed` state_change that ends it. The worker reaches
+     * its store holding a valid outline over a row that is already CANCELLED, and must store nothing, leave
+     * the row CANCELLED, and return success so WorkManager is not asked to retry a row it may never write.
+     * No stop-frame count is asserted here: the helper's stop and the worker's own are both on the wire.
+     */
+    @Test
+    fun aWorkerWhoseGenerationWasCancelledMidTurnStoresNothingAndEndsAsDone() {
+        // The helper cancels this generation's WorkManager work as well as its row, so this case needs
+        // WorkManager up; every other case here builds its worker directly and never asks for it.
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        try {
+            daemon.script(DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)))
+
+            val mission = runBlocking { container.missionManager.onAppOpen() }
+            val generationId = insertOutlineGeneration(mission.id)
+
+            val worker = TestListenableWorkerBuilder<GenerationWorker>(context)
+                .setInputData(workDataOf(GenerationWorker.GENERATION_ID to generationId))
+                .build()
+
+            val result = runBlocking {
+                withTimeout(turnWait) {
+                    val running = async(Dispatchers.IO) { worker.doWork() }
+                    // The helper stops only a session the row already carries, and the worker saves that id
+                    // from its own write coroutine, so the prompt frame alone can arrive before there is a
+                    // session for the helper to stop.
+                    while (daemon.framesFor("rho.session.send_prompt").isEmpty() ||
+                        container.database.generationDao().get(generationId)?.nabuSessionId == null
+                    ) {
+                        delay(20)
+                    }
+                    container.generationCanceller().cancel(generationId)
+                    running.await()
+                }
+            }
+
+            assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+            val row = runBlocking { container.database.generationDao().get(generationId) }!!
+            assertEquals(GenerationStatus.CANCELLED, row.status)
+            assertNotNull("a generation cancelled mid-turn lost its finishedAt stamp", row.finishedAt)
+            assertEquals("the row was cancelled while its turn was still going", daemon.sessionId, row.nabuSessionId)
+
+            val leftMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+            assertEquals("the cancelled generation stored its outline anyway", MissionStatus.DRAFT, leftMission.status)
+            assertEquals(
+                "the cancelled generation wrote sorties anyway",
+                emptyList<Any>(),
+                runBlocking { container.database.sortieDao().getForMission(mission.id) },
+            )
+        } finally {
+            WorkManagerTestInitHelper.closeWorkDatabase()
+        }
     }
 
     /**
