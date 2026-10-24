@@ -10,6 +10,7 @@ import com.liftoff.app.rho.DaemonConnectionCheck
 import com.liftoff.app.rho.net.DaemonClient
 import com.liftoff.app.settings.Settings
 import com.liftoff.app.settings.SettingsStore
+import com.liftoff.app.work.GenerationCanceller
 import com.liftoff.app.work.GenerationEnqueuer
 import kotlinx.coroutines.flow.first
 
@@ -37,6 +38,17 @@ class AppContainer(context: Context) {
      */
     fun generationEnqueuer(): GenerationEnqueuer =
         GenerationEnqueuer(WorkManager.getInstance(appContext))
+
+    /**
+     * The helper that cancels one generation — its work, its row, and the session the row was on. Built per
+     * call like the enqueuer, and the daemon client is asked for at stop time because [daemonClient] is suspend.
+     */
+    fun generationCanceller(): GenerationCanceller =
+        GenerationCanceller(
+            workManager = WorkManager.getInstance(appContext),
+            database = database,
+            openClient = { daemonClient() },
+        )
 
     /**
      * The daemon's settings, host and token trimmed, read at the moment a caller asks so a settings

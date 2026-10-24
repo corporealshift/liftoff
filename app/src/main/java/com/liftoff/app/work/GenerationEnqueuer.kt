@@ -32,6 +32,10 @@ class GenerationEnqueuer(private val workManager: WorkManager) {
         workManager.enqueueUniqueWork(uniqueName(generationId), ExistingWorkPolicy.KEEP, request)
         return request
     }
-
-    private fun uniqueName(generationId: Long) = "gen-$generationId"
 }
+
+/**
+ * The name one generation's work lives under. Spelled once, outside either helper, so the enqueuer and
+ * [GenerationCanceller] cannot end up naming two different pieces of work for the same generation.
+ */
+internal fun uniqueName(generationId: Long) = "gen-$generationId"
