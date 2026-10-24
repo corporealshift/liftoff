@@ -8,11 +8,14 @@ import androidx.work.WorkManager
 import androidx.work.await
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.liftoff.app.LiftoffApplication
+import com.liftoff.app.coach.CoachFixtures
+import com.liftoff.app.coach.CoachOutline
 import com.liftoff.app.data.Generation
 import com.liftoff.app.data.GenerationKind
 import com.liftoff.app.data.GenerationStatus
 import com.liftoff.app.data.Mission
 import com.liftoff.app.data.MissionStatus
+import com.liftoff.app.data.StoreOutcome
 import com.liftoff.app.rho.FakeDaemon
 import com.liftoff.app.rho.net.Rpc
 import com.liftoff.app.rho.protocol.RhoJson
@@ -152,6 +155,78 @@ class GenerationCancellerTest {
         assertNothingStored(mission)
     }
 
+    /**
+     * The brief's "does nothing to a row that is already SUCCEEDED, FAILED or CANCELLED": a SUCCEEDED outline
+     * generation whose outline really is on the Mission, and a Flight Plan generation that failed with the reason
+     * its own worker wrote, are both cancelled through the helper. Each row still reads exactly as it was seeded —
+     * status, `finishedAt`, `error` and session id alike — the Mission still holds the outline that generation
+     * stored and still names it as the Mission's readable outline, and no `rho.session.stop` reached the fake at
+     * all: a generation that is over does not hand its session back. Whether leftover work is also cancelled for a
+     * finished id is deliberately not asserted here; what must not move is the row and its stored result.
+     */
+    @Test
+    fun cancellingAGenerationThatAlreadyFinishedLeavesTheRowAndItsStoredResultAlone() {
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val reply = CoachFixtures.validReply(CoachFixtures.OUTLINE, CoachFixtures.OUTLINE_CONTEXT)
+        assertEquals(
+            "the outline has to be genuinely stored for this to be a generation that finished",
+            StoreOutcome.Stored,
+            runBlocking { container.missionManager.storeOutline(mission.id, reply) },
+        )
+
+        val succeeded = seedFinishedGeneration(
+            Generation(
+                kind = GenerationKind.OUTLINE,
+                missionId = mission.id,
+                status = GenerationStatus.SUCCEEDED,
+                nabuSessionId = daemon.sessionId,
+                lastEventId = "01E000000000000000000000007",
+                attempt = 1,
+                error = "left there by the attempt that finished it",
+                createdAt = SEEDED_CREATED_AT,
+                finishedAt = SEEDED_FINISHED_AT,
+            ),
+        )
+        val failed = seedFinishedGeneration(
+            Generation(
+                kind = GenerationKind.FLIGHT_PLAN,
+                missionId = mission.id,
+                sortieId = firstSortieId(mission),
+                status = GenerationStatus.FAILED,
+                nabuSessionId = daemon.sessionId,
+                lastEventId = "01E000000000000000000000011",
+                error = "coach needed input",
+                createdAt = SEEDED_CREATED_AT,
+                finishedAt = SEEDED_FINISHED_AT,
+            ),
+        )
+
+        cancel(succeeded.id)
+        cancel(failed.id)
+
+        assertReadsAsSeeded(succeeded)
+        assertReadsAsSeeded(failed)
+
+        val stored = readBounded { container.database.missionDao().get(mission.id) }!!
+        assertEquals("the cancel took this Mission out of the state its stored outline put it in", MissionStatus.ACTIVE, stored.status)
+        assertEquals(
+            "the cancel erased the outline this generation stored",
+            (reply.plan as CoachOutline).notes,
+            stored.outlineNotes,
+        )
+        assertEquals(
+            "the stored outline generation is no longer the Mission's readable one",
+            succeeded.id,
+            readBounded { container.database.generationDao().getNewestNonCancelledOutlineForMission(mission.id) }?.id,
+        )
+
+        assertEquals(
+            "a finished generation handed its session back: ${daemon.framesFor("rho.session.stop")}",
+            emptyList<Any>(),
+            daemon.framesFor("rho.session.stop"),
+        )
+    }
+
     /** A QUEUED outline row over [mission], carrying [sessionId] as the session its worker opened. */
     private fun seedQueuedGeneration(mission: Mission, sessionId: String): Long = runBlocking {
         container.database.generationDao().insert(
@@ -164,6 +239,31 @@ class GenerationCancellerTest {
             ),
         )
     }
+
+    /**
+     * [row] as the table holds it, id included, so [assertReadsAsSeeded] means "nothing changed this row" rather
+     * than "Room reads it back differently".
+     */
+    private fun seedFinishedGeneration(row: Generation): Generation = runBlocking {
+        val id = container.database.generationDao().insert(row)
+        val seeded = row.copy(id = id)
+        assertEquals("generation $id was not held as it was given", seeded, container.database.generationDao().get(id))
+        seeded
+    }
+
+    /** [seeded] is still the row the table holds, column by column, so a cancel that reached it names the column. */
+    private fun assertReadsAsSeeded(seeded: Generation) {
+        val row = readGeneration(seeded.id)
+        assertEquals("generation ${seeded.id} was marked CANCELLED", seeded.status, row.status)
+        assertEquals("generation ${seeded.id} had its finishedAt re-stamped", seeded.finishedAt, row.finishedAt)
+        assertEquals("generation ${seeded.id} had its error written over", seeded.error, row.error)
+        assertEquals("generation ${seeded.id} had its session id written over", seeded.nabuSessionId, row.nabuSessionId)
+        assertEquals("generation ${seeded.id} no longer reads as it was seeded", seeded, row)
+    }
+
+    /** The Mission's first sortie, which is the one a Flight Plan generation would have been asked for. */
+    private fun firstSortieId(mission: Mission): Long =
+        readBounded { container.database.sortieDao().getForMission(mission.id) }.first().id
 
     private fun cancel(generationId: Long) = runBlocking {
         withTimeout(cancelWait) { container.generationCanceller().cancel(generationId) }
@@ -225,5 +325,9 @@ class GenerationCancellerTest {
 
         /** Every wait in this class is bounded, so a stuck read or a stuck stop fails rather than eating the build's timeout. */
         const val READ_BOUND_MILLIS = 5
+
+        /** A finished row's own timestamps, so a re-stamp is a difference rather than a slightly later number. */
+        const val SEEDED_CREATED_AT = 1_760_000_000_000L
+        const val SEEDED_FINISHED_AT = 1_760_000_600_000L
     }
 }
