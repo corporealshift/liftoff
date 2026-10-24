@@ -1384,6 +1384,132 @@ class GenerationWorkerTest {
     }
 
     /**
+     * superseded Flight Plan: two FLIGHT_PLAN rows on one sortie, and the older one asked to run first. Its turn
+     * ends with a valid plan in hand, but this sortie is waiting for a newer generation, so it stores nothing —
+     * the sortie is still PENDING with no plan — its row turns CANCELLED by running, and it returns success so
+     * WorkManager does not keep asking the coach for a plan nobody wants. The newer row then runs on the same
+     * sortie and stores its plan as any happy path does. The superseded row is inserted second, so it is the
+     * newest id and the older generation: what makes it superseded is its `createdAt`, not the DAO's id
+     * tie-break.
+     */
+    @Test
+    fun aSupersededFlightPlanGenerationStoresNothingAndTheNewerGenerationStillStoresItsPlan() {
+        // One reply per prompt: the fake hands out the next turn for each new prompt it takes.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.LIFT_PLAN)),
+            DaemonScript.State("idle"),
+        )
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.LIFT_PLAN)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        runBlocking { container.missionManager.confirm(mission.id) }
+        val scrubbed = sortieAt(mission.id, 0)
+        assertEquals(SortieType.RUN, scrubbed.type)
+        runBlocking { container.missionManager.scrub(scrubbed.id) }
+
+        val lift = sortieAt(mission.id, 1)
+        assertAwaitingGeneration(lift)
+
+        val seededAt = System.currentTimeMillis()
+        val currentId = insertFlightPlanGeneration(mission.id, lift.id, seededAt)
+        val supersededId = insertFlightPlanGeneration(mission.id, lift.id, seededAt - SUPERSEDED_BY)
+        assertTrue("the superseded row is also the newest id: $currentId, $supersededId", supersededId > currentId)
+
+        val superseded = runWorker(supersededId)
+        assertTrue("doWork() returned $superseded", superseded is ListenableWorker.Result.Success)
+
+        // It ran its turn and reached the store with a valid reply; only the currency check stopped it.
+        assertEquals("the superseded generation never reached its turn", 1, daemon.framesFor("rho.session.send_prompt").size)
+        val supersededRow = runBlocking { container.database.generationDao().get(supersededId) }!!
+        assertEquals(GenerationStatus.CANCELLED, supersededRow.status)
+        assertNotNull("a superseded row was left without a finishedAt stamp", supersededRow.finishedAt)
+        assertEquals("the superseded row lost the session its turn ran on", daemon.sessionId, supersededRow.nabuSessionId)
+
+        assertAwaitingGeneration(lift)
+        assertEquals(
+            "the superseded generation wrote over the generation that replaced it",
+            GenerationStatus.QUEUED,
+            runBlocking { container.database.generationDao().get(currentId) }!!.status,
+        )
+
+        val result = runWorker(currentId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+        assertStoredGeneratedPlan(currentId, lift.id)
+        assertEquals("the current generation was answered with $supersededId's turn", 2, daemon.framesFor("rho.session.send_prompt").size)
+    }
+
+    /**
+     * superseded outline: the same for two OUTLINE rows on one Mission, with no sortie anywhere. The older row
+     * runs first, stores nothing — the Mission is left the DRAFT with no sorties it was — and reads CANCELLED
+     * with Result.Success; the newer row then stores its outline and reads SUCCEEDED.
+     */
+    @Test
+    fun aSupersededOutlineGenerationStoresNothingAndTheNewerGenerationStillStoresItsOutline() {
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        assertEquals("this starts from a DRAFT with no sorties", MissionStatus.DRAFT, runBlocking { container.database.missionDao().get(mission.id) }!!.status)
+        assertEquals(emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
+
+        val seededAt = System.currentTimeMillis()
+        val currentId = insertOutlineGeneration(mission.id, seededAt)
+        val supersededId = insertOutlineGeneration(mission.id, seededAt - SUPERSEDED_BY)
+        assertTrue("the superseded row is also the newest id: $currentId, $supersededId", supersededId > currentId)
+
+        val superseded = runWorker(supersededId)
+        assertTrue("doWork() returned $superseded", superseded is ListenableWorker.Result.Success)
+
+        assertEquals("the superseded generation never reached its turn", 1, daemon.framesFor("rho.session.send_prompt").size)
+        val supersededRow = runBlocking { container.database.generationDao().get(supersededId) }!!
+        assertEquals(GenerationStatus.CANCELLED, supersededRow.status)
+        assertNotNull("a superseded row was left without a finishedAt stamp", supersededRow.finishedAt)
+        assertEquals("the superseded row lost the session its turn ran on", daemon.sessionId, supersededRow.nabuSessionId)
+
+        assertEquals(
+            "the superseded outline stored itself onto its Mission",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertEquals(
+            "the superseded outline wrote sorties anyway",
+            emptyList<Any>(),
+            runBlocking { container.database.sortieDao().getForMission(mission.id) },
+        )
+        assertEquals(
+            "the superseded generation wrote over the generation that replaced it",
+            GenerationStatus.QUEUED,
+            runBlocking { container.database.generationDao().get(currentId) }!!.status,
+        )
+
+        val result = runWorker(currentId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(currentId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertEquals(GenerationKind.OUTLINE, row.kind)
+        assertNull("an outline row carried a sortie", row.sortieId)
+        assertNotNull(row.finishedAt)
+
+        val storedMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+        assertEquals("the newer outline stored nothing", MissionStatus.ACTIVE, storedMission.status)
+        assertNotNull(
+            "the newer outline left no current sortie",
+            currentSortie(runBlocking { container.database.sortieDao().getForMission(mission.id) }),
+        )
+        assertEquals("the current generation was answered with $supersededId's turn", 2, daemon.framesFor("rho.session.send_prompt").size)
+    }
+
+    /**
      * Points the settings the container reads at a loopback port nothing is listening on: a socket opened on a
      * free port and closed again, so the check is refused rather than waiting out its own 5-second connect
      * timeout. The host is the loopback address the socket was bound to, so the refusal is the port's own.
@@ -1417,26 +1543,30 @@ class GenerationWorkerTest {
     private fun sortieAt(missionId: Long, index: Int): Sortie =
         runBlocking { container.database.sortieDao().getForMission(missionId).single { it.index == index } }
 
-    private fun insertFlightPlanGeneration(missionId: Long, sortieId: Long): Long = runBlocking {
+    private fun insertFlightPlanGeneration(
+        missionId: Long,
+        sortieId: Long,
+        createdAt: Long = System.currentTimeMillis(),
+    ): Long = runBlocking {
         container.database.generationDao().insert(
             Generation(
                 kind = GenerationKind.FLIGHT_PLAN,
                 missionId = missionId,
                 sortieId = sortieId,
                 status = GenerationStatus.QUEUED,
-                createdAt = System.currentTimeMillis(),
+                createdAt = createdAt,
             ),
         )
     }
 
     /** A QUEUED outline row over [missionId]: what every case that never reaches a turn is asked about. */
-    private fun insertOutlineGeneration(missionId: Long): Long = runBlocking {
+    private fun insertOutlineGeneration(missionId: Long, createdAt: Long = System.currentTimeMillis()): Long = runBlocking {
         container.database.generationDao().insert(
             Generation(
                 kind = GenerationKind.OUTLINE,
                 missionId = missionId,
                 status = GenerationStatus.QUEUED,
-                createdAt = System.currentTimeMillis(),
+                createdAt = createdAt,
             ),
         )
     }
@@ -1455,8 +1585,8 @@ class GenerationWorkerTest {
         assertNull("the app already wrote a plan on this sortie", runBlocking { container.database.flightPlanDao().getPlan(sortie.id) })
     }
 
-    /** The row's end state, the sortie it planned, the plan it stored, and the labels it asked the session with. */
-    private fun assertPlannedWithAGeneratedPlan(generationId: Long, sortieId: Long) {
+    /** The row's end state, the sortie it planned, and the plan it stored — with no claim about the frames. */
+    private fun assertStoredGeneratedPlan(generationId: Long, sortieId: Long) {
         val row = runBlocking { container.database.generationDao().get(generationId) }!!
         assertEquals(GenerationStatus.SUCCEEDED, row.status)
         assertEquals(GenerationKind.FLIGHT_PLAN, row.kind)
@@ -1467,6 +1597,11 @@ class GenerationWorkerTest {
         val plan = runBlocking { container.database.flightPlanDao().getPlan(sortieId) }
         assertNotNull("no FlightPlan was stored on sortie $sortieId", plan)
         assertEquals(FlightPlanSource.GENERATED, plan!!.plan.source)
+    }
+
+    /** The row's end state, the sortie it planned, the plan it stored, and the labels it asked the session with. */
+    private fun assertPlannedWithAGeneratedPlan(generationId: Long, sortieId: Long) {
+        assertStoredGeneratedPlan(generationId, sortieId)
 
         val labels = frameFor("rho.session.create").jsonObject("options")["labels"]?.jsonArray?.map { it.jsonPrimitive.content }
         assertEquals(listOf("liftoff", "liftoff:flight-plan"), labels)
@@ -1596,5 +1731,8 @@ class GenerationWorkerTest {
         // A finished row's own stamps, fixed so the test can tell them from anything the worker wrote.
         const val SEEDED_CREATED_AT = 1_760_000_000_000L
         const val SEEDED_FINISHED_AT = 1_760_000_600_000L
+        // How far apart a superseded generation and the one that replaced it are seeded, so which of two rows
+        // for one target is current is decided by createdAt and not by the DAO's id tie-break.
+        const val SUPERSEDED_BY = 3_600_000L
     }
 }
