@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Landing and scrubbing driven through the In-Flight view model against in-memory Room, on a
- * Mission the app itself created: confirm an RLRLR week, land the first run, then launch sortie 1
+ * Mission the app itself created: continue an RLRLR week without an outline, land the first run, then launch sortie 1
  * on a seeded lift plan. The manager carries a fixed clock so a landed time is a known number.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -89,10 +89,10 @@ class InFlightLandScrubTest {
 
     // ── Fixture ──────────────────────────────────────────────────────
 
-    /** onAppOpen + confirm on the default RLRLR pattern; sortie 0 is a PLANNED run. */
+    /** onAppOpen + continueWithoutOutline on the default RLRLR pattern; sortie 0 is a PLANNED run. */
     private suspend fun seedMission(): Mission {
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
         return missionDao.get(mission.id)!!
     }
 

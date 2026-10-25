@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -28,9 +29,10 @@ import java.time.Instant
 import java.time.ZoneOffset
 
 /**
- * What the draft state renders for its −/+ controls, through LaunchpadContent on a view model built
- * on in-memory Room: AppContainer is what opens an on-disk liftoff.db, so the screen body is rendered
- * apart from it. No Dialog and no text field anywhere.
+ * What the draft state renders for its controls: the −/+ stepper, the way out under Confirm, and the
+ * line a Confirm leaves when Mission Control has no host and token — through LaunchpadContent on a view
+ * model built on in-memory Room. AppContainer is what opens an on-disk liftoff.db, so the screen body is
+ * rendered apart from it. No Dialog and no text field anywhere.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w411dp-h2000dp")
@@ -78,7 +80,14 @@ class LaunchpadDraftControlsTest {
     private suspend fun draft(pattern: String): LaunchpadViewModel {
         settingsStore.setDefaultPattern(pattern)
         manager.onAppOpen()
-        return LaunchpadViewModel(db, manager, scope)
+        // No generation is queued or cancelled by anything this class drives, so both helpers are no-ops.
+        return LaunchpadViewModel(
+            db = db,
+            manager = manager,
+            scope = scope,
+            queueGeneration = { },
+            cancelGeneration = { },
+        )
     }
 
     // draftDrawsOneStepperPair — the draft draws its −/+ pair once, in the bottom bar beside the
@@ -147,5 +156,64 @@ class LaunchpadDraftControlsTest {
         composeRule.onNodeWithText("\u2212").assertIsEnabled()
         // The rest of the bar is untouched: Confirm still sits below the stepper.
         composeRule.onNodeWithText("CONFIRM").assertIsDisplayed()
+    }
+
+    // draftAlwaysOffersContinueWithoutOutline — the draft's way out is drawn under Confirm and is
+    // tappable with nothing set up behind it: no message, no Mission Control. Tapping it runs the
+    // continue-without-outline action, which is the only thing here that takes a draft out of being a
+    // draft — the week starts from the pattern it already holds, so Confirm and the stepper are gone.
+    @Test
+    fun draftAlwaysOffersContinueWithoutOutline() {
+        val viewModel = runBlocking { draft("RLRLR") }
+
+        composeRule.setContent {
+            LiftoffTheme {
+                LaunchpadContent(viewModel = viewModel, onOpenInFlight = {})
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("5 sorties").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithText("CONTINUE WITHOUT OUTLINE").assertIsDisplayed()
+        composeRule.onNodeWithText("CONTINUE WITHOUT OUTLINE").assertIsEnabled()
+        composeRule.onNodeWithText("CONFIRM").assertIsDisplayed()
+
+        composeRule.onNodeWithText("CONTINUE WITHOUT OUTLINE").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("LAUNCH").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("CONFIRM").assertDoesNotExist()
+        composeRule.onNodeWithText("5 sorties").assertDoesNotExist()
+    }
+
+    // draftShowsTheNotConfiguredMessageWhenItIsSet — the draft draws the line a Confirm left when
+    // Mission Control has no host and token, and draws no such line while nothing has gone wrong. The
+    // settings this class builds leave both blank, so a Confirm is the manager's CoachNotConfigured.
+    @Test
+    fun draftShowsTheNotConfiguredMessageWhenItIsSet() {
+        val viewModel = runBlocking { draft("RLRLR") }
+
+        composeRule.setContent {
+            LiftoffTheme {
+                LaunchpadContent(viewModel = viewModel, onOpenInFlight = {})
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("5 sorties").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onAllNodesWithText(NOT_CONFIGURED_MESSAGE).assertCountEquals(0)
+
+        val queued = viewModel.confirm()
+        runBlocking { withTimeout(5_000L) { queued?.join() } }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText(NOT_CONFIGURED_MESSAGE).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText(NOT_CONFIGURED_MESSAGE).assertIsDisplayed()
     }
 }

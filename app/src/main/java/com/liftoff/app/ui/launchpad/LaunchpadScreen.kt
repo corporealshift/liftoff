@@ -31,6 +31,7 @@ import com.liftoff.app.ui.sortie.FlightPlanSection
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatWeekDate
 import com.liftoff.app.ui.theme.*
+import kotlinx.coroutines.CoroutineScope
 
 @Composable
 fun LaunchpadScreen(
@@ -38,11 +39,23 @@ fun LaunchpadScreen(
     onOpenInFlight: (Long) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(container) {
-        LaunchpadViewModel(container.database, container.missionManager, scope)
-    }
+    val viewModel = remember(container) { launchpadViewModel(container, scope) }
     LaunchpadContent(viewModel = viewModel, onOpenInFlight = onOpenInFlight)
 }
+
+/**
+ * The view model the screen builds, apart from the composable so a test can build the same one. Lambdas,
+ * not `::enqueue`: the container asks WorkManager for itself, and a bound reference would ask every time
+ * the screen composes — including in the shell tests, which never queue anything and initialize no WorkManager.
+ */
+internal fun launchpadViewModel(container: AppContainer, scope: CoroutineScope): LaunchpadViewModel =
+    LaunchpadViewModel(
+        db = container.database,
+        manager = container.missionManager,
+        scope = scope,
+        queueGeneration = { id -> container.generationEnqueuer().enqueue(id) },
+        cancelGeneration = { id -> container.generationCanceller().cancel(id) },
+    )
 
 /** The screen body, apart from AppContainer so a test can render it on its own view model. */
 @Composable
@@ -79,6 +92,7 @@ internal fun LaunchpadContent(
                 onAddChip = { viewModel.addChip() },
                 onRemoveChip = { viewModel.removeChip() },
                 onConfirm = { viewModel.confirm() },
+                onContinueWithoutOutline = { viewModel.continueWithoutOutline() },
                 onLaunch = { viewModel.launch(onOpenInFlight) },
                 onRequestScrub = { viewModel.requestScrub() },
                 onRefly = { viewModel.refly() },
@@ -121,6 +135,17 @@ private fun DraftContent(draft: LaunchpadState.Draft, viewModel: LaunchpadViewMo
         pattern = draft.pattern,
         onToggle = { viewModel.toggleChip(it) },
     )
+
+    // Only a Confirm or Retry that found no host and token leaves a message, and the next attempt clears
+    // it, so the line is absent whenever nothing has gone wrong.
+    val message = viewModel.notConfiguredMessage
+    if (message != null) {
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = message,
+            style = LiftoffType.note().copy(color = Muted),
+        )
+    }
 
     Spacer(Modifier.height(20.dp))
 }
@@ -179,6 +204,7 @@ private fun ActionButtons(
     onAddChip: () -> Unit,
     onRemoveChip: () -> Unit,
     onConfirm: () -> Unit,
+    onContinueWithoutOutline: () -> Unit,
     onLaunch: () -> Unit,
     onRequestScrub: () -> Unit,
     onRefly: () -> Unit,
@@ -190,7 +216,14 @@ private fun ActionButtons(
             .padding(bottom = 14.dp),
     ) {
         when (state) {
-            is LaunchpadState.Draft -> DraftActions(state, onToggleChip, onAddChip, onRemoveChip, onConfirm)
+            is LaunchpadState.Draft -> DraftActions(
+                state,
+                onToggleChip,
+                onAddChip,
+                onRemoveChip,
+                onConfirm,
+                onContinueWithoutOutline,
+            )
             is LaunchpadState.Planned -> PlannedActions(onLaunch, onRequestScrub)
             is LaunchpadState.Pending -> PendingActions(state, onRequestScrub, onRefly)
             is LaunchpadState.InFlight -> InFlightActions(onLaunch)
@@ -207,6 +240,7 @@ private fun DraftActions(
     onAddChip: () -> Unit,
     onRemoveChip: () -> Unit,
     onConfirm: () -> Unit,
+    onContinueWithoutOutline: () -> Unit,
 ) {
     val count = draft.pattern.length
     Row(
@@ -233,6 +267,10 @@ private fun DraftActions(
     }
     Spacer(Modifier.height(12.dp))
     PrimaryButton(text = "Confirm", onClick = onConfirm)
+    // The way out is on every draft, configured coach or not, so an outline that never finishes
+    // cannot strand the week.
+    Spacer(Modifier.height(12.dp))
+    UnderlinedTextButton(text = "Continue without outline", onClick = onContinueWithoutOutline)
 }
 
 // InkButton has no enabled parameter and ui.theme is out of scope for this brief, so the draft's

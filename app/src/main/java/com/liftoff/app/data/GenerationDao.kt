@@ -1,6 +1,7 @@
 package com.liftoff.app.data
 
 import androidx.room.*
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface GenerationDao {
@@ -74,4 +75,19 @@ interface GenerationDao {
             "ORDER BY createdAt DESC, id DESC LIMIT 1"
     )
     suspend fun getNewestNonCancelledOutlineForMission(missionId: Long): Generation?
+
+    // The draft's live read of that same row, so a status the worker changes shows up without a re-subscribe.
+    @Query(
+        "SELECT * FROM generation WHERE missionId = :missionId AND kind = 'OUTLINE' AND status != 'CANCELLED' " +
+            "ORDER BY createdAt DESC, id DESC LIMIT 1"
+    )
+    fun observeNewestNonCancelledOutlineForMission(missionId: Long): Flow<Generation?>
+
+    // The outline generations still waiting on the coach, newest first: what 'continue without outline' hands back
+    // so the caller can cancel each one, and what freezes the pattern.
+    @Query(
+        "SELECT * FROM generation WHERE missionId = :missionId AND kind = 'OUTLINE' " +
+            "AND status IN ('QUEUED', 'RUNNING') ORDER BY createdAt DESC, id DESC"
+    )
+    suspend fun getOpenOutlineForMission(missionId: Long): List<Generation>
 }

@@ -162,12 +162,12 @@ class LaunchpadStatesTest {
     }
 
     // ── Planned (run) ──────────────────────────────────────────────────
-    // confirm() updates mission status to ACTIVE and inserts sorties, triggering observeWeek.
+    // continueWithoutOutline() updates mission status to ACTIVE and inserts sorties, triggering observeWeek.
 
     @Test
     fun plannedRunAfterConfirm() = runBlocking {
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         val state = states.observe().first { it is LaunchpadState.Planned } as LaunchpadState.Planned
         assertEquals(0, state.sortieIndex)
@@ -184,7 +184,7 @@ class LaunchpadStatesTest {
     fun pendingAfterScrub() = runBlocking {
         settingsStore.setDefaultPattern("RL")
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         // Wait for Planned emission (index 0, RUN).
         states.observe().first { it is LaunchpadState.Planned }
@@ -229,7 +229,7 @@ class LaunchpadStatesTest {
     fun pendingOffersReFlyWhenALandedPlanOfTheSameTypeExists() = runBlocking {
         settingsStore.setDefaultPattern("LL")
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         assertFalse("nothing has landed with a plan yet", awaitPending(0).reFlyAvailable)
 
@@ -251,7 +251,7 @@ class LaunchpadStatesTest {
     fun pendingOffersNoReFlyWithoutAMatchingLandedPlan() = runBlocking {
         settingsStore.setDefaultPattern("LRL")
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         val seeded = sortieDao.getForMission(mission.id)
         assertFalse("nothing has landed with a plan yet", awaitPending(0).reFlyAvailable)
@@ -279,7 +279,7 @@ class LaunchpadStatesTest {
     @Test
     fun inFlightAfterLaunch() = runBlocking {
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         // Wait for Planned emission first.
         states.observe().first { it is LaunchpadState.Planned }
@@ -302,7 +302,7 @@ class LaunchpadStatesTest {
         settingsStore.setDefaultPattern("RL")
 
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         var sorties = sortieDao.getForMission(mission.id)
         manager.launch(sorties[0].id)
@@ -340,8 +340,8 @@ class LaunchpadStatesTest {
         val draft = statesFlow.first { it is LaunchpadState.Draft } as LaunchpadState.Draft
         assertEquals("RLRLR", draft.pattern)
 
-        // confirm -> Planned (mission status ACTIVE, sorties inserted).
-        manager.confirm(draft.missionId)
+        // continue without outline -> Planned (mission status ACTIVE, sorties inserted).
+        manager.continueWithoutOutline(draft.missionId)
         val planned = statesFlow.first { it is LaunchpadState.Planned } as LaunchpadState.Planned
         assertEquals(0, planned.sortieIndex)
 

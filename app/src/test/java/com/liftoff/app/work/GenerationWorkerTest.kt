@@ -160,7 +160,7 @@ class GenerationWorkerTest {
 
     /**
      * lift Flight Plan happy path: the sortie PLANNED, and the plan stored with source GENERATED. Seeded with
-     * onAppOpen(), confirm(id), then a scrub of the index-0 sortie, which leaves index 1 — a LIFT under the
+     * onAppOpen(), continueWithoutOutline(id), then a scrub of the index-0 sortie, which leaves index 1 — a LIFT under the
      * default RLRLR pattern — current and PENDING; the row is kind FLIGHT_PLAN with that sortie's id and the
      * lift fixture is the reply.
      */
@@ -172,8 +172,8 @@ class GenerationWorkerTest {
         )
 
         val mission = runBlocking { container.missionManager.onAppOpen() }
-        runBlocking { container.missionManager.confirm(mission.id) }
-        // With run generation off (the default), confirm already wrote the simple plan on the index-0 run, so
+        runBlocking { container.missionManager.continueWithoutOutline(mission.id) }
+        // With run generation off (the default), continueWithoutOutline already wrote the simple plan on the index-0 run, so
         // scrubbing it is what moves the week onto the lift sortie the coach is asked for.
         val scrubbed = sortieAt(mission.id, 0)
         assertEquals(SortieType.RUN, scrubbed.type)
@@ -192,12 +192,12 @@ class GenerationWorkerTest {
     /**
      * run Flight Plan happy path: the same, for the run. Seeded with setGenerateRunPlans(true) before
      * onAppOpen() — which is what leaves a run sortie for the coach instead of writing the app's own simple
-     * plan on it — then confirm(id), leaving index 0 a current PENDING RUN; the row is kind FLIGHT_PLAN with
+     * plan on it — then continueWithoutOutline(id), leaving index 0 a current PENDING RUN; the row is kind FLIGHT_PLAN with
      * that sortie's id and the run fixture is the reply.
      */
     @Test
     fun aRunPlanGenerationMarksTheSortiePlannedAndStoresAGeneratedPlan() {
-        // Before onAppOpen(): confirm() is what prepares the current sortie, and it reads this setting then.
+        // Before onAppOpen(): continueWithoutOutline() is what prepares the current sortie, and it reads this setting then.
         runBlocking { container.settingsStore.setGenerateRunPlans(true) }
         daemon.script(
             DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.RUN_PLAN)),
@@ -205,7 +205,7 @@ class GenerationWorkerTest {
         )
 
         val mission = runBlocking { container.missionManager.onAppOpen() }
-        runBlocking { container.missionManager.confirm(mission.id) }
+        runBlocking { container.missionManager.continueWithoutOutline(mission.id) }
 
         val run = sortieAt(mission.id, 0)
         assertEquals("index 0 is a RUN under RLRLR", SortieType.RUN, run.type)
@@ -921,14 +921,14 @@ class GenerationWorkerTest {
     /**
      * a valid reply whose target has moved on ends the generation for good: `Result.failure()` and the row
      * FAILED with the reason `MissionManager` itself gives. Seeded like the run happy path —
-     * setGenerateRunPlans(true) before onAppOpen(), then confirm(id), leaving index 0 a current PENDING RUN —
+     * setGenerateRunPlans(true) before onAppOpen(), then continueWithoutOutline(id), leaving index 0 a current PENDING RUN —
      * then [MissionManager.scrub] that sortie between inserting the row and running the worker, so the turn
      * still gets a valid run plan and the store turns it away. Nothing is stored, and the session is given up
      * once.
      */
     @Test
     fun aValidReplyForASortieThatHasMovedOnFailsTheGenerationWithTheStoresOwnReason() {
-        // Before onAppOpen(): confirm() is what prepares the current sortie, and it reads this setting then.
+        // Before onAppOpen(): continueWithoutOutline() is what prepares the current sortie, and it reads this setting then.
         runBlocking { container.settingsStore.setGenerateRunPlans(true) }
         daemon.script(
             DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.RUN_PLAN)),
@@ -936,7 +936,7 @@ class GenerationWorkerTest {
         )
 
         val mission = runBlocking { container.missionManager.onAppOpen() }
-        runBlocking { container.missionManager.confirm(mission.id) }
+        runBlocking { container.missionManager.continueWithoutOutline(mission.id) }
 
         val run = sortieAt(mission.id, 0)
         assertEquals("index 0 is a RUN under RLRLR", SortieType.RUN, run.type)
@@ -1405,7 +1405,7 @@ class GenerationWorkerTest {
         )
 
         val mission = runBlocking { container.missionManager.onAppOpen() }
-        runBlocking { container.missionManager.confirm(mission.id) }
+        runBlocking { container.missionManager.continueWithoutOutline(mission.id) }
         val scrubbed = sortieAt(mission.id, 0)
         assertEquals(SortieType.RUN, scrubbed.type)
         runBlocking { container.missionManager.scrub(scrubbed.id) }
@@ -1574,7 +1574,7 @@ class GenerationWorkerTest {
     /**
      * What the worker is starting from: this sortie is the current one and nothing has planned it yet, so the
      * PLANNED state and the stored plan below are both things this run did. `storePlan` refuses a sortie that
-     * is not the current one, so a case that did not check this would pass on a plan confirm() had already
+     * is not the current one, so a case that did not check this would pass on a plan continueWithoutOutline() had already
      * written.
      */
     private fun assertAwaitingGeneration(sortie: Sortie) {

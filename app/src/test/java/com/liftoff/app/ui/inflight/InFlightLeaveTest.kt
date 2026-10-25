@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * The In-Flight screen leaving once its sortie is no longer in flight, driven through the view model's
  * watch on its own sortie row against in-memory Room: the fixture InFlightLandScrubTest already uses —
- * confirm an RLRLR week, land the first run, launch sortie 1 on a seeded lift plan.
+ * continue an RLRLR week without an outline, land the first run, launch sortie 1 on a seeded lift plan.
  *
  * The leave callback counts into an AtomicInteger because Room delivers an emission on its own thread and
  * the test thread can only poll it. Every test waits for 1 under a timeout, then waits a short bounded
@@ -92,10 +92,10 @@ class InFlightLeaveTest {
 
     // ── Fixture ──────────────────────────────────────────────────────
 
-    /** onAppOpen + confirm on the default RLRLR pattern; sortie 0 is a PLANNED run. */
+    /** onAppOpen + continueWithoutOutline on the default RLRLR pattern; sortie 0 is a PLANNED run. */
     private suspend fun seedMission(): Mission {
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
         return missionDao.get(mission.id)!!
     }
 

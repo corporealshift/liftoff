@@ -240,7 +240,7 @@ class MissionManagerOutlineTest {
         val draft = manager.onAppOpen()
 
         // ACTIVE: the week was confirmed without an outline, so it already has its five sorties and a plan.
-        manager.confirm(draft.id)
+        manager.continueWithoutOutline(draft.id)
         val active = weekState(draft.id)
         assertEquals(MissionStatus.ACTIVE, active.mission.status)
         assertEquals(5, active.sorties.size)

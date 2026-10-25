@@ -86,7 +86,14 @@ class LaunchpadDraftGuardsTest {
     private suspend fun draftAt(pattern: String): Pair<LaunchpadViewModel, LaunchpadState.Draft> {
         settingsStore.setDefaultPattern(pattern)
         manager.onAppOpen()
-        val vm = LaunchpadViewModel(db, manager, scope)
+        // Neither helper is called by the chip guards this class tests, so both do nothing.
+        val vm = LaunchpadViewModel(
+            db = db,
+            manager = manager,
+            scope = scope,
+            queueGeneration = { },
+            cancelGeneration = { },
+        )
         // stateIn is Lazily and both guards read state.value, so the Draft has to be collected
         // before either call or the state is still Loading and the guard is never reached.
         val draft = withTimeout(5_000L) {

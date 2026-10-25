@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * The run state read through the In-Flight view model against in-memory Room, on a Mission the app
- * itself created: confirm an RLRLR week, so sortie 0 is a PLANNED run carrying the simple 'Run' plan
+ * itself created: continue an RLRLR week without an outline, so sortie 0 is a PLANNED run carrying the simple 'Run' plan
  * the manager wrote. The plan is then replaced through the DAO, which deletes the old one first.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -91,10 +91,10 @@ class InFlightRunTest {
 
     // ── Fixture ──────────────────────────────────────────────────────
 
-    /** onAppOpen + confirm on the default RLRLR pattern; sortie 0 is a PLANNED run. */
+    /** onAppOpen + continueWithoutOutline on the default RLRLR pattern; sortie 0 is a PLANNED run. */
     private suspend fun seedMission(): Mission {
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
         return missionDao.get(mission.id)!!
     }
 

@@ -139,7 +139,7 @@ class LaunchpadReFlyTest {
     private suspend fun landedSourceThenPending(): Pair<Sortie, Sortie> {
         settingsStore.setDefaultPattern("LL")
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
 
         val first = sortieDao.getForMission(mission.id)[0]
         flightPlanDao.writePlan(first.id, liftPlan("Full Body A"))
@@ -157,7 +157,7 @@ class LaunchpadReFlyTest {
     private suspend fun pendingWithNothingLanded(): Sortie {
         settingsStore.setDefaultPattern("LL")
         val mission = manager.onAppOpen()
-        manager.confirm(mission.id)
+        manager.continueWithoutOutline(mission.id)
         val current = sortieDao.getForMission(mission.id)[0]
         assertEquals(SortieState.PENDING, current.state)
         return current
@@ -189,7 +189,13 @@ class LaunchpadReFlyTest {
     fun pendingScreenShowsReFlyBesideScrubWhenASourceExists() {
         runBlocking {
             val (source, current) = landedSourceThenPending()
-            val viewModel = LaunchpadViewModel(db, manager, scope)
+            val viewModel = LaunchpadViewModel(
+                db = db,
+                manager = manager,
+                scope = scope,
+                queueGeneration = { },
+                cancelGeneration = { },
+            )
             render(viewModel)
 
             awaitOnScreen("RE-FLY")
@@ -221,7 +227,13 @@ class LaunchpadReFlyTest {
     fun pendingScreenShowsAMutedLineAndNoReFlyWhenNoSourceExists() {
         runBlocking {
             val current = pendingWithNothingLanded()
-            val viewModel = LaunchpadViewModel(db, manager, scope)
+            val viewModel = LaunchpadViewModel(
+                db = db,
+                manager = manager,
+                scope = scope,
+                queueGeneration = { },
+                cancelGeneration = { },
+            )
             render(viewModel)
 
             awaitOnScreen("SCRUB")
@@ -247,7 +259,13 @@ class LaunchpadReFlyTest {
         runBlocking {
             val (source, current) = landedSourceThenPending()
             val sourceBefore = flightPlanDao.getPlan(source.id)!!
-            val viewModel = LaunchpadViewModel(db, manager, scope)
+            val viewModel = LaunchpadViewModel(
+                db = db,
+                manager = manager,
+                scope = scope,
+                queueGeneration = { },
+                cancelGeneration = { },
+            )
             render(viewModel)
 
             awaitOnScreen("RE-FLY")
