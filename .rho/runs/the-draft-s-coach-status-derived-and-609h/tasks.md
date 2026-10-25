@@ -39,7 +39,7 @@ CLAUDE.md's `area: lowercase summary`, staging the named files only, never `git 
   :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.domain.*"` passes cold — the new class
   and the six existing domain classes, counts read from the `TEST-*.xml`. Commit only these two new files.
 
-- [ ] 2. Make the draft live: the configured-ness Flow, `Draft` carrying the status, the DRAFT arm's join
+- [x] 2. Make the draft live: the configured-ness Flow, `Draft` carrying the status, the DRAFT arm's join
   Covers the wiring half, and the only step that can break something. `MissionManager` gains one public
   Flow answering whether the coach is configured — the `SettingsStore` it already holds, mapped through
   `coachIsConfigured`, `distinctUntilChanged` — so neither `LaunchpadStates` nor `LaunchpadViewModel`
