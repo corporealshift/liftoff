@@ -120,7 +120,7 @@ named by nobody. Suite totals: 624 tests today, 633 after the five picks, 639 af
   Done: a cold `bash gradlew.sh :app:testDebugUnitTest --no-build-cache --tests '*LaunchpadConfirmTest*'` reports 4
   tests, 0 failures, with all four names in `TEST-*.xml`; the file is committed alone with a `test: …` message.
 
-- [ ] 7. Add the way out and the retry to `LaunchpadConfirmTest`, then the final whole-suite gate
+- [x] 7. Add the way out and the retry to `LaunchpadConfirmTest`, then the final whole-suite gate
   The remaining two brief cases, on the harness task 6 built. Continue-without-outline after a Confirm: Confirm and
   join, wait for `Draft` again, call `continueWithoutOutline()` and join — the Mission reads ACTIVE at the current
   week's start, sortie 1 exists and is the current one, and because the pattern starts with `L` that sortie stays
