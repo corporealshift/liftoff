@@ -13,9 +13,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** What Confirm and Retry report when Mission Control has no host and token to ask. */
+/** What Confirm and Retry report when Mission Control has no host and token to ask. The draft draws the
+ * same sentence as its not-configured status line. */
 internal const val NOT_CONFIGURED_MESSAGE =
-    "Mission Control isn't set up. Add the host and token in Mission Control, or continue without an outline."
+    "Mission Control isn't set up. Add the host and token in Mission Control."
 
 /** Plain state holder for the Launchpad screen. */
 class LaunchpadViewModel(
@@ -125,6 +126,7 @@ class LaunchpadViewModel(
         val s = state.value
         if (s !is LaunchpadState.Draft) return null
         return scope.launch {
+            notConfiguredMessage = null
             try {
                 queueOrReport(manager.retryOutline(s.missionId))
             } catch (_: IllegalStateException) {

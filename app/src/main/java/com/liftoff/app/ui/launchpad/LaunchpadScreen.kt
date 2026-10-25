@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
+import com.liftoff.app.domain.CoachStatus
 import com.liftoff.app.ui.PlaceholderScreen
 import com.liftoff.app.ui.inflight.ScrubDialog
 import com.liftoff.app.ui.sortie.FlightPlanSection
@@ -92,6 +93,7 @@ internal fun LaunchpadContent(
                 onAddChip = { viewModel.addChip() },
                 onRemoveChip = { viewModel.removeChip() },
                 onConfirm = { viewModel.confirm() },
+                onRetry = { viewModel.retry() },
                 onContinueWithoutOutline = { viewModel.continueWithoutOutline() },
                 onLaunch = { viewModel.launch(onOpenInFlight) },
                 onRequestScrub = { viewModel.requestScrub() },
@@ -131,24 +133,47 @@ private fun DraftContent(draft: LaunchpadState.Draft, viewModel: LaunchpadViewMo
     )
     Spacer(Modifier.height(16.dp))
 
+    val status = draft.coachStatus
     DraftPatternChips(
         pattern = draft.pattern,
         onToggle = { viewModel.toggleChip(it) },
+        enabled = status.patternEditable,
     )
 
-    // Only a Confirm or Retry that found no host and token leaves a message, and the next attempt clears
-    // it, so the line is absent whenever nothing has gone wrong.
-    val message = viewModel.notConfiguredMessage
-    if (message != null) {
+    // One line under the pattern, whatever the coach is doing. A Retry that found nothing configured
+    // replaces a failed draft's reason rather than adding a second line saying the same thing twice.
+    val line = draftStatusLine(status, viewModel.notConfiguredMessage)
+    if (line != null) {
         Spacer(Modifier.height(16.dp))
         Text(
-            text = message,
-            style = LiftoffType.note().copy(color = Muted),
+            text = line.text,
+            style = LiftoffType.note().copy(color = line.color),
         )
     }
 
     Spacer(Modifier.height(20.dp))
 }
+
+private class DraftLine(val text: String, val color: Color)
+
+/** The draft's one status line; no line when the coach has nothing to say about this draft. */
+private fun draftStatusLine(status: CoachStatus, report: String?): DraftLine? =
+    when (status) {
+        CoachStatus.Editable -> null
+        CoachStatus.Planning -> DraftLine(PLANNING_LINE, Muted)
+        CoachStatus.Offline -> DraftLine(OFFLINE_LINE, Muted)
+        // The row's own words, with no label in front of them. The report a Retry left is the same
+        // kind of fault, so it takes this slot and this colour.
+        is CoachStatus.Failed -> DraftLine(report ?: status.reason, Red)
+        CoachStatus.NotConfigured -> DraftLine(NOT_CONFIGURED_MESSAGE, Muted)
+    }
+
+/** Read-only only while a generation is open: a failed or unconfigured draft can still be reshaped. */
+private val CoachStatus.patternEditable: Boolean
+    get() = this != CoachStatus.Planning && this != CoachStatus.Offline
+
+private const val PLANNING_LINE = "Coach is planning the week…"
+private const val OFFLINE_LINE = "Mission Control offline — retrying"
 
 @Composable
 private fun PlannedContent(state: LaunchpadState.Planned, viewModel: LaunchpadViewModel) {
@@ -204,6 +229,7 @@ private fun ActionButtons(
     onAddChip: () -> Unit,
     onRemoveChip: () -> Unit,
     onConfirm: () -> Unit,
+    onRetry: () -> Unit,
     onContinueWithoutOutline: () -> Unit,
     onLaunch: () -> Unit,
     onRequestScrub: () -> Unit,
@@ -222,6 +248,7 @@ private fun ActionButtons(
                 onAddChip,
                 onRemoveChip,
                 onConfirm,
+                onRetry,
                 onContinueWithoutOutline,
             )
             is LaunchpadState.Planned -> PlannedActions(onLaunch, onRequestScrub)
@@ -240,37 +267,48 @@ private fun DraftActions(
     onAddChip: () -> Unit,
     onRemoveChip: () -> Unit,
     onConfirm: () -> Unit,
+    onRetry: () -> Unit,
     onContinueWithoutOutline: () -> Unit,
 ) {
-    val count = draft.pattern.length
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        DraftStepButton(
-            text = "−",
-            enabled = count > 1,
-            onClick = onRemoveChip,
-            modifier = Modifier.width(48.dp),
-        )
-        Text(
-            text = "$count sorties",
-            style = LiftoffType.note().copy(color = Muted),
-        )
-        DraftStepButton(
-            text = "+",
-            enabled = count < 7,
-            onClick = onAddChip,
-            modifier = Modifier.width(48.dp),
-        )
+    val status = draft.coachStatus
+    // The stepper reshapes the pattern, so it is drawn only where the pattern is editable.
+    if (status.patternEditable) {
+        val count = draft.pattern.length
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DraftStepButton(
+                text = "−",
+                enabled = count > 1,
+                onClick = onRemoveChip,
+                modifier = Modifier.width(48.dp),
+            )
+            Text(
+                text = "$count sorties",
+                style = LiftoffType.note().copy(color = Muted),
+            )
+            DraftStepButton(
+                text = "+",
+                enabled = count < 7,
+                onClick = onAddChip,
+                modifier = Modifier.width(48.dp),
+            )
+        }
+        Spacer(Modifier.height(12.dp))
     }
-    Spacer(Modifier.height(12.dp))
-    PrimaryButton(text = "Confirm", onClick = onConfirm)
-    // The way out is on every draft, configured coach or not, so an outline that never finishes
-    // cannot strand the week.
-    Spacer(Modifier.height(12.dp))
-    UnderlinedTextButton(text = "Continue without outline", onClick = onContinueWithoutOutline)
+    if (status.offersConfirm) {
+        PrimaryButton(text = "Confirm", onClick = onConfirm)
+    }
+    // Retry takes Confirm's slot: it is the way on for a draft whose outline generation failed.
+    if (status.offersRetry) {
+        PrimaryButton(text = "Retry", onClick = onRetry)
+    }
+    if (status.offersContinueWithoutOutline) {
+        if (status.offersConfirm || status.offersRetry) Spacer(Modifier.height(12.dp))
+        UnderlinedTextButton(text = "Continue without outline", onClick = onContinueWithoutOutline)
+    }
 }
 
 // InkButton has no enabled parameter and ui.theme is out of scope for this brief, so the draft's
@@ -358,6 +396,7 @@ private fun InFlightActions(onLaunch: () -> Unit) {
 private fun DraftPatternChips(
     pattern: String,
     onToggle: (Int) -> Unit,
+    enabled: Boolean,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(
@@ -366,24 +405,34 @@ private fun DraftPatternChips(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for (i in pattern.indices) {
-                val chip = pattern[i]
-                val isSelected = chip == 'R'
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .background(
-                            if (isSelected) Red else Paper,
-                            RoundedCornerShape(50),
+                key(i) {
+                    val chip = pattern[i]
+                    val isSelected = chip == 'R'
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(
+                                if (isSelected) Red else Paper,
+                                RoundedCornerShape(50),
+                            )
+                            .border(BorderStroke(2.dp, if (enabled) Ink else Rule), RoundedCornerShape(50))
+                            // A chip that cannot be toggled is still a chip-shaped control with Enabled=false,
+                            // the DraftStepButton shape: no clickable at all would carry no Enabled semantics.
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                enabled = enabled,
+                                role = Role.Button,
+                                onClick = { onToggle(i) },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = chip.toString(),
+                            style = LiftoffType.index(),
+                            color = if (isSelected) White else if (enabled) Ink else Muted,
                         )
-                        .border(BorderStroke(2.dp, Ink), RoundedCornerShape(50))
-                        .clickable { onToggle(i) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = chip.toString(),
-                        style = LiftoffType.index(),
-                        color = if (isSelected) White else Ink,
-                    )
+                    }
                 }
             }
         }
