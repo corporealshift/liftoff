@@ -2,7 +2,9 @@
 
 Run: `the-draft-s-coach-status-derived-and-609h`. Branch HEAD at planning: `796c5cc` (plan outline), on top of
 PR #39 (`39aaef1`), which is where `confirm` / `retryOutline` / `continueWithoutOutline` and the outline
-generation rows landed.
+generation rows landed. HEAD now: `b15ec7d` (`run: verify.sh rewritten by claude review`); the plan is the
+revised one, `562e415`. Tasks: `.rho/runs/the-draft-s-coach-status-derived-and-609h/tasks.md` (four tasks:
+1 derivation + plain JUnit, 2 the wiring, 3 the live Robolectric class, 4 the whole gate).
 
 ## Docs that set rules
 
@@ -115,7 +117,43 @@ generation rows landed.
 - `exportedV1SchemaMatchesDatabase` is in `data/SchemaExportTest.kt` — the test that says the exported
   `app/schemas/.../1.json` still matches the entities.
 
-## verify.sh (committed by the verify step)
+## Facts confirmed while writing the tasks (HEAD `b15ec7d`)
+
+- `MissionManager`'s four constructor parameters are all `private val`, so a configured-ness Flow has to be
+  built inside the class from the private `settingsStore`. It already imports `coachIsConfigured`, `Settings`,
+  `SettingsStore`, `MutableStateFlow` and `flow.first`; it does **not** import `map` or `distinctUntilChanged`
+  today, so those imports are new. `currentWeekStart` (line 60) is the precedent for a public Flow here.
+- `LaunchpadState.kt` as it stands: `Draft(weekStart: LocalDate, pattern: String, missionId: Long)`;
+  `LaunchpadStates(db, manager)`; `observe()` is `manager.currentWeekStart.flatMapLatest { ws -> if (ws == null)
+  flowOf(Loading) else missionDao().observeWeek(ws).combine(flightPlanDao().observeChanges()) { mws, _ ->
+  derive(mws) } }.flowOn(Dispatchers.IO)`; `derive(missionWithSorties)` is `private suspend` and the
+  `MissionStatus.DRAFT` arm (lines 93–97) is the only arm that needs the new join. `missionId` is only known
+  inside `derive`, so the outline/settings join has to reach that arm — how is the implementer's call. The file
+  already imports `kotlinx.coroutines.flow.*`, so `combine`, `flatMapLatest` and `distinctUntilChanged` need no
+  new import.
+- Nothing in `app/src` mentions `CoachStatus`, `coachConfigured` or `coachStatus` at HEAD: none of this run's
+  work exists yet, and the tree is clean.
+- `LaunchpadStatesTest` (the harness to copy) collects with `states.observe().first { it is LaunchpadState.Draft }`
+  inside `runBlocking` — a one-shot read that stops at the first match. `LaunchpadConfirmTest` holds a
+  subscription open through the view model's `stateIn(Lazily)` scope (its line 91 comment) and reads with
+  `withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Draft } }` (`primedDraft` / `awaitDraft` helpers).
+  A test that must keep **one** subscription to `observe()` alive across three writes needs its own launched
+  collector job plus bounded `withTimeout` waits — a chain of `.first()` calls re-subscribes each time, which is
+  exactly what those cases are meant to rule out. The known Robolectric deadlock is a Room `Flow` read that never
+  completes while the main looper is paused, so every wait in the new class has to be bounded.
+- `gradlew.sh` sits at the repository root here, so `bash gradlew.sh …` from the toplevel is the right
+  invocation (the `android-dev` skill's pinned toolchain is inside it). Test counts come from the XML
+  (`tests=` / `failures=` / `errors=` / `skipped=` on each `TEST-*.xml`), never from `BUILD SUCCESSFUL`.
+
+## verify.sh (committed by the verify step, then rewritten by review)
+
+`c143ce1 run: verify` wrote it; `b15ec7d run: verify.sh rewritten by claude review` is the current
+version and **dropped four names** — `aFailedOutlineRowWithNoReasonTextStillReportsFailedAndOffersRetryWithAReason`,
+`aSucceededOutlineRowWithBlankSettingsIsNotConfiguredRatherThanEditable`,
+`aFailedOutlineRowOutranksBlankSettingsAndKeepsItsReasonAndRetry`,
+`aCancelledStatusIsTreatedAsNoOutlineRow`. Its header now says those four plan Decisions are reviewed by
+Kyle in the pull request and get no test of their own in the check. The behaviour is still the plan's;
+only the test names went. Re-read `verify.sh` itself rather than trusting this section.
 
 One Gradle invocation: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, with stale
 `app/build/test-results/testDebugUnitTest` moved aside first and up to three attempts when the failure is the known
@@ -124,7 +162,8 @@ that run's XML reports (tab-separated index of `TEST-*.xml`), so a test never wr
 Regression classes are checked whole-class (`c <ClassName>`), new tests only by method name — the file and package
 are the implementer's call.
 
-Sixteen names, all new to this run (none exists at HEAD, so the script fails on the untouched branch):
+Twelve names, all new to this run (none exists at HEAD, so the script fails on the untouched branch). Task 1 of
+`tasks.md` writes 1–7, task 3 writes 8–12; no other task writes a name this script looks for.
 
 Plain JUnit, the derivation called directly over plain values:
 1. `noOutlineRowWithAConfiguredCoachIsEditableAndOffersConfirmAlone`
@@ -132,19 +171,15 @@ Plain JUnit, the derivation called directly over plain values:
 3. `queuedAndRunningOutlineRowsArePlanningAndOfferContinueWithoutOutlineButNotConfirm`
 4. `anOpenOutlineRowCarryingTheOfflineMarkIsOfflineRatherThanPlanning`
 5. `aFailedOutlineRowReportsFailedWithItsReasonWordForWordAndOffersRetryAndContinueWithoutOutline`
-6. `aFailedOutlineRowWithNoReasonTextStillReportsFailedAndOffersRetryWithAReason`
-7. `aBlankHostOrTokenWithNoOutlineRowIsNotConfiguredAndOffersContinueWithoutOutlineButNotConfirm`
-8. `aSucceededOutlineRowWithBlankSettingsIsNotConfiguredRatherThanEditable` (Decision: SUCCEEDED + blank → not configured)
-9. `aFailedOutlineRowOutranksBlankSettingsAndKeepsItsReasonAndRetry` (Decision: the row outranks the settings)
-10. `anOpenOutlineRowOutranksBlankSettingsAndIsPlanningOrOffline` (Decision: the offline mark outranks them too)
-11. `aCancelledStatusIsTreatedAsNoOutlineRow` (Decision: CANCELLED is no row)
+6. `aBlankHostOrTokenWithNoOutlineRowIsNotConfiguredAndOffersContinueWithoutOutlineButNotConfirm`
+7. `anOpenOutlineRowOutranksBlankSettingsAndIsPlanningOrOffline` (Decision: the offline mark outranks them too)
 
 Robolectric, one subscription held open across the writes (a second `observe()` or a fresh `.first` proves nothing):
-12. `theDraftReportsPlanningWhenAQueuedOutlineRowIsWrittenToRoom`
-13. `theDraftReportsOfflineWhenItsOutlineRowTakesTheCoachOfflineMark`
-14. `theDraftReportsFailedWithTheExactReasonItsOutlineRowWasMarkedFailedWith`
-15. `theDraftDoesNotReEmitForAnotherMissionsRowAFlightPlanRowOrACancelledRow`
-16. `theDraftFollowsTheSettingsFromNotConfiguredToEditableWithoutReSubscribing` (blank host/token → not configured;
+8. `theDraftReportsPlanningWhenAQueuedOutlineRowIsWrittenToRoom`
+9. `theDraftReportsOfflineWhenItsOutlineRowTakesTheCoachOfflineMark`
+10. `theDraftReportsFailedWithTheExactReasonItsOutlineRowWasMarkedFailedWith`
+11. `theDraftDoesNotReEmitForAnotherMissionsRowAFlightPlanRowOrACancelledRow`
+12. `theDraftFollowsTheSettingsFromNotConfiguredToEditableWithoutReSubscribing` (blank host/token → not configured;
     a weight-unit edit emits nothing; filling host and token turns the same subscription's draft editable)
 
 Also checked: the exported schema under `app/schemas` byte-identical to the tree this run's brief was added on top
