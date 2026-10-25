@@ -28,7 +28,7 @@ named by nobody. Suite totals: 624 tests today, 633 after the five picks, 639 af
   path; `bash gradlew.sh :app:compileDebugUnitTestKotlin` clean; a cold
   `bash gradlew.sh :app:testDebugUnitTest --no-build-cache --tests '*MissionManagerTest*'` reports 18 tests, 0 failures.
 
-- [ ] 2. Cherry-pick `29b1821` — confirm queues the outline, and the pattern freeze
+- [x] 2. Cherry-pick `29b1821` — confirm queues the outline, and the pattern freeze
   The behaviour change: `confirm` returns `ConfirmOutcome` (`Queued(generationId)` / `CoachNotConfigured`), inserting
   or reusing exactly one QUEUED OUTLINE `Generation` row (`sortieId = null`) and leaving the Mission DRAFT;
   `continueWithoutOutline` now returns `List<Long>` of the mission's open outline ids; `setPattern` refuses while an
