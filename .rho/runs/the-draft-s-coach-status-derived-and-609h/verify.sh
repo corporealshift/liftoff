@@ -9,9 +9,9 @@
 #
 # Gradle exits 0 when a named test never existed, so each test below is looked for by name in this run's reports; a
 # test that was never written cannot pass on its own. That is what makes this script fail on untouched code: all
-# sixteen names under the two new sections are new to this run and none of them is in the tree today — the derivation
+# twelve names under the two new sections are new to this run and none of them is in the tree today — the derivation
 # does not exist, LaunchpadState.Draft carries no status, and nothing in the launchpad reads the generation table.
-# Running this script against the untouched branch reports the suite passing and exactly those sixteen names as
+# Running this script against the untouched branch reports the suite passing and exactly those twelve names as
 # "did not run".
 #
 # What is NOT checked here, and why:
@@ -26,10 +26,13 @@
 #   correct work; what is checked instead is that the existing rendered Launchpad tests — the draft's controls,
 #   guards, scrub, Re-fly and the view model's Confirm — still pass untouched, which is what says the draft still
 #   draws Confirm and "Continue without outline" and nothing else new.
+# - The plan's Decisions the brief leaves open: a SUCCEEDED row with blank settings, a FAILED row with blank
+#   settings, a FAILED row with no reason text, and a CANCELLED status handed in anyway. The owner reviews those in
+#   the pull request; none gets a test of its own here.
 # - Which flow carries configured-ness to the draft (MissionManager's Flow or an injected SettingsStore), and
 #   whether LaunchpadViewModel or LaunchpadStates gained a constructor parameter. A plan decision, reviewed in the PR.
-# - The wording of the neutral line a FAILED row with no reason text gets, or of any other user-visible copy. The
-#   names below require that a failed status carries a reason, not that it reads a particular way.
+# - The wording of any user-visible copy. The names below require that a failed status carries the row's reason,
+#   not how anything else reads.
 # - The names of the status variants or of their "offers Confirm / Retry / Continue" accessors. Each case below
 #   asserts which actions that status offers, whichever way the status exposes them.
 # - That the draft's status is state only and reaches no UI. There is no UI in this run to draw it; the plan records
@@ -275,37 +278,15 @@ t anOpenOutlineRowCarryingTheOfflineMarkIsOfflineRatherThanPlanning
 # without outline" are offered; Confirm is not.
 t aFailedOutlineRowReportsFailedWithItsReasonWordForWordAndOffersRetryAndContinueWithoutOutline
 
-# Brief leaves open what a FAILED row with no reason text means (markFailed always writes one, so only an imported
-# or hand-written row reaches this). Plan Decision "A FAILED row that carries no reason text gets a fixed neutral
-# line": the failure is still reported — the status is failed, Retry and "Continue without outline" are offered — and
-# it carries a reason that is not empty, rather than losing the failure or reporting nothing. The copy itself is the
-# owner's call in review.
-t aFailedOutlineRowWithNoReasonTextStillReportsFailedAndOffersRetryWithAReason
-
 # Brief: "not configured: the host or token is blank and no row is open." With no outline row and the coach not
 # configured, the status is not configured; "Continue without outline" is offered and Confirm is not — Confirm would
 # only come back as "Mission Control isn't set up".
 t aBlankHostOrTokenWithNoOutlineRowIsNotConfiguredAndOffersContinueWithoutOutlineButNotConfirm
 
-# Plan Decision "A SUCCEEDED row with a blank host or token shows 'not configured', the same as no row": a newest
-# outline row that SUCCEEDED with the host or token blank is not configured, not editable. The brief groups
-# SUCCEEDED with no row, and its not-configured clause only requires that no row be open.
-t aSucceededOutlineRowWithBlankSettingsIsNotConfiguredRatherThanEditable
-
-# Plan Decision "When a FAILED or open row exists, the row decides; the settings decide only when there is no row
-# worth reporting": a FAILED row with the host or token blank is still failed, still carries its reason word for
-# word, and still offers Retry — a blank setting must not hide the reason the owner needs.
-t aFailedOutlineRowOutranksBlankSettingsAndKeepsItsReasonAndRetry
-
-# Plan Decision "An open row marked offline outranks the settings too": a QUEUED or RUNNING row with the host or
-# token blank is planning, and the same rows carrying the offline mark are offline — never not configured. The mark
-# is what actually happened to that generation; "not configured" would be a guess about why.
+# Brief: not configured needs "no row is open", and planning and offline are defined by the row alone. So a QUEUED
+# or RUNNING row with the host or token blank is planning, and the same rows carrying the offline mark are offline —
+# never not configured. This also shows Plan Decision "An open row marked offline outranks the settings too".
 t anOpenOutlineRowOutranksBlankSettingsAndIsPlanningOrOffline
-
-# Plan Decision "A CANCELLED status is treated as no row": the DAO's read never hands one over, but the status enum
-# has CANCELLED, so the derivation has to answer it. Handed a CANCELLED row it must behave exactly as it does with
-# no row at all — editable with a configured coach, not configured with a blank one — not planning and not failed.
-t aCancelledStatusIsTreatedAsNoOutlineRow
 
 # ─── 3. The live draft: one subscription, in-memory Room ───────────────────────
 # Brief: "Robolectric (@Config(sdk = [34]), in-memory Room, every wait bounded, CI ubuntu-latest UTC; no
@@ -346,10 +327,10 @@ t theDraftReportsFailedWithTheExactReasonItsOutlineRowWasMarkedFailedWith
 #   currently showing, which would legitimately change the status.
 t theDraftDoesNotReEmitForAnotherMissionsRowAFlightPlanRowOrACancelledRow
 
-# Brief: the draft's status also follows the settings. With host and token blank the draft seen by one subscription
-# is not configured; setting a weight unit — a setting that leaves the coach exactly as configured as before — must
-# emit no new Draft; then filling in a host and a token must turn that same subscription's draft to editable,
-# without re-subscribing.
+# Brief: "LaunchpadStates joins the outline Flow and the settings", and "doesn't re-emit for unrelated changes".
+# With host and token blank the draft seen by one subscription is not configured; setting a weight unit — a setting
+# that leaves the coach exactly as configured as before — must emit no new Draft; then filling in a host and a token
+# must turn that same subscription's draft to editable, without re-subscribing.
 t theDraftFollowsTheSettingsFromNotConfiguredToEditableWithoutReSubscribing
 
 # ─── 4. What the brief says must not break ─────────────────────────────────────
