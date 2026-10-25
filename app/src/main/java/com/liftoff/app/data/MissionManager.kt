@@ -24,8 +24,11 @@ import com.liftoff.app.domain.weekHasEnded
 import com.liftoff.app.domain.weekStartOf
 import com.liftoff.app.settings.Settings
 import com.liftoff.app.settings.SettingsStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
@@ -58,6 +61,11 @@ class MissionManager(
 ) {
 
     val currentWeekStart = MutableStateFlow<LocalDate?>(null)
+
+    /** Whether Mission Control has a host and token, for a draft to derive its coach status from. */
+    val coachConfigured: Flow<Boolean> = settingsStore.settings
+        .map { coachIsConfigured(it.daemonHost, it.daemonToken) }
+        .distinctUntilChanged()
 
     suspend fun onAppOpen(): Mission {
         val settings = settingsStore.settings.first()

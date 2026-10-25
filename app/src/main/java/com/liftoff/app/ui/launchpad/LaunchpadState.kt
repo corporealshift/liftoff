@@ -1,8 +1,10 @@
 package com.liftoff.app.ui.launchpad
 
 import com.liftoff.app.data.*
+import com.liftoff.app.domain.CoachStatus
 import com.liftoff.app.domain.chooseReflySource
 import com.liftoff.app.domain.currentSortie
+import com.liftoff.app.domain.deriveCoachStatus
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatEyebrow
 import com.liftoff.app.ui.sortie.formatWeekDate
@@ -16,11 +18,12 @@ sealed interface LaunchpadState {
     /** Waiting for onAppOpen to settle the current week and mission row. */
     object Loading : LaunchpadState
 
-    /** Mission is DRAFT — editable pattern chips + Confirm. */
+    /** Mission is DRAFT — editable pattern chips + Confirm, plus what its outline generation is doing. */
     data class Draft(
         val weekStart: java.time.LocalDate,
         val pattern: String,
         val missionId: Long,
+        val coachStatus: CoachStatus,
     ) : LaunchpadState
 
     /** Current sortie is PLANNED — launch or scrub available. */
@@ -78,27 +81,42 @@ class LaunchpadStates(
             .flatMapLatest { ws ->
                 if (ws == null) flowOf(LaunchpadState.Loading)
                 else db.missionDao().observeWeek(ws)
-                    .combine(db.flightPlanDao().observeChanges()) { missionWithSorties: MissionWithSorties?, _ ->
-                        derive(missionWithSorties)
-                    }
+                    .flatMapLatest { missionWithSorties -> derive(missionWithSorties) }
             }
             .flowOn(Dispatchers.IO)
     }
 
-    private suspend fun derive(missionWithSorties: MissionWithSorties?): LaunchpadState {
-        val mission = missionWithSorties?.mission ?: return LaunchpadState.Loading
+    /**
+     * One Flow per mission emission. The DRAFT arm is the only one that joins flows of its own: its coach status
+     * has two live sources, and the newest outline row is keyed by a mission id this is the first place that knows.
+     */
+    private fun derive(missionWithSorties: MissionWithSorties?): Flow<LaunchpadState> {
+        val mission = missionWithSorties?.mission ?: return flowOf(LaunchpadState.Loading)
         val sorties = missionWithSorties.sorties
+        val planChanges = db.flightPlanDao().observeChanges()
 
         return when (mission.status) {
-            MissionStatus.DRAFT -> LaunchpadState.Draft(
-                weekStart = mission.weekStart,
-                pattern = mission.pattern,
-                missionId = mission.id,
-            )
+            MissionStatus.DRAFT -> combine(
+                planChanges,
+                db.generationDao().observeNewestNonCancelledOutlineForMission(mission.id),
+                manager.coachConfigured,
+            ) { _, outline, configured ->
+                LaunchpadState.Draft(
+                    weekStart = mission.weekStart,
+                    pattern = mission.pattern,
+                    missionId = mission.id,
+                    coachStatus = deriveCoachStatus(
+                        newestOutlineStatus = outline?.status,
+                        newestOutlineError = outline?.error,
+                        newestOutlineIsCoachOffline = outline?.isCoachOffline ?: false,
+                        coachConfigured = configured,
+                    ),
+                )
+            }.distinctUntilChanged()
 
-            MissionStatus.CLOSED -> deriveClosed(mission, sorties)
+            MissionStatus.CLOSED -> planChanges.map { deriveClosed(mission, sorties) }
 
-            MissionStatus.ACTIVE -> {
+            MissionStatus.ACTIVE -> planChanges.map {
                 val current = currentSortie(sorties)
                 if (current == null) {
                     deriveClosed(mission, sorties)
