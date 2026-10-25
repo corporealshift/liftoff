@@ -113,15 +113,48 @@ HEAD when this plan was written: `0776758` (PR #40, "The draft's coach status, d
   swallows that into `manager.onAppOpen()`. So the "report clears" case must leave a FAILED row behind for the second
   RETRY to answer — which is exactly what the first RETRY does, since it refuses without writing a row.
 
-## verify.sh (this step)
+## verify.sh (rewritten after this map was first written)
 
-Eight named tests, all new to this run: six rendered statuses (editable, planning, planning-chips-read-only, offline,
-failed, not configured) and two for the single status line (a RETRY that finds nothing configured replaces the failure
-reason with one not-configured line; the report clears when the next RETRY reaches Mission Control). Plus the CI gate
-and 26 whole-class "must not break" checks. No ARCHITECTURE.md grep, no source grep, no schema check — the header
-says why.
+`c315072 run: verify.sh rewritten by claude review` replaced the eight-name version. **It now names six tests**, all
+new to this run and all rendered statuses: `editableDraftDrawsItsChipsStepperAndConfirmAndNoOtherAction`,
+`planningDraftDrawsItsStatusLineAndContinueWithoutOutlineAndNoStepperOrConfirm`,
+`planningDraftDrawsItsPatternChipsReadOnly`, `offlineDraftDrawsItsStatusLineAndTheSameActionsAsPlanning`,
+`failedDraftDrawsItsReasonAndRetryAndContinueWithoutOutlineAndNoConfirm`,
+`notConfiguredDraftDrawsItsSetupLineAndContinueWithoutOutlineAndNoConfirmOrRetry`. The two single-status-line names
+(a RETRY replacing the failure reason with one not-configured line; the report clearing when the next RETRY reaches
+Mission Control) are **gone from verify.sh**, though the plan's Testing section still describes them as cases and its
+header says the one-line rule and the retry-clearing are decisions Kyle reviews in the PR, not checks. Plus the CI
+gate and 26 whole-class "must not break" checks. No ARCHITECTURE.md grep, no source grep, no schema check — the
+header says why.
 
 Run against the untouched tree (`096bf6a`): gate attempt 1 passed in 2m38s with a warm daemon, 655 tests / 0 failures
 / 0 skipped, 32 checks passed, exactly those 8 names reported "did not run", **exit 1**. Log at
 `app/build/verify-ne4y.log`, script copy at `app/build/verify-ne4y.sh` (run the copy, not the real file, so editing
-the real one mid-run does not give a phantom syntax error).
+the real one mid-run does not give a phantom syntax error). That measurement was of the eight-name script; the
+six-name version has not been re-measured, but the six names are a subset of the eight and none of them existed at
+`096bf6a`, so the untouched tree still fails.
+
+## Facts a later step needs (added while writing tasks.md)
+
+- HEAD for the work steps is `c315072`; nothing under `app/src` has changed since PR #40 (`0776758`).
+- `LaunchpadDraftControlsTest`'s five methods are `draftDrawsOneStepperPair` (97), `draftMinusDisabledAtOneSortie`
+  (122), `draftPlusDisabledAtSevenSorties` (142), `draftAlwaysOffersContinueWithoutOutline` (166),
+  `draftShowsTheNotConfiguredMessageWhenItIsSet` (196). Only that class asserts on the draft's buttons in Compose
+  (179–183, 209–217); nothing else in `app/src/test` mentions `CONTINUE WITHOUT OUTLINE` except as prose in
+  `CoachStatusTest`'s comments and `CoachPromptBuilderTest`.
+- `LaunchpadConfirmTest` reads `NOT_CONFIGURED_MESSAGE` by constant (184), so re-wording the constant is safe there.
+  It asserts `assertNull(vm.notConfiguredMessage)` at 192, 211, 269 and 301; 301 is after a **successful** `retry()`
+  with host and token set, where the field is already null, so adding the clear at the start of `retry()` keeps that
+  class green. Its fixture uses `VALID_HOST = "127.0.0.1"` / `VALID_TOKEN = "token-under-test"` and
+  `RETRIED_ERROR = "the coach's reply was not an outline"`, and it reaches a FAILED row through
+  `generationDao.markFailed(id, error, clock.millis())` — the same helper a render test can use to seed a failed
+  draft.
+- `ARCHITECTURE.md` line 82 is the M3 row; its closing clause today is "App wiring — the screens that queue a
+  generation and cancel one — comes next". That is the clause the brief's M3 update replaces.
+- The per-class gate form used by earlier runs of this project works here:
+  `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests
+  "com.liftoff.app.ui.launchpad.<ClassName>"`.
+- `LaunchpadContent` is called with named arguments `viewModel = …, onOpenInFlight = {}` at seven sites: the screen
+  itself (LaunchpadScreen 43), the five `LaunchpadDraftControlsTest` cases, and `LaunchpadReFlyTest` 123. A new
+  **required** parameter on that seam breaks `LaunchpadReFlyTest`, which `verify.sh` checks as a whole class, so the
+  Retry wiring belongs inside `LaunchpadContent` / `ActionButtons`, not in the seam's signature.
