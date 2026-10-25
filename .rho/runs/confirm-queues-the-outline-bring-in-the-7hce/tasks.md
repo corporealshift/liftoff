@@ -93,7 +93,7 @@ named by nobody. Suite totals: 624 tests today, 633 after the five picks, 639 af
   0 failures, 0 errors, 0 skipped, and `git log --oneline 1f8d5fc..HEAD` shows exactly five code commits with the
   picked messages plus this run's `run:` commits.
 
-- [ ] 6. Write `LaunchpadConfirmTest` — the confirm cases
+- [x] 6. Write `LaunchpadConfirmTest` — the confirm cases
   New file `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadConfirmTest.kt`, package
   `com.liftoff.app.ui.launchpad` so the view model's `internal` `NOT_CONFIGURED_MESSAGE` is visible. View model +
   DAO only: no
