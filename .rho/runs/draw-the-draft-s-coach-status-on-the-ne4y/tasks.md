@@ -94,7 +94,7 @@ removed, and `verify.sh` checks `LaunchpadDraftControlsTest` as a whole class.
   Done when: `git show --stat HEAD` lists `ARCHITECTURE.md` and nothing else, and the row says both halves the
   brief asks for.
 
-- [ ] 5. The whole gate, run once, and any fallout it turns up
+- [x] 5. The whole gate, run once, and any fallout it turns up
   Covers plan step 4 and the brief's Done-when. Run `.rho/runs/draw-the-draft-s-coach-status-on-the-ne4y/verify.sh`
   detached through a copy under `app/build/` (`mkdir -p app/build` first; run the copy, never the real file, so
   editing it mid-run cannot give a phantom syntax error), logging to `app/build/` with an `EXIT=$?` sentinel on its
