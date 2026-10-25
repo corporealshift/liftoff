@@ -60,7 +60,7 @@ removed, and `verify.sh` checks `LaunchpadDraftControlsTest` as a whole class.
   "com.liftoff.app.ui.launchpad.LaunchpadDraftStatusTest"` passes cold with those three cases green, and the run
   wrote a `TEST-*.xml` naming all three.
 
-- [ ] 3. `LaunchpadDraftStatusTest`: the offline, failed and not-configured renders
+- [x] 3. `LaunchpadDraftStatusTest`: the offline, failed and not-configured renders
   Covers the second half of plan step 2, in the class task 2 created —
   `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadDraftStatusTest.kt`. Read what it left there first, and
   reuse its seeding helpers.
