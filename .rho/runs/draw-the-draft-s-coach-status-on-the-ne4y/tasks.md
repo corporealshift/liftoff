@@ -9,7 +9,7 @@ spells them. It names no other new test. `draftAlwaysOffersContinueWithoutOutlin
 `draftShowsTheNotConfiguredMessageWhenItIsSet` are named by no task on purpose: their names are the things being
 removed, and `verify.sh` checks `LaunchpadDraftControlsTest` as a whole class.
 
-- [ ] 1. Draw the coach status on the draft, and repair the class built on the old drawing
+- [x] 1. Draw the coach status on the draft, and repair the class built on the old drawing
   Covers plan step 1, in one commit. The plan's Decisions are what to honour: one status line, the report
   replacing it only in `failed`, Retry as the big primary button, the pattern editable whenever no generation is
   open, the failure reason word for word with no label.
