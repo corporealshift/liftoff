@@ -65,6 +65,7 @@ generation rows landed.
   an outline. Natural home for the new status type + derivation.
 - `app/src/main/java/com/liftoff/app/settings/SettingsStore.kt` — `val settings: Flow<Settings>`;
   `daemonHost` / `daemonToken` default to `""`. `Settings` is a plain data class in `com.liftoff.app.settings`.
+  Setters a test uses: `setDaemonHost`, `setDaemonToken`, `setWeightUnit`, `setDefaultPattern` (each suspend).
 - `app/src/main/java/com/liftoff/app/data/MissionManager.kt`
   - Ctor `(db, settingsStore, clock = Clock.systemUTC(), zone = { ZoneId.systemDefault() })`; already imports
     `coachIsConfigured`. Public `val currentWeekStart = MutableStateFlow<LocalDate?>(null)` — the precedent for a
@@ -94,6 +95,63 @@ generation rows landed.
 - Worker tests live under `app/src/test/java/com/liftoff/app/work/` (GenerationWorker, CoachTurnRunner,
   GenerationEnqueuer, GenerationCanceller) — this run changes nothing there, but they read `Generation` and the
   DAO helpers named above.
+
+## Facts confirmed while writing the check
+
+- `.github/workflows/ci.yml` runs exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest` (ubuntu-latest,
+  Temurin 17, 20-minute job). Nothing else — no lint, no detekt, no instrumentation run.
+- `app/build.gradle.kts` sets `testOptions.unitTests.all { timeout = 5 minutes }` per test task, with the comment
+  "A Robolectric + Room test can hang forever on the paused clock". That is the hang the brief warns about, and it is
+  also what bounds every wait in the new Robolectric test whether or not the test says so.
+- The gate at this branch's HEAD (`562e415`) is 639 tests, 0 failures, 0 errors, 0 skipped, and it finished on the
+  first attempt in a few minutes.
+- The known flake is `doneBodyweightSetStepperShowsBW` (`ui/inflight/InFlightScreenTest.kt:601`): a Room pool closed
+  under a concurrent `observe()`, red at random and green on a re-run of the same tree.
+- The only purity guard test in the repo is `coachPackageHasNoAndroidImports` in
+  `app/src/test/java/com/liftoff/app/coach/ExerciseNamesTest.kt`, and it reads only
+  `src/main/java/com/liftoff/app/coach` — nothing enforces `domain/`'s purity mechanically.
+- `Generation`'s constructor: `id` defaults to 0, `createdAt` has **no** default, and `kind`, `missionId`, `status`
+  are required, so a seeded row must pass `createdAt` itself.
+- `exportedV1SchemaMatchesDatabase` is in `data/SchemaExportTest.kt` — the test that says the exported
+  `app/schemas/.../1.json` still matches the entities.
+
+## verify.sh (committed by the verify step)
+
+One Gradle invocation: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, with stale
+`app/build/test-results/testDebugUnitTest` moved aside first and up to three attempts when the failure is the known
+flake, a build/daemon error, or a hung suite that wrote no reports. Every named test is then looked for by name in
+that run's XML reports (tab-separated index of `TEST-*.xml`), so a test never written reads as "did not run".
+Regression classes are checked whole-class (`c <ClassName>`), new tests only by method name — the file and package
+are the implementer's call.
+
+Sixteen names, all new to this run (none exists at HEAD, so the script fails on the untouched branch):
+
+Plain JUnit, the derivation called directly over plain values:
+1. `noOutlineRowWithAConfiguredCoachIsEditableAndOffersConfirmAlone`
+2. `aSucceededOutlineRowWithAConfiguredCoachIsEditableAndOffersConfirmAlone`
+3. `queuedAndRunningOutlineRowsArePlanningAndOfferContinueWithoutOutlineButNotConfirm`
+4. `anOpenOutlineRowCarryingTheOfflineMarkIsOfflineRatherThanPlanning`
+5. `aFailedOutlineRowReportsFailedWithItsReasonWordForWordAndOffersRetryAndContinueWithoutOutline`
+6. `aFailedOutlineRowWithNoReasonTextStillReportsFailedAndOffersRetryWithAReason`
+7. `aBlankHostOrTokenWithNoOutlineRowIsNotConfiguredAndOffersContinueWithoutOutlineButNotConfirm`
+8. `aSucceededOutlineRowWithBlankSettingsIsNotConfiguredRatherThanEditable` (Decision: SUCCEEDED + blank → not configured)
+9. `aFailedOutlineRowOutranksBlankSettingsAndKeepsItsReasonAndRetry` (Decision: the row outranks the settings)
+10. `anOpenOutlineRowOutranksBlankSettingsAndIsPlanningOrOffline` (Decision: the offline mark outranks them too)
+11. `aCancelledStatusIsTreatedAsNoOutlineRow` (Decision: CANCELLED is no row)
+
+Robolectric, one subscription held open across the writes (a second `observe()` or a fresh `.first` proves nothing):
+12. `theDraftReportsPlanningWhenAQueuedOutlineRowIsWrittenToRoom`
+13. `theDraftReportsOfflineWhenItsOutlineRowTakesTheCoachOfflineMark`
+14. `theDraftReportsFailedWithTheExactReasonItsOutlineRowWasMarkedFailedWith`
+15. `theDraftDoesNotReEmitForAnotherMissionsRowAFlightPlanRowOrACancelledRow`
+16. `theDraftFollowsTheSettingsFromNotConfiguredToEditableWithoutReSubscribing` (blank host/token → not configured;
+    a weight-unit edit emits nothing; filling host and token turns the same subscription's draft editable)
+
+Also checked: the exported schema under `app/schemas` byte-identical to the tree this run's brief was added on top
+of, and `exportedV1SchemaMatchesDatabase`. Not checked (owner reviews in the PR): where the derivation lives, its
+signature's purity, which flow carries configured-ness, test-class shape (no Robolectric / no WorkManager), copy
+wording, and whether `LaunchpadScreen.kt` was edited — the brief allows a compile-only edit, so the six rendered
+Launchpad classes are what say the drawing did not change.
 
 ## Machine notes (from memory, not the repo)
 
