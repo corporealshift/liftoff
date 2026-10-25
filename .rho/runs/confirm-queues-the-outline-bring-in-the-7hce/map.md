@@ -1,6 +1,6 @@
 # Map
 
-Branch `rho/confirm-queues-the-outline-bring-in-the-7hce`, HEAD `85d6893` (`run: plan revised by claude review`) on top of
+Branch `rho/confirm-queues-the-outline-bring-in-the-7hce`, HEAD `5113f4e` (`run: verify`) on top of
 `1f8d5fc goal: round 18 check` (that commit adds only `.../roadmap.md`, no code). Merge-base with the source
 branch is `2a22c82 goal: round 17 check`.
 
@@ -205,6 +205,31 @@ attempt 1 passed, `… reports: 624 tests, 0 failures, 0 errors, 0 skipped`, the
 EXIT=1** — the sixteen named tests all reported "did not run", and every must-not-break class check, the schema
 check and the stray-`.rho/runs` check passed. That is the correct failing state for a verify script written before
 the work.
+
+## Task split (tasks step, 2026-10-25)
+
+`tasks.md` has seven tasks: 1–5 are the five picks, one per task in the brief's order; task 5 closes the picks with
+the plan's step-6 whole-suite gate; 6 writes `LaunchpadConfirmTest` with the four Confirm cases; 7 adds the way-out
+and retry cases and runs the final whole-suite gate. No task writes production code.
+
+Re-derived from each pick's own diff (`git show --stat`), so a work session does not have to:
+
+| sha | files | +/− | test methods it adds |
+|---|---|---|---|
+| `c748582` | 11 (MissionManager.kt + 10 test files) | +62 / −41 | none |
+| `29b1821` | 5 (MissionManager, GenerationDao, domain/Coach.kt new, GenerationDaoTest, MissionManagerTest) | +201 / −21 | 5 in MissionManagerTest + 1 in GenerationDaoTest; renames 3 |
+| `99aceec` | 2 (MissionManager, MissionManagerTest) | +121 / −0 | 1 in MissionManagerTest |
+| `6a16f32` | 6 (LaunchpadScreen, LaunchpadViewModel + 4 Launchpad test files) | +124 / −13 | none |
+| `9dae7bb` | 2 (LaunchpadScreen, LaunchpadDraftControlsTest) | +90 / −4 | 2 in LaunchpadDraftControlsTest |
+
+`@Test` counts today → after the picks: `MissionManagerTest` 18 → 23 (`29b1821`) → 24 (`99aceec`);
+`GenerationDaoTest` 6 → 7; `LaunchpadDraftControlsTest` 3 → 5; `LaunchpadDraftGuardsTest` 2, `LaunchpadReFlyTest` 3,
+`LaunchpadScrubTest` 3, `LaunchpadStatesTest` 10, `GenerationWorkerTest` 28 (unchanged counts). Suite totals: 624
+today → 633 after the five picks → 639 after `LaunchpadConfirmTest`'s six tests.
+
+`LaunchpadState.Pending` is a data class (`eyebrow, title, chips, sortieIndex, sortieId, reFlyAvailable`);
+`Draft(weekStart, pattern, missionId)`. After the way out with an `L`-first pattern the state is a `Pending` whose
+`sortieIndex` is the first sortie's.
 
 ## Misc facts worth not re-reading
 
