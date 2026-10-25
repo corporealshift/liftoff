@@ -1,6 +1,6 @@
 # Map
 
-Branch `rho/confirm-queues-the-outline-bring-in-the-7hce`, HEAD `d5d446b` (`run: plan outline`) on top of
+Branch `rho/confirm-queues-the-outline-bring-in-the-7hce`, HEAD `85d6893` (`run: plan revised by claude review`) on top of
 `1f8d5fc goal: round 18 check` (that commit adds only `.../roadmap.md`, no code). Merge-base with the source
 branch is `2a22c82 goal: round 17 check`.
 
@@ -120,12 +120,101 @@ worktree's files by absolute path needs approval, so use `git show`/`git show <s
   `6a16f32` updates the `LaunchpadViewModel(` construction sites in 4 test files: `DraftControls`, `DraftGuards`,
   `ReFly`, `Scrub` (`LaunchpadStatesTest` builds no view model).
 - `GenerationEnqueuerTest`, `GenerationCancellerTest`, `GenerationWorkerTest` (28 tests) — the "must not break"
-  work layer. Also `LiftoffShellTest` (12), `ShellNavTest` (21), `MainActivityTest` (2).
+  work layer. Also `LiftoffShellTest` (12), `ShellNavTest` (21), `MainActivityTest` (2). The brief's
+  export/import category is `DatabaseExportTest`, `DatabaseImportTest`, `BackupImportRoomTest`,
+  `BackupRoundTripTest`, `BackupViewModelTest`; Mission Control is `MissionControlScreenTest` /
+  `MissionControlViewModelTest`; Test connection is `ConnectionViewModelTest` / `DaemonConnectionCheckTest`; the
+  domain tests are `MissionsTest`, `SortiesTest`, `WeekTest`, `RolloverTest`, `SortiePlanningTest`, `ReFlyTest`.
+  All 37 class names verify.sh checks exist under `app/src/test` today, so none of them can fail forever.
 - Nothing in the Launchpad package proves the view model's `catch (_: IllegalStateException)` swallows a manager
   refusal: `LaunchpadDraftGuardsTest`'s `escaped` assertions cover the view model's own `>= 7` / `<= 1` chip
   guards, not a refused write. Its `escaped` list plus `assertTrue(escaped.isEmpty())` is still the shape to copy
   for a view-model-only test.
 - Whole-suite size after `9dae7bb`: 633 tests, 0 failures.
+
+### Test method names each pick adds, and what it retires (read off `git show <sha>` added/removed `fun` lines)
+
+`c748582` adds no test method at all — fixture call sites only.
+
+`29b1821` adds to `MissionManagerTest`: `confirmQueuesOneOutlineGenerationAndLeavesTheDraftUntouched`,
+`confirmWithoutAHostOrTokenQueuesNothingAndSaysSo`, `confirmingTheSameDraftTwiceReusesTheOpenOutlineGeneration`,
+`theWeeklyPatternIsFrozenWhileAnOutlineGenerationIsOpenAndEditableAgainAfterItFails`,
+`continueWithoutOutlineHandsBackEveryOpenOutlineGeneration`, plus helpers `configureCoach`, `assertPatternRefused`;
+and to `GenerationDaoTest`: `theLiveOutlineReadForAMissionDropsACancelledRow`. It **renames three existing
+`MissionManagerTest` methods**: `confirmPlansFirstRunWhenGenerationOff` →
+`continueWithoutOutlinePlansFirstRunWhenGenerationOff`, `confirmLeavesLiftPending` →
+`continueWithoutOutlineLeavesLiftPending`, `confirmLeavesRunPendingWhenGenerationOn` →
+`continueWithoutOutlineLeavesRunPendingWhenGenerationOn`. Those three old names are gone after the picks, so a
+verify script must not name them.
+
+`99aceec` adds `retryOutlineRefusesUnlessTheDraftsNewestOutlineHasFailed` plus helpers `seedOutline`,
+`assertRetryRefused`.
+
+`6a16f32` adds no test method — only the two helper arguments at four construction sites.
+
+`9dae7bb` adds `draftAlwaysOffersContinueWithoutOutline` and `draftShowsTheNotConfiguredMessageWhenItIsSet`.
+
+All twelve of those names are absent from `app/src/test` at HEAD today (checked by `grep -rl "fun <name>"`), which
+is what makes the run's verify.sh fail on the untouched tree.
+
+## verify.sh (this run's definition of done)
+
+`.rho/runs/confirm-queues-the-outline-bring-in-the-7hce/verify.sh`, modelled on the gny6 run's
+(`git show 91657db:.rho/runs/confirm-queues-the-outline-bring-in-the-gny6/verify.sh`) and on
+`.rho/runs/run-in-flight-bring-in-the-finished-tt3m/verify.sh`. CI (`.github/workflows/ci.yml` line 35) runs
+exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest`, which is also the brief's Done-when. Shape:
+`set -euo pipefail`; `cd` to `git rev-parse --show-toplevel`; `RESULTS=app/build/test-results/testDebugUnitTest`;
+scratch in `app/build/verify-work`; `index_reports` (one awk pass per report, worst outcome kept, `C:<classname>`
+keys) → `$WORK/methods` and `$WORK/classes`; `t <method>` and `c <ClassName>` helpers; then five sections — the CI
+gate (`bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, `timeout 1800`, up to 3
+attempts, retried only on the known flake `doneBodyweightSetStepperShowsBW` / a build or daemon error / a hung
+suite that wrote no report, never on a compile error or a real failed assertion), the ten names the picks bring,
+the six new `LaunchpadConfirmTest` names, the 37 must-not-break class names, and the schema + stray-`.rho/runs`
+checks.
+
+Stale results are moved with `mv` to `app/build/verify-old-results-<epoch>`. There is no `gradlew --stop` anywhere
+in it: a stop is machine-wide and would take down another worktree's daemon; if the move fails the gate is not run
+and the loop retries.
+
+Its six names for the new file (the task session writes tests from the comment above each):
+`confirmWithMissionControlConfiguredQueuesOneOutlineGenerationForEnqueuingAndLeavesTheWeekADraft`,
+`confirmWithABlankHostQueuesNothingAndReportsTheNotConfiguredMessage`,
+`confirmWithAWhitespaceOnlyHostQueuesNothingAndReportsTheNotConfiguredMessage`,
+`confirmWithABlankTokenQueuesNothingAndReportsTheNotConfiguredMessage`,
+`continueWithoutOutlineAfterAConfirmActivatesTheWeekMakesSortieOneCurrentAndCancelsTheOutlineGeneration`,
+`retryAfterAFailedOutlineQueuesANewOutlineGenerationAsTheNewestAndRecordsItForEnqueuing`.
+No class check on `LaunchpadConfirmTest` — naming a class would dictate the file layout.
+
+Base commit for the schema and stray-file checks is derived, not hardcoded: the commit that ADDED this run's
+brief (`git log --diff-filter=A --format=%H -- "$RUN_DIR/brief.md" | tail -1` → `45d1088`) then `^` → `1f8d5fc`.
+`--diff-filter=A` rather than `rev-list -1 HEAD -- brief.md`, so the baseline does not move if the brief is edited
+during the run.
+
+Where the ten pick names live at `9dae7bb` (checked against `git show 9dae7bb:<file>`): seven in
+`MissionManagerTest` (`confirmQueuesOneOutlineGenerationAndLeavesTheDraftUntouched`,
+`confirmWithoutAHostOrTokenQueuesNothingAndSaysSo`, `confirmingTheSameDraftTwiceReusesTheOpenOutlineGeneration`,
+`theWeeklyPatternIsFrozenWhileAnOutlineGenerationIsOpenAndEditableAgainAfterItFails`,
+`continueWithoutOutlineHandsBackEveryOpenOutlineGeneration`,
+`continueWithoutOutlinePlansFirstRunWhenGenerationOff`,
+`retryOutlineRefusesUnlessTheDraftsNewestOutlineHasFailed`), one in `GenerationDaoTest`
+(`theLiveOutlineReadForAMissionDropsACancelledRow`), two in `LaunchpadDraftControlsTest`. `c748582` adds no test
+method at all; `29b1821` is the pick that renames the three `confirm*` fixture tests to `continueWithoutOutline*`.
+
+Gate evidence for the script itself (detached run on the untouched branch, `app/build/verify-run2.log`): gate
+attempt 1 passed, `… reports: 624 tests, 0 failures, 0 errors, 0 skipped`, then **41 passed / 16 failed,
+EXIT=1** — the sixteen named tests all reported "did not run", and every must-not-break class check, the schema
+check and the stray-`.rho/runs` check passed. That is the correct failing state for a verify script written before
+the work.
+
+## Misc facts worth not re-reading
+
+- `app/build.gradle.kts`: `unitTests { isIncludeAndroidResources = true; isReturnDefaultValues = true }` and every
+  test task gets `timeout = 5 minutes` — that is what kills a hung suite with no `TEST-*.xml`.
+- `SchemaExportTest.exportedV1SchemaMatchesDatabase` only greps `app/schemas/.../1.json` for table names, so it is
+  a weak guard; the real "no schema change" check is `git diff --quiet <base> HEAD -- app/schemas`.
+- Test classes in `com.liftoff.app.domain`: `MissionsTest`, `SortiesTest`, `WeekTest`, `RolloverTest`,
+  `SortiePlanningTest`, `ReFlyTest`. `PlanFormatTest` is `ui.sortie`. 76 `*Test.kt` files under `app/src/test`, no
+  `androidTest` sources.
 
 ## Docs that set rules
 
