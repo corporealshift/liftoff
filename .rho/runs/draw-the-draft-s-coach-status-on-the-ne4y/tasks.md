@@ -37,7 +37,7 @@ removed, and `verify.sh` checks `LaunchpadDraftControlsTest` as a whole class.
   "com.liftoff.app.ui.launchpad.LaunchpadDraftControlsTest"` passes cold with every case in that class green, and
   `LaunchpadConfirmTest`, `LaunchpadCoachStatusTest` and `LaunchpadStatesTest` still pass unedited.
 
-- [ ] 2. `LaunchpadDraftStatusTest`: the editable and planning renders
+- [x] 2. `LaunchpadDraftStatusTest`: the editable and planning renders
   Covers the first half of plan step 2. File:
   `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadDraftStatusTest.kt` (new). Copy the harness from
   `LaunchpadDraftControlsTest` rather than rebuilding it: in-memory Room, `PreferenceDataStoreFactory.create` on
