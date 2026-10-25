@@ -63,7 +63,7 @@ CLAUDE.md's `area: lowercase summary`, staging the named files only, never `git 
   `LaunchpadDraftGuardsTest`, `LaunchpadReFlyTest`, `LaunchpadScrubTest`) green and unedited, and
   `git diff` shows no change under `app/schemas`.
 
-- [ ] 3. The live draft through one subscription: `LaunchpadCoachStatusTest`
+- [x] 3. The live draft through one subscription: `LaunchpadCoachStatusTest`
   Covers the Robolectric proof that task 2's join is live rather than re-derived per read. One
   subscription to `LaunchpadStates.observe()` for the current week's draft, collector started before the
   writes, every emission read out of that one collection, kept alive across them by a launched collector
