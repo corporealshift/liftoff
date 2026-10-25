@@ -59,7 +59,7 @@ named by nobody. Suite totals: 624 tests today, 633 after the five picks, 639 af
   `bash gradlew.sh :app:testDebugUnitTest --no-build-cache --tests '*MissionManagerTest*'` reports 24 tests,
   0 failures, with that name in the report.
 
-- [ ] 4. Cherry-pick `6a16f32` — the view model's wiring
+- [x] 4. Cherry-pick `6a16f32` — the view model's wiring
   `LaunchpadViewModel` gains `queueGeneration: (Long) -> Unit` and `cancelGeneration: suspend (Long) -> Unit`,
   `notConfiguredMessage` (private set), `NOT_CONFIGURED_MESSAGE`, `confirm()` / `continueWithoutOutline()` /
   `retry()` each returning `Job?` (`null` unless `state.value` is a `LaunchpadState.Draft`), each enqueueing or
