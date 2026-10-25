@@ -76,7 +76,7 @@ named by nobody. Suite totals: 624 tests today, 633 after the five picks, 639 af
   `bash gradlew.sh :app:testDebugUnitTest --no-build-cache --tests '*LaunchpadDraftControlsTest*' --tests '*LaunchpadDraftGuardsTest*' --tests '*LaunchpadReFlyTest*' --tests '*LaunchpadScrubTest*'`
   reports 11 tests, 0 failures.
 
-- [ ] 5. Cherry-pick `9dae7bb`, then run the whole suite once on the five picks
+- [x] 5. Cherry-pick `9dae7bb`, then run the whole suite once on the five picks
   Draws the draft's way out (`UnderlinedTextButton("Continue without outline")` under `PrimaryButton("Confirm")`) and
   the not-configured line in `DraftContent`. Then the plan's step 6: one cold whole-suite gate,
   `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, run detached from the worktree root
