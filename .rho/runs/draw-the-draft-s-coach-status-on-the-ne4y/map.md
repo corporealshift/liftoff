@@ -85,4 +85,43 @@ HEAD when this plan was written: `0776758` (PR #40, "The draft's coach status, d
   so a wording change to the constant is safe there.
 - `LaunchpadStatesTest.kt`, `LaunchpadDraftGuardsTest.kt`, `LaunchpadScrubTest.kt`, `LaunchpadReFlyTest.kt` —
   no Compose draft render (ReFly renders the PENDING screen through `LaunchpadContent`; its fixture is an
-  ACTIVE mission). Nothing outside `ui/launchpad` asserts on the draft's buttons.
+  ACTIVE mission). Nothing outside `ui/launchpad` asserts on the draft's buttons. No test in the suite taps a pattern
+  chip, so chip tappability is unproven today.
+
+## Facts a later step needs (added while writing verify.sh)
+
+- Both `PrimaryButton` and `UnderlinedTextButton` draw `text.uppercase()`, so the labels a Compose test asserts are
+  `CONFIRM`, `RETRY` and `CONTINUE WITHOUT OUTLINE`. `DraftStepButton` draws its `−` (U+2212) and `+` as-is, and the
+  existing class asserts `"\u2212"`.
+- `retry()` (LaunchpadViewModel 124) is the only one of the three draft actions that does **not** clear
+  `notConfiguredMessage` first — `confirm()` does at 95 and `continueWithoutOutline()` at 116. That is the fix the
+  plan names.
+- `MissionManager.retryOutline` (152) returns `CoachNotConfigured` **before** its "newest outline must be FAILED"
+  check, so a FAILED row plus blank host/token makes a RETRY tap report not-configured rather than throw. That is how
+  the brief's "a Confirm tapped with nothing configured would otherwise show nothing" case actually arrives.
+- `retryOutline` inserts a new QUEUED OUTLINE row at `clock.millis()`. Every newest-outline query orders by
+  `createdAt DESC, id DESC` (GenerationDao 68–90), so that row outranks a seeded row even when the test's fixed clock
+  gives them the same instant — no fixture ordering trap in the "Retry reaches Mission Control" case.
+- `DraftPatternChips` is `clickable { }` with no `enabled` parameter, so a read-only chip has to be drawn the way
+  `DraftStepButton` is (`clickable(enabled = false, role = Role.Button, indication = null)` + `Rule`/`Muted`), which
+  really sets `Enabled = false` semantics. `clickable(enabled = true, role = Role.Button)` sets `Enabled = true`,
+  which is what `draftMinusDisabledAtOneSortie` already relies on.
+- `ActionButtons` (LaunchpadScreen 201) takes `onConfirm` / `onContinueWithoutOutline` and has no `onRetry`; the draft
+  arm at 219 passes five callbacks to `DraftActions` (237), which draws the stepper row (246–267), `PrimaryButton`
+  "Confirm" (269) and the always-visible `UnderlinedTextButton` (273).
+- `retryOutline` refuses (IllegalStateException) unless the newest non-cancelled outline is FAILED, and the view model
+  swallows that into `manager.onAppOpen()`. So the "report clears" case must leave a FAILED row behind for the second
+  RETRY to answer — which is exactly what the first RETRY does, since it refuses without writing a row.
+
+## verify.sh (this step)
+
+Eight named tests, all new to this run: six rendered statuses (editable, planning, planning-chips-read-only, offline,
+failed, not configured) and two for the single status line (a RETRY that finds nothing configured replaces the failure
+reason with one not-configured line; the report clears when the next RETRY reaches Mission Control). Plus the CI gate
+and 26 whole-class "must not break" checks. No ARCHITECTURE.md grep, no source grep, no schema check — the header
+says why.
+
+Run against the untouched tree (`096bf6a`): gate attempt 1 passed in 2m38s with a warm daemon, 655 tests / 0 failures
+/ 0 skipped, 32 checks passed, exactly those 8 names reported "did not run", **exit 1**. Log at
+`app/build/verify-ne4y.log`, script copy at `app/build/verify-ne4y.sh` (run the copy, not the real file, so editing
+the real one mid-run does not give a phantom syntax error).
