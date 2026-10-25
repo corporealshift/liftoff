@@ -96,7 +96,7 @@ CLAUDE.md's `area: lowercase summary`, staging the named files only, never `git 
   "com.liftoff.app.ui.launchpad.*"` passes cold — the five new tests plus the six classes task 2 left
   green — with zero failures, and the run wrote a `TEST-*.xml` naming all five new tests.
 
-- [ ] 4. The whole gate, run once, and any fallout it turns up
+- [x] 4. The whole gate, run once, and any fallout it turns up
   Covers the brief's Done-when and the cross-cutting tests no per-class gate above ran. Run
   `.rho/runs/the-draft-s-coach-status-derived-and-609h/verify.sh` detached through a script under
   `app/build/` (`mkdir -p app/build` first; log plus an `EXIT=$?` sentinel with no pipe): it runs the
