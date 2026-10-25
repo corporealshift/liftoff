@@ -13,6 +13,9 @@ import com.liftoff.app.data.MissionDao
 import com.liftoff.app.data.MissionManager
 import com.liftoff.app.data.MissionStatus
 import com.liftoff.app.data.SortieDao
+import com.liftoff.app.data.SortieState
+import com.liftoff.app.data.SortieType
+import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.domain.currentWeekStart
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -155,6 +158,17 @@ class LaunchpadConfirmTest {
     }
 
     /**
+     * The state an action needs next, waited for rather than assumed: an action returns null while the derived
+     * state is anything but a Draft, so a Draft that has not arrived yet would make the action a silent no-op.
+     */
+    private suspend fun awaitDraft(vm: LaunchpadViewModel, missionId: Long): LaunchpadState.Draft {
+        val state = withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Draft } }
+        val draft = state as LaunchpadState.Draft
+        assertEquals(missionId, draft.missionId)
+        return draft
+    }
+
+    /**
      * One setting the brief names, on its own fresh draft and database: Confirm writes no row and hands nothing
      * to either helper, and reports the line the draft shows. Then the settings are fixed and Confirm again on the
      * same draft, which must clear the line and queue one row.
@@ -217,8 +231,80 @@ class LaunchpadConfirmTest {
         confirmReportsNotConfiguredThenQueuesOnceSettingsAreFixed(VALID_HOST, "")
     }
 
+    // The way out after a Confirm: the week is started from the draft's own pattern, and the outline the coach was
+    // still working on is cancelled rather than left to land on a week the owner has already begun without it.
+    @Test
+    fun continueWithoutOutlineAfterAConfirmActivatesTheWeekMakesSortieOneCurrentAndCancelsTheOutlineGeneration() = runBlocking {
+        val (vm, draft) = primedDraft(VALID_HOST, VALID_TOKEN)
+        joinAction(vm.confirm(), vm)
+        val outline = queuedOutlineFor(draft.missionId)
+        awaitDraft(vm, draft.missionId)
+
+        joinAction(vm.continueWithoutOutline(), vm)
+
+        val mission = missionDao.get(draft.missionId)!!
+        assertEquals(MissionStatus.ACTIVE, mission.status)
+        assertEquals(currentWeekStart(clock, ZoneOffset.UTC), mission.weekStart)
+
+        val sorties = sortieDao.getForMission(draft.missionId)
+        assertEquals(3, sorties.size)
+        val first = sorties.first()
+        assertEquals(0, first.index)
+        assertEquals(SortieType.LIFT, first.type)
+        assertEquals(SortieState.PENDING, first.state)
+        assertEquals(first, currentSortie(sorties))
+
+        // An L-first first sortie waits on a plan generation, so the derived state is Pending; Planned never comes.
+        val pending = withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Pending } }
+        val pendingState = pending as LaunchpadState.Pending
+        assertEquals(first.id, pendingState.sortieId)
+        assertEquals(first.index, pendingState.sortieIndex)
+
+        assertEquals(listOf(outline.id), queuedIds.toList())
+        assertEquals(listOf(outline.id), cancelledIds.toList())
+        val row = generationDao.get(outline.id)!!
+        assertEquals(GenerationKind.OUTLINE, row.kind)
+        assertEquals(GenerationStatus.CANCELLED, row.status)
+        assertNull(generationDao.getNewestNonCancelledOutlineForMission(draft.missionId))
+        assertNull(vm.notConfiguredMessage)
+        assertTrue(escaped.isEmpty())
+    }
+
+    // A Retry after the outline failed: the new row is what the enqueuer is handed, and the failed row keeps the
+    // reason it failed for instead of being rewritten.
+    @Test
+    fun retryAfterAFailedOutlineQueuesANewOutlineGenerationAsTheNewestAndRecordsItForEnqueuing() = runBlocking {
+        val (vm, draft) = primedDraft(VALID_HOST, VALID_TOKEN)
+        joinAction(vm.confirm(), vm)
+        val failed = queuedOutlineFor(draft.missionId)
+
+        // The way a failure reaches a row in production is the worker's own DAO helper, error text and all.
+        generationDao.markFailed(failed.id, RETRIED_ERROR, clock.millis())
+        awaitDraft(vm, draft.missionId)
+
+        joinAction(vm.retry(), vm)
+
+        // Every createdAt is the fixed clock's, so the DAO's id tie-break makes the new row the newest.
+        val newest = generationDao.getNewestNonCancelledOutlineForMission(draft.missionId)!!
+        assertEquals(GenerationKind.OUTLINE, newest.kind)
+        assertEquals(GenerationStatus.QUEUED, newest.status)
+        assertNull(newest.sortieId)
+        assertTrue(newest.id != failed.id)
+
+        val kept = generationDao.get(failed.id)!!
+        assertEquals(GenerationStatus.FAILED, kept.status)
+        assertEquals(RETRIED_ERROR, kept.error)
+
+        assertEquals(2, generationDao.getAll().count { it.missionId == draft.missionId })
+        assertEquals(listOf(failed.id, newest.id), queuedIds.toList())
+        assertTrue(cancelledIds.isEmpty())
+        assertNull(vm.notConfiguredMessage)
+        assertTrue(escaped.isEmpty())
+    }
+
     private companion object {
         const val VALID_HOST = "127.0.0.1"
         const val VALID_TOKEN = "token-under-test"
+        const val RETRIED_ERROR = "the coach's reply was not an outline"
     }
 }
