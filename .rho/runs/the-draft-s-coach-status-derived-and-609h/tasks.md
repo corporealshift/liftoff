@@ -9,7 +9,7 @@ test that `verify.sh` names. Read `map.md` before you start: it records the DAO 
 exists, the harness to copy, and which names `verify.sh` deliberately does not check. Commit with
 CLAUDE.md's `area: lowercase summary`, staging the named files only, never `git add -A`.
 
-- [ ] 1. The derivation and its status type, in `domain`, with plain JUnit
+- [x] 1. The derivation and its status type, in `domain`, with plain JUnit
   Covers the whole pure half of the run: the sealed coach status the draft will carry (editable,
   planning, offline, failed-with-reason, not configured), each variant saying which actions it offers —
   Confirm only on editable, "Continue without outline" on planning/offline/failed/not-configured, Retry
