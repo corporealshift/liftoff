@@ -49,7 +49,7 @@ named by nobody. Suite totals: 624 tests today, 633 after the five picks, 639 af
   `--tests '*MissionManagerTest*'` reports 23 tests, 0 failures, and a cold `--tests '*GenerationDaoTest*'` reports
   7 tests, 0 failures, with the seven names above present in those reports.
 
-- [ ] 3. Cherry-pick `99aceec` — `MissionManager.retryOutline`
+- [x] 3. Cherry-pick `99aceec` — `MissionManager.retryOutline`
   Adds `retryOutline(missionId): ConfirmOutcome`: the same configured check and the same QUEUED OUTLINE row shape as
   `confirm`, refusing with `IllegalStateException` unless the Mission is the current week's DRAFT and its newest
   non-cancelled OUTLINE row is FAILED; blank host or token gives the not-configured outcome rather than a throw.
