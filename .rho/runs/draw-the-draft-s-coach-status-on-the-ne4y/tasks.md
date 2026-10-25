@@ -85,7 +85,7 @@ removed, and `verify.sh` checks `LaunchpadDraftControlsTest` as a whole class.
   "com.liftoff.app.ui.launchpad.LaunchpadDraftStatusTest"` passes cold with every case in the class green, task 2's
   three included, and the run wrote a `TEST-*.xml` naming all six of the names above.
 
-- [ ] 4. Update the ARCHITECTURE.md M3 row
+- [x] 4. Update the ARCHITECTURE.md M3 row
   Covers plan step 3. File: `ARCHITECTURE.md` line 82, the M3 row only. Replace its closing "App wiring — the
   screens that queue a generation and cancel one — comes next" with what is now true — Confirm queues the outline
   and the draft shows the status derived from that row — and name what comes next: queueing Flight Plans and the
