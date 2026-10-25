@@ -16,7 +16,7 @@ as `verify.sh` spells them. The three names the picks retire (`confirmPlansFirst
 `confirmLeavesLiftPending`, `confirmLeavesRunPendingWhenGenerationOn`) are renamed by `29b1821` and are deliberately
 named by nobody. Suite totals: 624 tests today, 633 after the five picks, 639 after `LaunchpadConfirmTest`.
 
-- [ ] 1. Cherry-pick `c748582` — the fixture move
+- [x] 1. Cherry-pick `c748582` — the fixture move
   Adds `MissionManager.continueWithoutOutline(missionId)` (returns `Unit` here) as a copy of today's `confirm` body,
   and moves 25 fixture call sites from `confirm(...)` to `continueWithoutOutline(...)` across ten test files. No
   behaviour change and no new test method; this is the move the PR statement is about.
