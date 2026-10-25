@@ -33,6 +33,10 @@ class LiftoffShellTest {
     // so onNodeWithText throws "expected exactly 1 node". Exclude the selectable (bottom bar) item.
     private val missionTitle = hasText("MISSION") and !isSelectable()
 
+    // The Launchpad draft's screen title, which it draws whatever the coach is doing. Its Confirm is only in
+    // the editable status, and this fixture has no Mission Control configured. DisplayTitle upper-cases it.
+    private val launchpadDraft = hasText("NEW MISSION")
+
     // CI's runner expired this wait on a tree that passed locally, so the shell's waits get headroom
     // instead of the five seconds every other Compose wait in the repo uses.
     private fun waitFor(matcher: SemanticsMatcher) {
@@ -60,7 +64,7 @@ class LiftoffShellTest {
     @Test
     fun appOpensOnLaunchpad() {
         // The app opens on the Launchpad tab — check unique screen content.
-        waitFor(hasText("CONFIRM"))
+        waitFor(launchpadDraft)
     }
 
     @Test
@@ -75,7 +79,7 @@ class LiftoffShellTest {
 
         // Navigate back to Launchpad.
         composeRule.onNodeWithContentDescription("Launchpad").performClick()
-        waitFor(hasText("CONFIRM"))
+        waitFor(launchpadDraft)
     }
 
     @Test
@@ -86,7 +90,7 @@ class LiftoffShellTest {
 
         // System back should go to Launchpad.
         pressBack()
-        waitFor(hasText("CONFIRM"))
+        waitFor(launchpadDraft)
     }
 
     @Test
@@ -182,7 +186,7 @@ class LiftoffShellTest {
     @Test
     fun navBarIconsAreLightOnTabsAndDarkOnMissionControl() {
         // On tabs, the bottom bar background is Ink (dark), so nav bar icons should be light.
-        waitFor(hasText("CONFIRM"))
+        waitFor(launchpadDraft)
 
         val a = composeRule.activity
         fun light(): Boolean = WindowCompat.getInsetsController(a.window, a.window.decorView)
