@@ -1,6 +1,8 @@
 # Map — In-Flight enqueues the Flight Plan that land and scrub queued
 
 Branch state verified 2026-10-26. Line numbers are HEAD of this worktree.
+`tasks.md` splits the seven names `verify.sh` requires 3 / 2 / 2 across its tasks 3, 4 and 5 (its 1 and 2 are the
+two production changes, its 6 is the whole gate).
 
 ## Docs that set rules
 
@@ -106,10 +108,38 @@ Branch state verified 2026-10-26. Line numbers are HEAD of this worktree.
 - Recording-lambda precedent for the enqueue assertions: `LaunchpadConfirmTest` (queue/cancel lambdas recorded,
   no WorkManager).
 
+## Reading the recorded id back, and the two fixtures the new tests build on
+
+- `GenerationDao.kt` — `get(id)` (:13), `getAll()` (:18), `countAll()` (:27),
+  `getNewestNonCancelledForSortie(sortieId)` (:66, newest by `createdAt` then `id`, `CANCELLED` excluded),
+  `getOpenFlightPlanForSortie` (used by `advance`). A test asserts the id its recording lambda was handed against
+  `get(id)` — `kind == GenerationKind.FLIGHT_PLAN`, `status == GenerationStatus.QUEUED`, `sortieId` the sortie that
+  became current — and against the recording list's size for "exactly once".
+- `InFlightLandScrubTest.kt` fields: `db`, `missionDao`, `sortieDao`, `flightPlanDao`, `settingsStore`, `manager`
+  (fixed clock + `zone = { ZoneOffset.UTC }`), `escaped`, `scope` (`Unconfined + job + CoroutineExceptionHandler`),
+  `awaitReady` :148, `awaitRun` :152, `awaitDone(done)` :157 (`withTimeout(5_000)` on a `CompletableDeferred`).
+  `launchSortie1()` :138-146 is the whole path up to an in-flight LIFT sortie 1 **and builds the view model at :143
+  with 5 arguments**, so the new tests need their own variant of that path that passes a recording
+  `(Long) -> Unit`; `seedSortie1LiftPlan` :107 plans sortie 1 by hand (`flightPlanDao.writePlan` + a `markPlanned`
+  helper + `sortieDao.update`), which is what keeps the fixture launchable with a coach configured.
+- `InFlightRunTest.kt` fields: same shape, plus `flightPlanDao`, no `generationDao`; `seedMission()` :95,
+  `sortie0(missionId)` :101 (sortie 0 is a PLANNED run carrying the simple 'Run' plan), `viewModel(sortieId)` :103
+  (5 arguments), `awaitRun` :107. The `landRun` cases start at :306
+  (`runLandWithDistanceAndDurationStoresBoth`: `seedMission` → `manager.launch(sortie0)` → `viewModel` → `awaitRun`
+  → `landRun("5.2", "31") { … }` → assert `SortieState.LANDED`, `runDistance 5.2`, `runMinutes 31`,
+  `landedAt == fixedInstant`, `runErrors` null, `message` null, `escaped` empty).
+- Settings setters are `suspend`: `setDaemonHost` :46, `setDaemonToken` :55, `setGenerateRunPlans` :88.
+- Shell class packages, for a `--tests` run: `com.liftoff.app.ui.LiftoffShellTest`, `com.liftoff.app.ui.ShellNavTest`,
+  `com.liftoff.app.MainActivityTest`, `com.liftoff.app.AppContainerTest`; the In-Flight classes are all
+  `com.liftoff.app.ui.inflight`.
+
 ## Gate facts on this machine
 
 - `gradlew.sh` is at the **repository root** and pins JDK/SDK/Gradle under `~/android-toolchain`; nothing is on PATH.
   CI (`.github/workflows/ci.yml`) runs exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest` on ubuntu-latest.
+  `bash gradlew.sh :app:compileDebugKotlin :app:compileDebugUnitTestKotlin` is the cheap compile check for a changed
+  constructor signature: the second task compiles every test file, so a construction site that no longer matches is a
+  compile failure there.
 - `app/build.gradle.kts:46-49` — every unit-test task is killed after **5 minutes** ("A Robolectric + Room test can
   hang forever on the paused clock"). A hang writes no `TEST-*.xml` at all.
 - Known flake: `InFlightScreenTest.doneBodyweightSetStepperShowsBW` (`InFlightScreenTest.kt:601`) — recorded failing
