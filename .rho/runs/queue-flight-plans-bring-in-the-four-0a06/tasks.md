@@ -97,7 +97,7 @@ Rules every task follows (from `plan.md` and `map.md`):
   both names present. The three shell classes are in this run because they mount the real container
   with no WorkManager, which is what shows the new enqueue call is reached only when an action runs.
 
-- [ ] 5. Run the whole gate once and fix only what it names
+- [x] 5. Run the whole gate once and fix only what it names
   Covers: the one run that covers every class the picks touched or affected — the brief's "must not
   break" list (worker, enqueue and cancel, Confirm's outline queueing and the draft status, In-Flight
   and reopening, Landed, Re-fly, export/import, Mission Control, the shell tests, the domain tests)
