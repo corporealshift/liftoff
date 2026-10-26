@@ -4,6 +4,10 @@ import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.liftoff.app.data.Generation
+import com.liftoff.app.data.GenerationDao
+import com.liftoff.app.data.GenerationKind
+import com.liftoff.app.data.GenerationStatus
 import com.liftoff.app.data.LiftoffDatabase
 import com.liftoff.app.data.MissionManager
 import com.liftoff.app.data.Sortie
@@ -47,8 +51,13 @@ class LaunchpadScrubTest {
     private lateinit var context: Context
     private lateinit var db: LiftoffDatabase
     private lateinit var sortieDao: SortieDao
+    private lateinit var generationDao: GenerationDao
     private lateinit var settingsStore: SettingsStore
     private lateinit var manager: MissionManager
+
+    /** What the view model's two helpers were handed, so an action's effect is read off the ids it passed. */
+    private val queuedIds = CopyOnWriteArrayList<Long>()
+    private val cancelledIds = CopyOnWriteArrayList<Long>()
 
     private val job = Job()
     private val escaped = CopyOnWriteArrayList<Throwable>()
@@ -62,6 +71,7 @@ class LaunchpadScrubTest {
         db = Room.inMemoryDatabaseBuilder(context, LiftoffDatabase::class.java)
             .allowMainThreadQueries().build()
         sortieDao = db.sortieDao()
+        generationDao = db.generationDao()
 
         val dataStore = PreferenceDataStoreFactory.create {
             File(context.cacheDir, "settings.preferences_pb")
@@ -86,20 +96,21 @@ class LaunchpadScrubTest {
     /**
      * A two-sortie week (R-L) whose current sortie is PLANNED, which is the state the Launchpad's
      * scrub acts on. The mission has to be ACTIVE or MissionManager.scrub refuses it, and the state
-     * flow has to be collected before the scrub because confirmScrub reads state.value.
+     * flow has to be collected before the scrub because confirmScrub reads state.value. Both helpers
+     * record the ids they are handed, so what an action did is read off the ids it passed.
      */
     private suspend fun plannedLaunchpad(): Pair<LaunchpadViewModel, LaunchpadState.Planned> {
         settingsStore.setDefaultPattern("RL")
         val mission = manager.onAppOpen()
+        // On the manager rather than through the view model: priming the week is not an action under test.
         manager.continueWithoutOutline(mission.id)
 
-        // The scrub path queues and cancels nothing, so both helpers are no-ops here.
         val vm = LaunchpadViewModel(
             db = db,
             manager = manager,
             scope = scope,
-            queueGeneration = { },
-            cancelGeneration = { },
+            queueGeneration = { queuedIds.add(it) },
+            cancelGeneration = { cancelledIds.add(it) },
         )
         val planned = withTimeout(5_000L) {
             vm.state.first { it is LaunchpadState.Planned }
@@ -128,6 +139,16 @@ class LaunchpadScrubTest {
             )
         }
         return row!!
+    }
+
+    /** The one QUEUED FLIGHT_PLAN row left for [sortieId], read back from the database rather than assumed. */
+    private suspend fun queuedPlanFor(sortieId: Long): Generation {
+        val rows = generationDao.getAll().filter { it.kind == GenerationKind.FLIGHT_PLAN }
+        assertEquals(1, rows.size)
+        val row = rows.single()
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(sortieId, row.sortieId)
+        return row
     }
 
     // Scrub with '  sore knee  ': the sortie is SCRUBBED and the stored reason is 'sore knee', so the
@@ -176,5 +197,38 @@ class LaunchpadScrubTest {
         assertEquals("sore\nknee", scrubbed.scrubReason)
         assertFalse(vm.scrubbing)
         assertTrue(escaped.isEmpty())
+    }
+
+    // Scrub with Mission Control configured: the sortie scrub made current is the lift after the one scrubbed, and
+    // the queue lambda is handed the id of the QUEUED FLIGHT_PLAN row queued for it — once, and never to the cancel
+    // lambda. The other cases here run unconfigured, where the same scrub queues nothing.
+    @Test
+    fun scrubFromTheLaunchpadQueuesTheNextSortiesFlightPlanGenerationForEnqueuing() = runBlocking {
+        settingsStore.setDaemonHost(MISSION_CONTROL_HOST)
+        settingsStore.setDaemonToken(MISSION_CONTROL_TOKEN)
+        val (vm, planned) = plannedLaunchpad()
+
+        // Sortie 1 is a run and Generate run plans is off, so priming the week queued nothing for it.
+        assertTrue(queuedIds.isEmpty())
+
+        vm.requestScrub()
+        vm.confirmScrub("knee gave out")
+
+        val scrubbed = awaitScrubbed(vm, planned.sortieId)
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+
+        val next = sortieDao.getForMission(scrubbed.missionId).first { it.index == planned.sortieIndex + 1 }
+        val plan = queuedPlanFor(next.id)
+        assertEquals(listOf(plan.id), queuedIds.toList())
+        assertEquals(1, queuedIds.count { it == plan.id })
+        assertTrue(cancelledIds.isEmpty())
+        assertTrue(plan.id !in cancelledIds)
+        assertEquals(GenerationStatus.QUEUED, generationDao.get(plan.id)!!.status)
+        assertTrue(escaped.isEmpty())
+    }
+
+    private companion object {
+        const val MISSION_CONTROL_HOST = "127.0.0.1"
+        const val MISSION_CONTROL_TOKEN = "token-under-test"
     }
 }

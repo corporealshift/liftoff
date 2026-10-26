@@ -3,11 +3,13 @@ package com.liftoff.app.data
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.liftoff.app.coach.CoachFixtures
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -622,5 +624,253 @@ class MissionManagerTest {
 
         val mission = missionDao.get(mId)!!
         assertEquals(MissionStatus.CLOSED, mission.status)
+    }
+
+    // ── advance queues the Flight Plan, and reports the id ─────────────────────
+
+    /** The mission's FLIGHT_PLAN generation rows, newest first. */
+    private suspend fun flightPlanRows(missionId: Long) = db.generationDao().getAll()
+        .filter { it.kind == GenerationKind.FLIGHT_PLAN && it.missionId == missionId }
+
+    private suspend fun sortieAt(missionId: Long, index: Int) =
+        sortieDao.getForMission(missionId).first { it.index == index }
+
+    // Storing an outline activates the week and prepares sortie 1. With Mission Control configured and run
+    // generation on, that preparation is one QUEUED FLIGHT_PLAN row, and storeOutline reports its id.
+    @Test
+    fun storingAnOutlineQueuesSortieOnesFlightPlanAndReportsItsId() = runBlocking {
+        configureCoach()
+        settingsStore.setGenerateRunPlans(true)
+        val draft = manager.onAppOpen()
+        val valid = CoachFixtures.validReply(CoachFixtures.OUTLINE, CoachFixtures.OUTLINE_CONTEXT)
+
+        var queued: Long? = null
+        assertEquals(StoreOutcome.Stored, manager.storeOutline(draft.id, valid) { queued = it })
+
+        val rows = flightPlanRows(draft.id)
+        assertEquals(1, rows.size)
+        assertEquals(GenerationStatus.QUEUED, rows[0].status)
+        assertEquals(draft.id, rows[0].missionId)
+        assertEquals(sortieAt(draft.id, 0).id, rows[0].sortieId)
+        assertEquals(SortieState.PENDING, sortieAt(draft.id, 0).state)
+        assertEquals(rows[0].id, queued)
+    }
+
+    // 'Continue without an outline' hands back the outline rows still open so the caller can cancel them, and
+    // queues the plan for the sortie that just became current. The plan it queued is not among the ids to cancel.
+    @Test
+    fun continuingWithoutAnOutlineQueuesSortieOnesFlightPlanAndStillHandsBackTheOpenOutlineIdsToCancel() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "LR", MissionStatus.DRAFT)
+        val outlineId = (manager.confirm(mId) as ConfirmOutcome.Queued).generationId
+
+        var queued: Long? = null
+        val toCancel = manager.continueWithoutOutline(mId) { queued = it }
+
+        assertEquals(listOf(outlineId), toCancel)
+        assertFalse("the plan just queued must not be cancelled", toCancel.contains(queued!!))
+
+        val rows = flightPlanRows(mId)
+        assertEquals(1, rows.size)
+        assertEquals(GenerationStatus.QUEUED, rows[0].status)
+        assertEquals(sortieAt(mId, 0).id, rows[0].sortieId)
+        assertEquals(rows[0].id, queued)
+    }
+
+    // Landing the current sortie moves the week on; the sortie that has just become current is a lift waiting on
+    // a generation, so land queues exactly one QUEUED FLIGHT_PLAN row for it and reports its id.
+    @Test
+    fun landingTheCurrentSortieQueuesTheNextSortiesFlightPlanAndReportsItsId() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        manager.continueWithoutOutline(mId)
+        val s0 = sortieAt(mId, 0)
+        assertEquals(SortieState.PLANNED, s0.state)
+        assertEquals(0, flightPlanRows(mId).size)
+
+        manager.launch(s0.id)
+        val queued = manager.land(s0.id)
+
+        val rows = flightPlanRows(mId)
+        assertEquals(1, rows.size)
+        assertEquals(GenerationStatus.QUEUED, rows[0].status)
+        assertEquals(sortieAt(mId, 1).id, rows[0].sortieId)
+        assertEquals(rows[0].id, queued)
+    }
+
+    // The same through scrub: the sortie scrub made current gets one QUEUED FLIGHT_PLAN row, and scrub reports
+    // its id.
+    @Test
+    fun scrubbingTheCurrentSortieQueuesTheNextSortiesFlightPlanAndReportsItsId() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        manager.continueWithoutOutline(mId)
+        val s0 = sortieAt(mId, 0)
+        assertEquals(0, flightPlanRows(mId).size)
+
+        val queued = manager.scrub(s0.id, "weather")
+
+        val rows = flightPlanRows(mId)
+        assertEquals(1, rows.size)
+        assertEquals(GenerationStatus.QUEUED, rows[0].status)
+        assertEquals(sortieAt(mId, 1).id, rows[0].sortieId)
+        assertEquals(rows[0].id, queued)
+    }
+
+    // ── the guard cases: the toggle both ways, an unconfigured Mission Control, never a second row ──
+
+    /** One FLIGHT_PLAN generation row already waiting on [sortieId], older than anything the manager writes. */
+    private suspend fun seedFlightPlan(
+        missionId: Long,
+        sortieId: Long,
+        status: GenerationStatus,
+        at: Long
+    ): Generation {
+        val id = db.generationDao().insert(Generation(
+            kind = GenerationKind.FLIGHT_PLAN,
+            missionId = missionId,
+            sortieId = sortieId,
+            status = status,
+            createdAt = at
+        ))
+        return db.generationDao().get(id)!!
+    }
+
+    /** [sortieId]'s FLIGHT_PLAN generation rows, newest first. */
+    private suspend fun flightPlanRowsFor(sortieId: Long) = db.generationDao().getAll()
+        .filter { it.kind == GenerationKind.FLIGHT_PLAN && it.sortieId == sortieId }
+
+    /** Every generation row the mission has, whatever its kind or status. */
+    private suspend fun generationRowsFor(missionId: Long) =
+        db.generationDao().getAll().filter { it.missionId == missionId }
+
+    // Generate run plans on, Mission Control configured: the current run is prepared by a generation, so it gets
+    // one QUEUED FLIGHT_PLAN row and not the fallback plan. It stays PENDING because the plan is what the coach
+    // will write back.
+    @Test
+    fun aCurrentRunSortieWithRunGenerationOnQueuesAFlightPlanAndWritesNoSimplePlan() = runBlocking {
+        configureCoach()
+        settingsStore.setGenerateRunPlans(true)
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.DRAFT)
+
+        var queued: Long? = null
+        manager.continueWithoutOutline(mId) { queued = it }
+
+        val sortie = sortieAt(mId, 0)
+        assertEquals(SortieType.RUN, sortie.type)
+        assertEquals(SortieState.PENDING, sortie.state)
+
+        val rows = flightPlanRows(mId)
+        assertEquals(1, rows.size)
+        assertEquals(GenerationKind.FLIGHT_PLAN, rows[0].kind)
+        assertEquals(GenerationStatus.QUEUED, rows[0].status)
+        assertEquals(sortie.id, rows[0].sortieId)
+        assertEquals(rows[0].id, queued)
+
+        assertNull("the simple 'Run' plan is not written when a generation is queued",
+            flightPlanDao.getPlan(sortie.id))
+    }
+
+    // Generate run plans off, Mission Control fully configured: the fallback is what prepares the run, so the
+    // sortie takes the simple 'Run' plan, moves to PLANNED, and nothing at all is queued.
+    @Test
+    fun aCurrentRunSortieWithRunGenerationOffGetsTheSimpleRunPlanAndQueuesNothing() = runBlocking {
+        configureCoach()
+        settingsStore.setGenerateRunPlans(false)
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "R", MissionStatus.DRAFT)
+
+        var queued: Long? = null
+        manager.continueWithoutOutline(mId) { queued = it }
+
+        val sortie = sortieAt(mId, 0)
+        assertEquals(SortieState.PLANNED, sortie.state)
+        val plan = flightPlanDao.getPlan(sortie.id)!!
+        assertEquals(FlightPlanSource.SIMPLE_RUN, plan.plan.source)
+        assertEquals("Run", plan.plan.title)
+
+        assertNull("nothing queued, so nothing to report", queued)
+        assertEquals(0, generationRowsFor(mId).size)
+    }
+
+    // The toggle is read at the moment a sortie is prepared. advance only ever prepares the current sortie, and
+    // finishing that sortie is the only way to run it again, so driving the manager again here is the app opening
+    // on the same week: sortie 0 still holds the same plan row, still PLANNED, still with no generation.
+    @Test
+    fun turningRunGenerationOnAfterwardsLeavesTheSimpleRunPlanThatSortieAlreadyHas() = runBlocking {
+        configureCoach()
+        settingsStore.setGenerateRunPlans(false)
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        manager.continueWithoutOutline(mId)
+
+        val held = flightPlanDao.getPlan(sortieAt(mId, 0).id)!!
+        assertEquals(FlightPlanSource.SIMPLE_RUN, held.plan.source)
+        assertEquals(0, flightPlanRows(mId).size)
+
+        settingsStore.setGenerateRunPlans(true)
+        assertEquals(mId, manager.onAppOpen().id)
+
+        val sortie = sortieAt(mId, 0)
+        assertEquals(SortieState.PLANNED, sortie.state)
+        val now = flightPlanDao.getPlan(sortie.id)!!
+        assertEquals(held.plan.id, now.plan.id)
+        assertEquals(FlightPlanSource.SIMPLE_RUN, now.plan.source)
+        assertEquals("Run", now.plan.title)
+        assertEquals(0, flightPlanRows(mId).size)
+    }
+
+    // No host, and again no token: Mission Control cannot be asked, so advance queues nothing, reports nothing,
+    // and leaves the sortie that needs a plan PENDING with no plan. Generate run plans are on, so both runs here
+    // are sorties that need a generation.
+    @Test
+    fun aCurrentSortieQueuesNothingWhenMissionControlHasNoHostOrToken() = runBlocking {
+        settingsStore.setGenerateRunPlans(true)
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RR", MissionStatus.DRAFT)
+
+        configureCoach(host = "", token = "t0ken")
+        var queued: Long? = null
+        manager.continueWithoutOutline(mId) { queued = it }
+
+        val first = sortieAt(mId, 0)
+        assertEquals(SortieState.PENDING, first.state)
+        assertNull(flightPlanDao.getPlan(first.id))
+        assertNull(queued)
+        assertEquals(0, generationRowsFor(mId).size)
+
+        configureCoach(host = "coach.local", token = "")
+        val reported = manager.scrub(first.id, "weather")
+
+        val second = sortieAt(mId, 1)
+        assertEquals(SortieState.PENDING, second.state)
+        assertNull(flightPlanDao.getPlan(second.id))
+        assertNull(reported)
+        assertEquals(0, generationRowsFor(mId).size)
+    }
+
+    // A sortie that already has an open Flight Plan generation is not asked for a second one; advance reports the
+    // row it found instead. Once with that row QUEUED, once with it RUNNING.
+    @Test
+    fun aSortieWithAnOpenFlightPlanGenerationIsNotQueuedTwiceAndThatRowsIdIsReported() = runBlocking {
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RLL", MissionStatus.DRAFT)
+        configureCoach(host = "", token = "") // the week is created with Mission Control unreachable
+        manager.continueWithoutOutline(mId)
+        configureCoach()
+
+        val s0 = sortieAt(mId, 0)
+        val queuedRow = seedFlightPlan(mId, sortieAt(mId, 1).id, GenerationStatus.QUEUED, at = 1000L)
+        val runningRow = seedFlightPlan(mId, sortieAt(mId, 2).id, GenerationStatus.RUNNING, at = 2000L)
+
+        manager.launch(s0.id)
+        val reported = manager.land(s0.id) // sortie 1 is now current and already has an open row
+
+        assertEquals(queuedRow.id, reported)
+        assertEquals(listOf(queuedRow), flightPlanRowsFor(sortieAt(mId, 1).id))
+        assertEquals(SortieState.PENDING, sortieAt(mId, 1).state)
+        assertNull(flightPlanDao.getPlan(sortieAt(mId, 1).id))
+
+        val reportedAgain = manager.scrub(sortieAt(mId, 1).id, "weather") // sortie 2, with its row RUNNING
+
+        assertEquals(runningRow.id, reportedAgain)
+        assertEquals(listOf(runningRow), flightPlanRowsFor(sortieAt(mId, 2).id))
+        assertEquals(2, flightPlanRows(mId).size)
     }
 }

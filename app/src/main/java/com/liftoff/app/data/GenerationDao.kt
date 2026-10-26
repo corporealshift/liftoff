@@ -90,4 +90,12 @@ interface GenerationDao {
             "AND status IN ('QUEUED', 'RUNNING') ORDER BY createdAt DESC, id DESC"
     )
     suspend fun getOpenOutlineForMission(missionId: Long): List<Generation>
+
+    // The same status filter for one sortie's Flight Plan generations: advance's dedupe, and what Re-fly hands
+    // back to cancel.
+    @Query(
+        "SELECT * FROM generation WHERE sortieId = :sortieId AND kind = 'FLIGHT_PLAN' " +
+            "AND status IN ('QUEUED', 'RUNNING') ORDER BY createdAt DESC, id DESC"
+    )
+    suspend fun getOpenFlightPlanForSortie(sortieId: Long): List<Generation>
 }
