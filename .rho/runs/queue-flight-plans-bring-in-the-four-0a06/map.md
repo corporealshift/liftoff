@@ -1,8 +1,12 @@
 # Map — queue flight plans (bring-in)
 
-Branch here: `rho/queue-flight-plans-bring-in-the-four-0a06`, HEAD `aeb11e3 run: plan revised by claude review`.
-Merge-base with the source branch is `4dcf27d` (Draw the draft's coach status, #41), i.e. the source
+Branch here: `rho/queue-flight-plans-bring-in-the-four-0a06`. HEAD moves every step; check it before each
+pick. Merge-base with the source branch is `4dcf27d` (Draw the draft's coach status, #41), i.e. the source
 branch is based on this branch's own tip, so the picks should apply without conflict.
+Baseline for the schema comparison in `verify.sh` §6 is `d2fb423^`, where `d2fb423 run: brief` is the commit
+that added this run's `brief.md`.
+`verify.sh` was rewritten after this map's first pass (`0ece443 run: verify.sh rewritten by claude review`);
+the twelve names below are what the current script asks for, re-read from it at the tasks step.
 
 ## The four commits to pick (branch `rho/queue-a-flight-plan-when-a-sortie-vmn4`)
 
@@ -131,3 +135,22 @@ Against the untouched branch (verified 2026-10-26, log `app/build/verify-run.log
   changes a `@Database` entity, so it must stay byte-identical. `data/SchemaExportTest.kt` exists.
 - `CLAUDE.md`: `area: lowercase summary` messages, stage named files only (never `git add -A`),
   §2 vocabulary, short comments (why, not what), LF endings.
+
+## Tasks step (2026-10-26) — what was re-checked against the files
+
+- `tasks.md` has six tasks: one cherry-pick each (`bcf6bae`, `a74b099`, `1afea86`, `a27d999`), then the
+  whole-suite gate, then the M3 row. Each pick task's Done-when is `git show --stat HEAD` matching that
+  commit's own file list plus one cold class-scoped Gradle run; only the gate task runs the whole suite.
+- The per-commit file lists were re-read from `git show --stat` and match the table above: `bcf6bae`
+  3 files +171/-35, `a74b099` 1 file +157, `1afea86` 2 files +88/-3, `a27d999` 3 files +113/-11.
+- None of the twelve names exists under `app/src/test` today (grep found no match), so every one arrives
+  inside its pick and no task writes a test of its own.
+- Every class the task gates name exists as a file: `MissionManagerTest`, `GenerationDaoTest`,
+  `GenerationWorkerTest`, `GenerationCancellerTest`, `GenerationEnqueuerTest`, the eight Launchpad
+  classes, `LiftoffShellTest`, `ShellNavTest`, `MainActivityTest`, `SchemaExportTest`.
+- `GenerationDaoTest` has no reflection guard over `GenerationDao`'s method names, so the new
+  `getOpenFlightPlanForSortie` cannot trip a name guard (the `MissionDaoTest` "delete" case is the
+  shape this would have been).
+- `MissionManagerTest` already has `private suspend fun configureCoach(host: String = "coach.local",
+  token: String = "t0ken")` at l.85, used by ten existing cases; the picked cases use that helper.
+- `ARCHITECTURE.md:82` is 2128 chars and the clause to replace occurs exactly once in the file.
