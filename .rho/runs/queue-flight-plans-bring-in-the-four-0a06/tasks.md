@@ -44,7 +44,7 @@ Rules every task follows (from `plan.md` and `map.md`):
   present in the reports. The whole suite is not run here; classes this pick only *affects* are
   task 5's job.
 
-- [ ] 2. Cherry-pick `a74b099` — the guard cases around queuing
+- [x] 2. Cherry-pick `a74b099` — the guard cases around queuing
   Covers: `MissionManagerTest.kt` (+157) only. No implementation change: these cases assert the
   behaviour `bcf6bae` wrote — the run-plans toggle both ways, an unconfigured Mission Control, and
   never queuing a sortie twice.
