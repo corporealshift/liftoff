@@ -23,7 +23,7 @@ Rules every task follows (from `plan.md` and `map.md`):
   rows a fixture seeded, the fix scopes the count to the kind the test means, or asserts the
   `FLIGHT_PLAN` row explicitly, in its own `test:` commit.
 
-- [ ] 1. Cherry-pick `bcf6bae` — the data layer queues a Flight Plan and reports its id
+- [x] 1. Cherry-pick `bcf6bae` — the data layer queues a Flight Plan and reports its id
   Covers: `data/GenerationDao.kt` (+8, the new `getOpenFlightPlanForSortie(sortieId)` query),
   `data/MissionManager.kt` (+105/-35: private `advance` now returns `Long?` — the id it inserted, or
   the id of the open row it found instead of a second one, or null; `land`/`scrub` return that `Long?`;
