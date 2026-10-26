@@ -179,24 +179,28 @@ class MissionManager(
     /**
      * Activate the current week's draft with no outline — the escape hatch DESIGN.md §4.2 draws out of DRAFT, and
      * what [confirm] did until the coach was asked for an outline. Returns the ids of the mission's outline
-     * generations that were still open, read in this transaction, for the caller to cancel.
+     * generations that were still open, read in this transaction, for the caller to cancel. The Flight Plan id
+     * [advance] queued is not one of them — it is handed to [onQueued] after this transaction commits.
      */
-    suspend fun continueWithoutOutline(missionId: Long): List<Long> {
+    suspend fun continueWithoutOutline(missionId: Long, onQueued: (Long) -> Unit = {}): List<Long> {
         val settings = settingsStore.settings.first()
-        return db.withTransaction {
+        var queued: Long? = null
+        val openOutlineIds = db.withTransaction {
             val weekStart = currentWeekOf(clock, zone)
             val mission = db.missionDao().get(missionId)!!
             check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
                 "Can only continue with the current week's draft"
             }
-            val openOutlineIds = db.generationDao().getOpenOutlineForMission(missionId).map { it.id }
+            val toCancel = db.generationDao().getOpenOutlineForMission(missionId).map { it.id }
             val (activeMission, rawSorties) = confirmWithoutOutline(mission)
             val sorties = rawSorties.map { it.copy(missionId = missionId) }
             db.missionDao().update(activeMission)
             db.sortieDao().insertAll(sorties)
-            advance(missionId, settings)
-            openOutlineIds
+            queued = advance(missionId, settings)
+            toCancel
         }
+        queued?.let(onQueued)
+        return openOutlineIds
     }
 
     /**
@@ -206,11 +210,17 @@ class MissionManager(
      *
      * The three refusals — not a DRAFT, the week has ended, the outline no longer matches the pattern — change
      * nothing, because an outline can arrive after the week moved on. A reply that is not an outline is a
-     * caller bug, so it throws rather than refusing.
+     * caller bug, so it throws rather than refusing. [onQueued] gets the Flight Plan id [advance] queued for the
+     * sortie it just made current, after this transaction commits.
      */
-    suspend fun storeOutline(missionId: Long, valid: CoachReplyResult.Valid): StoreOutcome {
+    suspend fun storeOutline(
+        missionId: Long,
+        valid: CoachReplyResult.Valid,
+        onQueued: (Long) -> Unit = {}
+    ): StoreOutcome {
         val settings = settingsStore.settings.first()
-        return db.withTransaction {
+        var queued: Long? = null
+        val outcome = db.withTransaction {
             val mission = db.missionDao().get(missionId)
                 ?: return@withTransaction StoreOutcome.Refused("mission $missionId no longer exists")
             val outline = when (val plan = valid.plan) {
@@ -231,14 +241,17 @@ class MissionManager(
             val (active, sorties) = activateWithOutline(mission, outline)
             db.missionDao().update(active)
             db.sortieDao().insertAll(sorties)
-            advance(missionId, settings)
+            queued = advance(missionId, settings)
             StoreOutcome.Stored
         }
+        queued?.let(onQueued)
+        return outcome
     }
 
-    suspend fun scrub(sortieId: Long, reason: String? = null) {
+    /** Returns the Flight Plan id [advance] queued for the sortie scrub made current, or null if it queued none. */
+    suspend fun scrub(sortieId: Long, reason: String? = null): Long? {
         val settings = settingsStore.settings.first()
-        db.withTransaction {
+        return db.withTransaction {
             val sortie = db.sortieDao().get(sortieId)!!
             val mission = db.missionDao().get(sortie.missionId)!!
             check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
@@ -265,13 +278,14 @@ class MissionManager(
         }
     }
 
+    /** Returns the Flight Plan id [advance] queued for the sortie that becomes current, or null if it queued none. */
     suspend fun land(
         sortieId: Long,
         runDistance: Double? = null,
         runMinutes: Double? = null
-    ) {
+    ): Long? {
         val settings = settingsStore.settings.first()
-        db.withTransaction {
+        return db.withTransaction {
             val sortie = db.sortieDao().get(sortieId)!!
             check(sortie.state == SortieState.IN_FLIGHT) { "Sortie must be IN_FLIGHT" }
             // The run's actuals travel with the state change, so a landed run is never half-written.
@@ -285,26 +299,27 @@ class MissionManager(
 
     /**
      * Copy the most recent landed Flight Plan of this sortie's type onto the current PENDING sortie, and
-     * move it to PLANNED. No generation is queued, so it works with the coach unreachable.
+     * move it to PLANNED. No generation is queued, so it works with the coach unreachable. Returns the ids of
+     * this sortie's Flight Plan generations still open, for the caller to cancel: the copy is now that sortie's
+     * plan.
      */
-    suspend fun refly(sortieId: Long) {
-        db.withTransaction {
-            val sortie = db.sortieDao().get(sortieId)!!
-            val mission = db.missionDao().get(sortie.missionId)!!
-            check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
-            val sorties = db.sortieDao().getForMission(mission.id)
-            val current = currentSortie(sorties)
-            check(current != null && current.id == sortieId) { "Sortie must be current" }
-            check(sortie.state == SortieState.PENDING) { "Sortie must be PENDING" }
+    suspend fun refly(sortieId: Long): List<Long> = db.withTransaction {
+        val sortie = db.sortieDao().get(sortieId)!!
+        val mission = db.missionDao().get(sortie.missionId)!!
+        check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
+        val sorties = db.sortieDao().getForMission(mission.id)
+        val current = currentSortie(sorties)
+        check(current != null && current.id == sortieId) { "Sortie must be current" }
+        check(sortie.state == SortieState.PENDING) { "Sortie must be PENDING" }
 
-            val source = chooseReflySource(sortie, reflyCandidates(db.sortieDao(), db.flightPlanDao(), sortie))
-            check(source != null) { "No landed Flight Plan to re-fly" }
+        val source = chooseReflySource(sortie, reflyCandidates(db.sortieDao(), db.flightPlanDao(), sortie))
+        check(source != null) { "No landed Flight Plan to re-fly" }
 
-            val sourcePlan = db.flightPlanDao().getPlan(source.sortie.id)!!
-            db.flightPlanDao().writePlan(sortieId, reflyDraft(sourcePlan))
-            // markPlanned, not advance: the copy is what prepares this sortie, and advance would prepare the next one.
-            db.sortieDao().update(markPlanned(sortie))
-        }
+        val sourcePlan = db.flightPlanDao().getPlan(source.sortie.id)!!
+        db.flightPlanDao().writePlan(sortieId, reflyDraft(sourcePlan))
+        // markPlanned, not advance: the copy is what prepares this sortie, and advance would prepare the next one.
+        db.sortieDao().update(markPlanned(sortie))
+        db.generationDao().getOpenFlightPlanForSortie(sortieId).map { it.id }
     }
 
     /**
@@ -358,7 +373,13 @@ class MissionManager(
             StoreOutcome.Stored
         }
 
-    private suspend fun advance(missionId: Long, settings: Settings) {
+    /**
+     * Move the week on after a sortie changed: close it when every sortie is done, otherwise prepare the sortie
+     * that is now current. Returns the id of the FLIGHT_PLAN generation queued for that sortie — the row just
+     * inserted, or the open row found instead of a second one — or null when the sortie needs no generation. The
+     * caller schedules it once its own transaction has committed.
+     */
+    private suspend fun advance(missionId: Long, settings: Settings): Long? {
         val mission = db.missionDao().get(missionId)!!
         check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
         val sorties = db.sortieDao().getForMission(missionId)
@@ -366,10 +387,10 @@ class MissionManager(
         if (allSortiesDone(sorties)) {
             MissionLifecycle.requireTransition(mission.status, MissionStatus.CLOSED)
             db.missionDao().update(mission.copy(status = MissionStatus.CLOSED))
-            return
+            return null
         }
 
-        val current = currentSortie(sorties) ?: return
+        val current = currentSortie(sorties) ?: return null
 
         if (current.state == SortieState.PENDING) {
             val prep = prepareCurrent(current, settings.generateRunPlans)
@@ -378,9 +399,23 @@ class MissionManager(
                     db.flightPlanDao().writePlan(current.id, prep.draft)
                     db.sortieDao().update(markPlanned(current))
                 }
-                is com.liftoff.app.domain.Preparation.AwaitGeneration -> {}
+                is com.liftoff.app.domain.Preparation.AwaitGeneration -> {
+                    if (!coachIsConfigured(settings.daemonHost, settings.daemonToken)) return null
+                    val open = db.generationDao().getOpenFlightPlanForSortie(current.id)
+                    if (open.isNotEmpty()) return open.first().id
+                    return db.generationDao().insert(
+                        Generation(
+                            kind = GenerationKind.FLIGHT_PLAN,
+                            missionId = missionId,
+                            sortieId = current.id,
+                            status = GenerationStatus.QUEUED,
+                            createdAt = clock.millis(),
+                        )
+                    )
+                }
             }
         }
+        return null
     }
 
     private fun currentWeekOf(clock: Clock, zone: () -> ZoneId): LocalDate =
