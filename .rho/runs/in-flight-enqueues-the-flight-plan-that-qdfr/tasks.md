@@ -14,7 +14,7 @@ Shared by the test tasks (also recorded in map.md): the coach is configured thro
 tests; every wait goes through the class's own `withTimeout(5_000)` helpers; a recorded id is read back through
 `db.generationDao().get(id)` / `getNewestNonCancelledForSortie(sortieId)`.
 
-- [ ] 1. `InFlightViewModel`: carry the id its land / landRun / scrub queued out to an enqueue input
+- [x] 1. `InFlightViewModel`: carry the id its land / landRun / scrub queued out to an enqueue input
   Covers plan step 1. File: `app/src/main/java/com/liftoff/app/ui/inflight/InFlightViewModel.kt` — one more
   constructor parameter after the defaulted `missionManager`, a defaulted no-op `(Long) -> Unit`, the shape
   `LaunchpadViewModel.queueGeneration` uses. `land` (:89), `landRun` (:117) and `scrub` (:148) capture the `Long?`
