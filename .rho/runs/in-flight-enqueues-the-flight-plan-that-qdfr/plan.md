@@ -1,19 +1,119 @@
 # Plan
 
 ## Approach
-<!-- One paragraph: how the brief will be met, and why that fits this codebase. -->
+
+Do to In-Flight what the Launchpad already does, with the same shape. `MissionManager.land` and `scrub`
+already return the id of the generation their transaction queued for the sortie that just became current;
+`InFlightViewModel` throws that id away. So the change is to carry it out of the view model as a defaulted
+`(Long) -> Unit` lambda — the exact parameter type `LaunchpadViewModel.queueGeneration` uses — and to have
+`InFlightScreen` pass `{ id -> container.generationEnqueuer().enqueue(id) }` from inside the `remember(sortieId)`
+block that already builds the view model, so WorkManager is asked for only when a land or scrub actually queues
+something and never while composing. Nothing new is added to the data or work layers: the QUEUED `Generation`
+row is already written by `advance`, and `GenerationEnqueuer` already schedules it as unique kept work.
+
 
 ## Files
-<!-- One line for each file to create or change, saying what changes in it. What a file already holds belongs in the map: point there. -->
+
+- `app/src/main/java/com/liftoff/app/ui/inflight/InFlightViewModel.kt` — one more constructor parameter,
+  a defaulted no-op `(Long) -> Unit` placed after the defaulted `missionManager`; `land`, `landRun` and `scrub`
+  capture the id the manager returns and call it once, after that call has returned and before the completion
+  callback, only when the id is non-null, with the call shielded so nothing but a `CancellationException`
+  escapes it.
+- `app/src/main/java/com/liftoff/app/ui/inflight/InFlightScreen.kt` — pass the container lambda at the existing
+  construction site (line ~50), inside the same `remember(sortieId)`.
+- `app/src/test/java/com/liftoff/app/ui/inflight/InFlightLandScrubTest.kt` — a coach-configured variant of the
+  existing fixture plus a recording enqueue lambda, and the three new behaviors: land records, scrub records,
+  no host/token records nothing.
+- `app/src/test/java/com/liftoff/app/ui/inflight/InFlightRunTest.kt` — the `landRun` case recording the next
+  sortie's row id once.
+- Not touched, deliberately: `MissionManager`, `GenerationEnqueuer`, `AppContainer`, `LaunchpadScreen` /
+  `LaunchpadViewModel`, every other test file (the brief limits the change to these four), and `ARCHITECTURE.md`
+  / `DESIGN.md` — see Risks. No Room schema change.
+
 
 ## Order
-<!-- A short numbered list. Each step leaves the build passing. -->
+
+1. View model: add the defaulted enqueue parameter and call it from `land`, `landRun` and `scrub`, shielded
+   from the existing message-setting `catch`. `bash gradlew.sh :app:compileDebugKotlin` passes, and every existing
+   `InFlightViewModel(...)` call site still compiles untouched (they are all positional with 4 or 5 arguments).
+2. Screen: pass the container lambda. `:app:assembleDebug` plus `InFlightScreenTest`, `LiftoffShellTest`,
+   `ShellNavTest` and `MainActivityTest` stay green — nothing WorkManager-related happens at composition.
+3. `InFlightLandScrubTest`: the coach-configured fixture variant, then the land-records-once test, then
+   scrub-records-once, then no-host-token-records-nothing. One cold class-scoped `--tests` run.
+4. `InFlightRunTest`: the `landRun` records-once test. One cold class-scoped `--tests` run.
+5. The whole gate, detached: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`.
+
 
 ## Testing
-<!-- One line for each behavior the tests must show, and the kind of test. Not test code: the verify step names the tests. -->
+
+All in the two existing Robolectric classes (`@Config(sdk = [34])`, in-memory Room, fixed clock, the recording
+`CoroutineExceptionHandler` scope), with a recording lambda in place of WorkManager and every wait bounded.
+The host, token and — where the next sortie is a run — the run-plan toggle are set **inside the new tests,
+before seeding**, so the shared fixture and the existing tests keep their current behavior. See the map for the
+fixtures these reuse.
+
+- Landing a lift from In-Flight hands the recording lambda exactly one id, and reading that id back from the
+  generation DAO gives a `FLIGHT_PLAN` row in status `QUEUED` belonging to the sortie that became current.
+- Scrubbing from In-Flight does the same, once.
+- Landing a run through `landRun` with a distance and a duration records the next (lift) sortie's row id once.
+- With no host and no token set, landing records nothing — the sortie still lands, and no message is raised.
+- A lambda that throws is not turned into "Couldn't land this sortie." / "Couldn't scrub this sortie.": the
+  sortie lands, the completion callback still runs, `message` stays null, and nothing reaches the scope's
+  exception handler. (This is the brief's swallow rule; it belongs in the same two classes.)
+
 
 ## Risks
-<!-- One line for each thing that could go wrong or is uncertain, and what the work does about it. -->
+
+- **The id may not be a fresh row.** `advance` returns the id of an already-open QUEUED/RUNNING row instead of
+  inserting a second one (`MissionManager.kt:405`). The tests assert the recorded id against the generation row
+  of the sortie that became current, not against a row count or a "new row appeared".
+- **Landing a lift on the default RLRLR pattern makes a *run* current, and with the run-plan toggle off nothing
+  is queued at all** (`DESIGN.md` §5.3, `SortiePlanning.kt:14`) — the existing test at
+  `InFlightLandScrubTest.kt:237` asserts exactly that. So the new land/scrub tests must turn
+  `setGenerateRunPlans(true)` on, and the no-host-token test must use the same settings so it fails for the
+  right reason. Set host, token and the toggle inside the new tests before seeding, never in `setUp`: turning
+  them on for the whole class would change existing tests.
+- **The enqueue call must sit outside the existing `catch (Exception)`** in `land`/`landRun`/`scrub`, or a
+  WorkManager failure becomes a bogus "Couldn't land this sortie." on a sortie that did land.
+- **Composition must not touch WorkManager.** `AppContainer.generationEnqueuer()` calls
+  `WorkManager.getInstance`, which throws when it was never initialized; `InFlightScreenTest` composes the real
+  container (`:45`) with no initialization and taps `LAND` through the screen (`:387`), and the shell tests do the
+  same. Keep the lambda inside `remember(sortieId)`, and do not give any screen test a coach host and token.
+- **`InFlightLandScrubTest` has no `generationDao` field**; read the rows through `db.generationDao()` or add the
+  field in that same file.
+- **Nothing re-enqueues a row left QUEUED at app open today** (see the map), so a swallowed enqueue failure means
+  that plan is simply not generated until something else queues it. The brief accepts this; the plan does not add
+  the sweep.
+- **`ARCHITECTURE.md:82` still says In-Flight's enqueue "comes next".** The brief limits the change to four files,
+  so the row is left as it is for a later doc pass rather than edited here.
+- **The gate can hang** on `:app:testDebugUnitTest` for about five minutes, writing no report XML. Run it detached
+  with the log-and-exit sentinel, and re-run the identical tree once before treating a hang as a failure.
+
 
 ## Decisions
-<!-- Fill this in first, from the brief alone. One short paragraph for each behavior the brief leaves open that someone using the result could notice. -->
+
+**Does In-Flight show anything about the generation it just queued?** No — the enqueue is silent, with no new
+line, chip or toast on the In-Flight screen. The alternative is a short "Coach plan queued" where the confirmation
+used to be. In-Flight only ever shows the sortie you are on, and landing or scrubbing leaves it for the Launchpad;
+the plan for that other sortie belongs to the Launchpad, whose own display of the current sortie's status is
+already listed as the next piece of work (`ARCHITECTURE.md:82`). Drawing a status for a *different* sortie on
+In-Flight would be the surprising thing.
+
+**When does the enqueue happen?** Immediately after `land`/`landRun`/`scrub` returns a non-null id, in the same
+call, before the screen leaves. The alternative is to hand it off after the navigation back settles. The QUEUED
+row is already committed when the manager returns, so this is the earliest moment that is correct, and it is what
+the Launchpad already does with the ids its own `scrub` and Confirm hand back.
+
+**What does the user see if the enqueue itself fails?** Nothing, and no error. The brief settles the important
+half (it must not become "Couldn't land/scrub this sortie."), so the open part is whether to surface a milder
+warning instead. It chooses silence: the sortie really did land, the QUEUED row stays in Room as the record that
+this sortie still wants a plan, and the brief's rule is that a later run re-enqueues such rows at app open —
+which is a promise about that later pass, not something this change adds (see Risks). A warning would blame the
+owner for something the app is meant to recover from on its own.
+
+**Does tapping Land or Scrub twice queue two generations?** No, and this plan adds no guard of its own. The view
+model's existing `busy` and `left` guards already take the second tap (`doubleTapLandsOnce`,
+`runLandDoubleTapLandsOnce`), `advance` never writes a second row for a sortie whose Flight Plan generation is
+already QUEUED or RUNNING — it hands back the open row's id instead — and `GenerationEnqueuer` keeps the work it
+already scheduled under `gen-<generationId>`. One generation per sortie is what the Launchpad does and what users
+would expect here.
