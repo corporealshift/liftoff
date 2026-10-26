@@ -28,7 +28,7 @@ tests; every wait goes through the class's own `withTimeout(5_000)` helpers; a r
   `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.ui.inflight.InFlightLandScrubTest" --tests "com.liftoff.app.ui.inflight.InFlightRunTest" --tests "com.liftoff.app.ui.inflight.InFlightViewModelTest" --tests "com.liftoff.app.ui.inflight.InFlightLeaveTest" --tests "com.liftoff.app.ui.inflight.InFlightStatesTest"`
   reports 0 failures and 0 errors.
 
-- [ ] 2. `InFlightScreen`: pass the container's enqueuer as a lambda
+- [x] 2. `InFlightScreen`: pass the container's enqueuer as a lambda
   Covers plan step 2. File: `app/src/main/java/com/liftoff/app/ui/inflight/InFlightScreen.kt` — at the existing
   construction site (:48-51), inside the same `remember(sortieId)`, pass a lambda that reaches
   `container.generationEnqueuer().enqueue(id)` only when it is invoked, the way `launchpadViewModel` does. Nothing
