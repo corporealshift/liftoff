@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.await
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
@@ -1384,6 +1387,62 @@ class GenerationWorkerTest {
     }
 
     /**
+     * the enqueue the worker owes: with Generate run plans on before onAppOpen, storing this outline leaves
+     * sortie 1 a current PENDING run that needs a generation, and the worker schedules work for the QUEUED
+     * FLIGHT_PLAN row its own store wrote — under `gen-<that row's id>`, read back off WorkManager. WorkManager
+     * is up here for that read alone; the enqueue is what the worker does after its store transaction has
+     * committed, so the row it names is one WorkManager can already see.
+     */
+    @Test
+    fun aWorkerThatStoresAnOutlineEnqueuesTheFlightPlanItQueuedForSortieOne() {
+        // The worker's own enqueue reaches WorkManager, so this case needs it up; every other case here builds
+        // its worker directly and never asks for it.
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        try {
+            // Before onAppOpen(): it is storeOutline's advance that prepares sortie 1, and it reads this setting then.
+            runBlocking { container.settingsStore.setGenerateRunPlans(true) }
+            daemon.script(
+                DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+                DaemonScript.State("idle"),
+            )
+
+            val mission = runBlocking { container.missionManager.onAppOpen() }
+            val generationId = insertOutlineGeneration(mission.id)
+
+            val result = runWorker(generationId)
+            assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+            val row = runBlocking { container.database.generationDao().get(generationId) }!!
+            assertEquals(GenerationStatus.SUCCEEDED, row.status)
+            assertEquals(
+                "the generation that queued a Flight Plan stored no outline",
+                MissionStatus.ACTIVE,
+                runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+            )
+
+            val sortie = sortieAt(mission.id, 0)
+            assertEquals("sortie 1 is a RUN under RLRLR", SortieType.RUN, sortie.type)
+            val queued = runBlocking { container.database.generationDao().getOpenFlightPlanForSortie(sortie.id) }
+            assertEquals("sortie 1 was left needing something other than one Flight Plan row: $queued", 1, queued.size)
+            val planRow = queued.single()
+            assertEquals(GenerationKind.FLIGHT_PLAN, planRow.kind)
+            assertEquals(GenerationStatus.QUEUED, planRow.status)
+            assertEquals(mission.id, planRow.missionId)
+
+            val scheduled = workInfosUnder("gen-${planRow.id}")
+            assertEquals("nothing is scheduled for the Flight Plan row this queued: $planRow", 1, scheduled.size)
+            assertEquals(WorkInfo.State.ENQUEUED, scheduled.single().state)
+            val underItsOwnRow = workInfosUnder("gen-$generationId")
+            assertTrue(
+                "the worker scheduled work for its own outline row instead of the plan it queued: $underItsOwnRow",
+                underItsOwnRow.isEmpty(),
+            )
+        } finally {
+            WorkManagerTestInitHelper.closeWorkDatabase()
+        }
+    }
+
+    /**
      * superseded Flight Plan: two FLIGHT_PLAN rows on one sortie, and the older one asked to run first. Its turn
      * ends with a valid plan in hand, but this sortie is waiting for a newer generation, so it stores nothing —
      * the sortie is still PENDING with no plan — its row turns CANCELLED by running, and it returns success so
@@ -1539,6 +1598,10 @@ class GenerationWorkerTest {
                 .doWork()
         }
     }
+
+    /** What WorkManager holds under a unique name. The wait is bounded so a stuck read cannot eat the build's timeout. */
+    private fun workInfosUnder(name: String): List<WorkInfo> =
+        runBlocking { withTimeout(WORK_READ_BOUND_MILLIS) { WorkManager.getInstance(context).getWorkInfosForUniqueWork(name).await() } }
 
     private fun sortieAt(missionId: Long, index: Int): Sortie =
         runBlocking { container.database.sortieDao().getForMission(missionId).single { it.index == index } }
@@ -1734,5 +1797,7 @@ class GenerationWorkerTest {
         // How far apart a superseded generation and the one that replaced it are seeded, so which of two rows
         // for one target is current is decided by createdAt and not by the DAO's id tie-break.
         const val SUPERSEDED_BY = 3_600_000L
+        // The bound on a WorkManager read, so a read that never answers fails rather than hangs.
+        const val WORK_READ_BOUND_MILLIS = 5_000L
     }
 }

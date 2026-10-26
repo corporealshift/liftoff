@@ -288,6 +288,9 @@ class GenerationWorker(
                 }
             }
 
+            // The id storeOutline reports arrives while this transaction is still open, so it is held here and
+            // carried out in the decision rather than acted on where it lands.
+            var queuedPlanId: Long? = null
             val decision = container.database.withTransaction {
                 if (!isCurrentGeneration(generations, row)) {
                     if (generations.get(row.id)?.status != GenerationStatus.CANCELLED) {
@@ -296,11 +299,11 @@ class GenerationWorker(
                     StoreDecision.NotCurrent
                 } else {
                     val stored = when (row.kind) {
-                        GenerationKind.OUTLINE -> container.missionManager.storeOutline(row.missionId, valid)
+                        GenerationKind.OUTLINE -> container.missionManager.storeOutline(row.missionId, valid) { queuedPlanId = it }
                         GenerationKind.FLIGHT_PLAN -> container.missionManager.storePlan(requireNotNull(row.sortieId), valid)
                     }
                     if (stored is StoreOutcome.Stored) generations.markSucceeded(row.id, clock.millis())
-                    StoreDecision.Wrote(stored)
+                    StoreDecision.Wrote(stored, queuedPlanId)
                 }
             }
 
@@ -321,6 +324,7 @@ class GenerationWorker(
             // Only a generation that stored its answer gives up its session; every other end resumes it (invariant 6).
             // A stop the daemon refuses changes nothing: the outcome was already decided before it was attempted.
             giveUpSession(client, turn.sessionId)
+            decision.queuedPlanId?.let { enqueueQueuedPlan(container, it) }
             return Result.success()
         }
     }
@@ -343,8 +347,24 @@ class GenerationWorker(
 
     /** What the store transaction decided: either the store ran and this is what it did, or nothing ran. */
     private sealed interface StoreDecision {
-        data class Wrote(val outcome: StoreOutcome) : StoreDecision
+        /** [queuedPlanId] is the Flight Plan id the store queued, read before this transaction committed it. */
+        data class Wrote(val outcome: StoreOutcome, val queuedPlanId: Long?) : StoreDecision
         data object NotCurrent : StoreDecision
+    }
+
+    /**
+     * Schedule the Flight Plan row this worker's own store queued, asked for only after that transaction has
+     * committed — work for a row WorkManager cannot see yet is work for nothing. A process with no WorkManager
+     * to ask is not a reason to fail a reply that is already stored, so anything but cancellation is swallowed:
+     * the QUEUED row is the source of truth for what needs generating.
+     */
+    private fun enqueueQueuedPlan(container: AppContainer, generationId: Long) {
+        try {
+            container.generationEnqueuer().enqueue(generationId)
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun promptFor(container: AppContainer, row: Generation, sortie: Sortie?): String {
