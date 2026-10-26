@@ -60,6 +60,10 @@ Branch state verified 2026-10-26. Line numbers are HEAD of this worktree.
     creates the draft only — it queues nothing.
 - `domain/SortiePlanning.kt:13` `prepareCurrent(sortie, generateRunPlans)` → `SimplePlan` only when
   `type == RUN && !generateRunPlans`, else `AwaitGeneration`.
+- `domain/Sorties.kt:8-13` — the only allowed transitions are PENDING→PLANNED, PLANNED→IN_FLIGHT / SCRUBBED,
+  IN_FLIGHT→LANDED / SCRUBBED. `launch` (`:40`) requires PLANNED, so a run sortie left PENDING because the
+  toggle is on **cannot be launched** — which is why the run-plan toggle must stay off while a fixture is
+  seeding and launching sortie 0.
 - `domain/Coach.kt:10` `coachIsConfigured(daemonHost, daemonToken)`.
 - `settings/SettingsStore.kt` — `setDaemonHost` :46, `setDaemonToken` :55, `setGenerateRunPlans` :88
   (default `false`, :40), `setDefaultPattern` :63. Read fresh per manager call (`settingsStore.settings.first()`).
@@ -86,6 +90,10 @@ Branch state verified 2026-10-26. Line numbers are HEAD of this worktree.
   `withTimeout(5_000)`. No `generationDao` field yet. No host/token set anywhere.
   **Landing the lift sortie 1 makes sortie 2 (a RUN) current** — asserted at :237-252 (`landMakesNextRunSortieCurrentWithSimpleRunPlan`),
   so with the toggle off `advance` returns **null** and nothing would be enqueued.
+  With a host/token set the fixture's own `landSortie0` queues an open QUEUED row for sortie 1 (left PENDING, then
+  planned by hand by `seedSortie1LiftPlan`), so a new test asserts against **sortie 2's** row, and the
+  `setGenerateRunPlans(true)` it needs goes *after* `landSortie0` — with it on, sortie 0 is never PLANNED and
+  `landSortie0`'s `launch` throws.
 - `app/src/test/java/com/liftoff/app/ui/inflight/InFlightRunTest.kt` — same harness; `viewModel(sortieId)` helper :103;
   `landRun("5.2", "31") { ... }` tests at :306, :336, :361, :390, :420. Landing sortie 0 (a RUN) makes sortie 1
   (a LIFT) current → a QUEUED `FLIGHT_PLAN` row with a coach configured, no toggle needed.

@@ -39,7 +39,9 @@ row is already written by `advance`, and `GenerationEnqueuer` already schedules 
 2. Screen: pass the container lambda. `:app:assembleDebug` plus `InFlightScreenTest`, `LiftoffShellTest`,
    `ShellNavTest` and `MainActivityTest` stay green — nothing WorkManager-related happens at composition.
 3. `InFlightLandScrubTest`: the coach-configured fixture variant, then the land-records-once test, then
-   scrub-records-once, then no-host-token-records-nothing. One cold class-scoped `--tests` run.
+   scrub-records-once, then no-host-token-records-nothing — each setting the host and token before
+   `onAppOpen()` and the run-plan toggle after `landSortie0`, as Testing explains. One cold class-scoped
+   `--tests` run.
 4. `InFlightRunTest`: the `landRun` records-once test. One cold class-scoped `--tests` run.
 5. The whole gate, detached: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`.
 
@@ -48,15 +50,21 @@ row is already written by `advance`, and `GenerationEnqueuer` already schedules 
 
 All in the two existing Robolectric classes (`@Config(sdk = [34])`, in-memory Room, fixed clock, the recording
 `CoroutineExceptionHandler` scope), with a recording lambda in place of WorkManager and every wait bounded.
-The host, token and — where the next sortie is a run — the run-plan toggle are set **inside the new tests,
-before seeding**, so the shared fixture and the existing tests keep their current behavior. See the map for the
-fixtures these reuse.
+Nothing goes in `setUp`, so the shared fixture and the existing tests keep their current behavior: the host and
+token are set **inside each new test before `onAppOpen()`**, and where the sortie that becomes current is a run,
+`setGenerateRunPlans(true)` is set **after the fixture has landed sortie 0 and before the view model's land or
+scrub** — the manager re-reads the settings on every call, so the toggle only has to be on for that one call.
+Turning it on before seeding would leave sortie 0 PENDING awaiting a generated plan, and the fixture's
+`landSortie0` could not launch it. See the map for the fixtures these reuse.
 
 - Landing a lift from In-Flight hands the recording lambda exactly one id, and reading that id back from the
-  generation DAO gives a `FLIGHT_PLAN` row in status `QUEUED` belonging to the sortie that became current.
+  generation DAO gives a `FLIGHT_PLAN` row in status `QUEUED` belonging to the sortie that became current —
+  sortie 2 on the RLRLR fixture, not the row the fixture's own landing of sortie 0 queued for sortie 1.
 - Scrubbing from In-Flight does the same, once.
-- Landing a run through `landRun` with a distance and a duration records the next (lift) sortie's row id once.
-- With no host and no token set, landing records nothing — the sortie still lands, and no message is raised.
+- Landing a run through `landRun` with a distance and a duration records the next (lift) sortie's row id once;
+  no toggle is needed there, because a lift is always left awaiting generation.
+- With no host and no token set, and the toggle on at the same point, landing records nothing — the sortie still
+  lands, and no message is raised.
 - A lambda that throws is not turned into "Couldn't land this sortie." / "Couldn't scrub this sortie.": the
   sortie lands, the completion callback still runs, `message` stays null, and nothing reaches the scope's
   exception handler. (This is the brief's swallow rule; it belongs in the same two classes.)
@@ -66,15 +74,20 @@ fixtures these reuse.
 
 - **The id may not be a fresh row.** `advance` returns the id of an already-open QUEUED/RUNNING row instead of
   inserting a second one (`MissionManager.kt:405`). The tests assert the recorded id against the generation row
-  of the sortie that became current, not against a row count or a "new row appeared".
+  of the sortie that became current, not against a row count or a "new row appeared". With a coach configured the
+  fixture's own `landSortie0` already queues a row for sortie 1 — which `seedSortie1LiftPlan` plans by hand
+  anyway — so the land/scrub assertions have to name **sortie 2's** open `FLIGHT_PLAN` row.
 - **Landing a lift on the default RLRLR pattern makes a *run* current, and with the run-plan toggle off nothing
   is queued at all** (`DESIGN.md` §5.3, `SortiePlanning.kt:14`) — the existing test at
   `InFlightLandScrubTest.kt:237` asserts exactly that. So the new land/scrub tests must turn
   `setGenerateRunPlans(true)` on, and the no-host-token test must use the same settings so it fails for the
-  right reason. Set host, token and the toggle inside the new tests before seeding, never in `setUp`: turning
-  them on for the whole class would change existing tests.
-- **The enqueue call must sit outside the existing `catch (Exception)`** in `land`/`landRun`/`scrub`, or a
-  WorkManager failure becomes a bogus "Couldn't land this sortie." on a sortie that did land.
+  right reason. The toggle goes on **after** the fixture has landed sortie 0: with it on, `advance` leaves a run
+  sortie PENDING awaiting a generated plan, and `landSortie0`'s `manager.launch` refuses a PENDING sortie
+  (`domain/Sorties.kt:10`, `:40`). Host and token before `onAppOpen()`, the toggle before the view model's
+  land/scrub, never in `setUp`: turning them on for the whole class would change existing tests.
+- **A failure from the lambda must not be caught by the existing `catch (Exception)`** in
+  `land`/`landRun`/`scrub`, or a WorkManager failure becomes a bogus "Couldn't land this sortie." on a sortie
+  that did land.
 - **Composition must not touch WorkManager.** `AppContainer.generationEnqueuer()` calls
   `WorkManager.getInstance`, which throws when it was never initialized; `InFlightScreenTest` composes the real
   container (`:45`) with no initialization and taps `LAND` through the screen (`:387`), and the shell tests do the
