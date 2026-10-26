@@ -38,7 +38,7 @@ tests; every wait goes through the class's own `withTimeout(5_000)` helpers; a r
   Done when: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.ui.inflight.InFlightScreenTest" --tests "com.liftoff.app.ui.LiftoffShellTest" --tests "com.liftoff.app.ui.ShellNavTest" --tests "com.liftoff.app.MainActivityTest"`
   passes cold with every case in those four classes green.
 
-- [ ] 3. `InFlightLandScrubTest`: the ids landing and scrubbing hand to the enqueue
+- [x] 3. `InFlightLandScrubTest`: the ids landing and scrubbing hand to the enqueue
   Covers plan step 3. File: `app/src/test/java/com/liftoff/app/ui/inflight/InFlightLandScrubTest.kt`. The class's
   `launchSortie1()` (:138-146) builds the view model at :143 with no enqueue input, so add a coach-configured
   variant of that path that passes a recording `(Long) -> Unit` and hands back the ids it recorded; leave
