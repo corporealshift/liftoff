@@ -58,7 +58,7 @@ tests; every wait goes through the class's own `withTimeout(5_000)` helpers; a r
   Done when: a cold `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.ui.inflight.InFlightLandScrubTest"`
   passes with every case in the class green and its `TEST-*.xml` naming all three.
 
-- [ ] 4. `InFlightLandScrubTest`: an enqueue that throws is not turned into a failure message
+- [x] 4. `InFlightLandScrubTest`: an enqueue that throws is not turned into a failure message
   Covers the brief's swallow rule, in the class task 3 prepared:
   `landWithAFailingEnqueueStillLandsAndShowsNoMessage` and `scrubWithAFailingEnqueueStillScrubbsAndShowsNoMessage` —
   a lambda that throws when it is called: the sortie is LANDED / SCRUBBED, `onDone` ran once, `message` stayed null,
