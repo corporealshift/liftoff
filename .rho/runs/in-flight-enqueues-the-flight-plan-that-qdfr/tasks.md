@@ -69,7 +69,7 @@ tests; every wait goes through the class's own `withTimeout(5_000)` helpers; a r
   Done when: a cold `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.ui.inflight.InFlightLandScrubTest"`
   passes with every case in the class green — task 3's three included — and its `TEST-*.xml` names all five.
 
-- [ ] 5. `InFlightRunTest`: `landRun` hands over the next sortie's id, and a throwing enqueue stays silent
+- [x] 5. `InFlightRunTest`: `landRun` hands over the next sortie's id, and a throwing enqueue stays silent
   Covers plan step 4. File: `app/src/test/java/com/liftoff/app/ui/inflight/InFlightRunTest.kt`. Fixture shape, as
   `runLandWithDistanceAndDurationStoresBoth` (:306) has it: `seedMission()` → `sortie0` (a PLANNED run) →
   `manager.launch` → `awaitRun` → `vm.landRun("5.2", "31") { … }`. The class's `viewModel(sortieId)` helper (:103)
