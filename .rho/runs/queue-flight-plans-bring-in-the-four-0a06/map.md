@@ -1,6 +1,6 @@
 # Map — queue flight plans (bring-in)
 
-Branch here: `rho/queue-flight-plans-bring-in-the-four-0a06`, HEAD `bd414ec run: plan outline`.
+Branch here: `rho/queue-flight-plans-bring-in-the-four-0a06`, HEAD `aeb11e3 run: plan revised by claude review`.
 Merge-base with the source branch is `4dcf27d` (Draw the draft's coach status, #41), i.e. the source
 branch is based on this branch's own tip, so the picks should apply without conflict.
 
@@ -79,6 +79,46 @@ domain test sets a host/token, so `advance` queues nothing in them.
 `domain/CoachStatus.kt:60 deriveCoachStatus` reads only the newest **outline** row, so a FLIGHT_PLAN
 QUEUED row cannot change the draft's status line — the draft status tests are safe unless they count
 generations.
+
+## The verify script (`.rho/runs/queue-flight-plans-bring-in-the-four-0a06/verify.sh`)
+
+Structure: CI gate → twelve named tests read out of this run's JUnit XML reports → whole-class
+"must not break" checks → the exported schema. `t <method>` looks the name up in `app/build/verify-work/methods`
+(one awk pass over every `TEST-*.xml`, worst outcome kept per name); `c <Class>` looks up `…<Class>` in
+`…/classes`. Gradle exits 0 for a name that never existed, so a missing name is reported "did not run" and counted
+as a failure. The twelve names are copied from the source run's own verify.sh (`git show 7cda190:…/verify.sh`,
+kept at `app/build/vmn4-verify.sh`) minus its three In-Flight names, which belong to the reset In-Flight commit this
+brief excludes.
+
+The twelve names, exactly as the four commits write them (verified against the per-commit patches at
+`app/build/d1.txt`–`d4.txt`; each is `fun <name>() = runBlocking {` except the worker's, which is a plain `fun`):
+
+| pick | name |
+|---|---|
+| `bcf6bae` | `storingAnOutlineQueuesSortieOnesFlightPlanAndReportsItsId` |
+| `bcf6bae` | `continuingWithoutAnOutlineQueuesSortieOnesFlightPlanAndStillHandsBackTheOpenOutlineIdsToCancel` |
+| `bcf6bae` | `landingTheCurrentSortieQueuesTheNextSortiesFlightPlanAndReportsItsId` |
+| `bcf6bae` | `scrubbingTheCurrentSortieQueuesTheNextSortiesFlightPlanAndReportsItsId` |
+| `a74b099` | `aCurrentRunSortieWithRunGenerationOnQueuesAFlightPlanAndWritesNoSimplePlan` |
+| `a74b099` | `aCurrentRunSortieWithRunGenerationOffGetsTheSimpleRunPlanAndQueuesNothing` |
+| `a74b099` | `turningRunGenerationOnAfterwardsLeavesTheSimpleRunPlanThatSortieAlreadyHas` |
+| `a74b099` | `aCurrentSortieQueuesNothingWhenMissionControlHasNoHostOrToken` |
+| `a74b099` | `aSortieWithAnOpenFlightPlanGenerationIsNotQueuedTwiceAndThatRowsIdIsReported` |
+| `1afea86` | `aWorkerThatStoresAnOutlineEnqueuesTheFlightPlanItQueuedForSortieOne` |
+| `a27d999` | `continueWithoutOutlineQueuesSortieOnesFlightPlanGenerationForEnqueuing` |
+| `a27d999` | `scrubFromTheLaunchpadQueuesTheNextSortiesFlightPlanGenerationForEnqueuing` |
+
+`a27d999` adds no test for Re-fly's cancel half (its commit message says "refly hands each id manager.refly reports
+to cancelGeneration", but `LaunchpadReFlyTest` is not edited by any of the four) — the script says so in its header
+and relies on `LaunchpadReFlyTest` / `MissionManagerReFlyTest` staying green plus Kyle reading the diff.
+
+Gate: `timeout 1800 bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, results dir moved
+aside first (`mv`, never `rm`), up to three attempts, retried only on a hang / build-killed signature or when the
+only failing test name is `doneBodyweightSetStepperShowsBW` (the recorded random Room-pool flake). No `gradlew --stop`.
+
+Against the untouched branch (verified 2026-10-26, log `app/build/verify-run.log`): gate attempt 1 passed in 2m47s,
+662 tests / 0 failures / 0 errors / 0 skipped, 50 checks passed, **12 failed — exactly the twelve names above, each
+"did not run"**, schema check passed, exit 1.
 
 ## Docs and gate
 
