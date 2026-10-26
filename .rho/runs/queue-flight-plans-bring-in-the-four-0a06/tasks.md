@@ -77,7 +77,7 @@ Rules every task follows (from `plan.md` and `map.md`):
   count: if it reports a failure, fix the cause in a second `test:` commit in this task, scoped to the
   kind of generation the count means.
 
-- [ ] 4. Cherry-pick `a27d999` — the Launchpad enqueues and cancels what its actions did
+- [x] 4. Cherry-pick `a27d999` — the Launchpad enqueues and cancels what its actions did
   Covers: `ui/launchpad/LaunchpadViewModel.kt` (+20/-6: `continueWithoutOutline()` passes
   `queueGeneration` as the manager's `onQueued` — note `cancelGeneration` is `suspend` and is not
   assignable to that parameter; `confirmScrub` does `queuedPlanId?.let(queueGeneration)`; `refly()`
