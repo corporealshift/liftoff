@@ -105,3 +105,21 @@ Branch state verified 2026-10-26. Line numbers are HEAD of this worktree.
   `InFlightRunTest.kt:104,434`; `InFlightScreenTest.kt:213`; `InFlightViewModelTest.kt:51,546,673`.
 - Recording-lambda precedent for the enqueue assertions: `LaunchpadConfirmTest` (queue/cancel lambdas recorded,
   no WorkManager).
+
+## Gate facts on this machine
+
+- `gradlew.sh` is at the **repository root** and pins JDK/SDK/Gradle under `~/android-toolchain`; nothing is on PATH.
+  CI (`.github/workflows/ci.yml`) runs exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest` on ubuntu-latest.
+- `app/build.gradle.kts:46-49` — every unit-test task is killed after **5 minutes** ("A Robolectric + Room test can
+  hang forever on the paused clock"). A hang writes no `TEST-*.xml` at all.
+- Known flake: `InFlightScreenTest.doneBodyweightSetStepperShowsBW` (`InFlightScreenTest.kt:601`) — recorded failing
+  at random on a Room pool closed under a still-collecting `observe()`, passing on a re-run of the identical tree.
+- `SchemaExportTest` only asserts the exported `app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json` mentions each
+  table; it does **not** notice a changed entity, so "no Room schema change" needs a comparison of `app/schemas`
+  against the tree this run started from.
+- Test classes today, for the class checks: `ui/inflight` = InFlightLandScrubTest, InFlightLeaveTest, InFlightRunTest,
+  InFlightScreenTest, InFlightStatesTest, InFlightViewModelTest, LandScrubDialogTest, NoteDialogTest, RunLandingTest;
+  `domain` = CoachStatusTest, MissionsTest, ReFlyTest, RolloverTest, SortiePlanningTest, SortiesTest, WeekTest;
+  `work` = GenerationCancellerTest, GenerationEnqueuerTest, GenerationWorkerTest (+ GenerationDaoTest, CoachTurnRunnerTest).
+- The 7 test names `verify.sh` requires are all new to this branch (grep over `app/src` finds none), which is what
+  makes the script exit 1 on untouched code.
