@@ -104,14 +104,17 @@ class LaunchpadViewModel(
 
     /**
      * Start the week from the pattern the draft holds rather than wait on an outline. Every outline row the
-     * manager found still open is cancelled, so a queued generation cannot land on a week already started.
+     * manager found still open is cancelled, so a queued generation cannot land on a week already started. The
+     * Flight Plan id the manager queued is not one of them: it goes to the enqueuer, and the manager hands it
+     * only once its transaction has committed.
      */
     fun continueWithoutOutline(): Job? {
         val s = state.value
         if (s !is LaunchpadState.Draft) return null
         return scope.launch {
             try {
-                for (generationId in manager.continueWithoutOutline(s.missionId)) {
+                val openOutlineIds = manager.continueWithoutOutline(s.missionId, queueGeneration)
+                for (generationId in openOutlineIds) {
                     cancelGeneration(generationId)
                 }
                 notConfiguredMessage = null
@@ -172,7 +175,8 @@ class LaunchpadViewModel(
         scrubbing = true
     }
 
-    /** The reason arrives from the dialog's Confirm; blank or whitespace-only stores null. */
+    /** The reason arrives from the dialog's Confirm; blank or whitespace-only stores null. The Flight Plan id
+     * scrub queued for the sortie it made current is enqueued only after scrub has returned. */
     fun confirmScrub(reason: String) {
         val s = state.value
         val sortieId = when (s) {
@@ -183,7 +187,8 @@ class LaunchpadViewModel(
         }
         scope.launch {
             try {
-                manager.scrub(sortieId, reason.trim().takeIf { it.isNotEmpty() })
+                val queuedPlanId = manager.scrub(sortieId, reason.trim().takeIf { it.isNotEmpty() })
+                queuedPlanId?.let(queueGeneration)
             } catch (_: IllegalStateException) {
                 runCatching { manager.onAppOpen() }
             } finally {
@@ -200,14 +205,17 @@ class LaunchpadViewModel(
 
     /**
      * One tap, no confirmation: the source plan stays in history and this sortie had no plan of its own,
-     * so there is nothing to ask about. manager.refly refuses anything but the current PENDING sortie.
+     * so there is nothing to ask about. manager.refly refuses anything but the current PENDING sortie, and hands
+     * back that sortie's still-open Flight Plan generations: the copy is its plan now, so they are cancelled.
      */
     fun refly() {
         val s = state.value
         if (s !is LaunchpadState.Pending) return
         scope.launch {
             try {
-                manager.refly(s.sortieId)
+                for (generationId in manager.refly(s.sortieId)) {
+                    cancelGeneration(generationId)
+                }
             } catch (_: IllegalStateException) {
                 runCatching { manager.onAppOpen() }
             }

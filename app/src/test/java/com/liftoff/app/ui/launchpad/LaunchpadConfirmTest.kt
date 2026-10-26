@@ -158,6 +158,22 @@ class LaunchpadConfirmTest {
     }
 
     /**
+     * The one QUEUED FLIGHT_PLAN row continue-without-outline left for the sortie it made current. Its id is what
+     * the enqueuer must be handed, so the row is read back rather than trusted from the action.
+     */
+    private suspend fun queuedPlanForSortieOne(missionId: Long): Generation {
+        val sortieOne = sortieDao.getForMission(missionId).first { it.index == 0 }
+        val rows = generationDao.getAll().filter { it.kind == GenerationKind.FLIGHT_PLAN }
+        assertEquals(1, rows.size)
+        val row = rows.single()
+        assertEquals(GenerationKind.FLIGHT_PLAN, row.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(missionId, row.missionId)
+        assertEquals(sortieOne.id, row.sortieId)
+        return row
+    }
+
+    /**
      * The state an action needs next, waited for rather than assumed: an action returns null while the derived
      * state is anything but a Draft, so a Draft that has not arrived yet would make the action a silent no-op.
      */
@@ -260,13 +276,37 @@ class LaunchpadConfirmTest {
         assertEquals(first.id, pendingState.sortieId)
         assertEquals(first.index, pendingState.sortieIndex)
 
-        assertEquals(listOf(outline.id), queuedIds.toList())
+        // Sortie 1 is a LIFT and Mission Control is configured, so the week's own plan generation is queued too:
+        // it travels to the enqueuer beside the outline, and the outline alone is cancelled.
+        val plan = queuedPlanForSortieOne(draft.missionId)
+        assertEquals(listOf(outline.id, plan.id), queuedIds.toList())
         assertEquals(listOf(outline.id), cancelledIds.toList())
         val row = generationDao.get(outline.id)!!
         assertEquals(GenerationKind.OUTLINE, row.kind)
         assertEquals(GenerationStatus.CANCELLED, row.status)
         assertNull(generationDao.getNewestNonCancelledOutlineForMission(draft.missionId))
         assertNull(vm.notConfiguredMessage)
+        assertTrue(escaped.isEmpty())
+    }
+
+    // Continuing without an outline after a Confirm: the queue lambda is handed the id of the FLIGHT_PLAN row the
+    // week queued for sortie 1, once, and the cancel lambda is still handed the outline row's id. The plan row is
+    // not among the cancelled ids and is still QUEUED when the action has finished.
+    @Test
+    fun continueWithoutOutlineQueuesSortieOnesFlightPlanGenerationForEnqueuing() = runBlocking {
+        val (vm, draft) = primedDraft(VALID_HOST, VALID_TOKEN)
+        joinAction(vm.confirm(), vm)
+        val outline = queuedOutlineFor(draft.missionId)
+        awaitDraft(vm, draft.missionId)
+
+        joinAction(vm.continueWithoutOutline(), vm)
+
+        val plan = queuedPlanForSortieOne(draft.missionId)
+        assertEquals(listOf(outline.id, plan.id), queuedIds.toList())
+        assertEquals(1, queuedIds.count { it == plan.id })
+        assertEquals(listOf(outline.id), cancelledIds.toList())
+        assertTrue(plan.id !in cancelledIds)
+        assertEquals(GenerationStatus.QUEUED, generationDao.get(plan.id)!!.status)
         assertTrue(escaped.isEmpty())
     }
 
