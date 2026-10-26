@@ -88,6 +88,10 @@ Turning it on before seeding would leave sortie 0 PENDING awaiting a generated p
 - **A failure from the lambda must not be caught by the existing `catch (Exception)`** in
   `land`/`landRun`/`scrub`, or a WorkManager failure becomes a bogus "Couldn't land this sortie." on a sortie
   that did land.
+- **The enqueue must not be gated on `left`.** The `watchLeave` collector can see the sortie leave IN_FLIGHT,
+  and set `left`, before the manager call returns, which makes `leaveOnce(onDone)` a no-op. The enqueue is
+  keyed only on the returned id being non-null, never on `left` or on `leaveOnce` firing. Otherwise a plan
+  goes unscheduled whenever the watcher wins that race.
 - **Composition must not touch WorkManager.** `AppContainer.generationEnqueuer()` calls
   `WorkManager.getInstance`, which throws when it was never initialized; `InFlightScreenTest` composes the real
   container (`:45`) with no initialization and taps `LAND` through the screen (`:387`), and the shell tests do the
@@ -98,35 +102,40 @@ Turning it on before seeding would leave sortie 0 PENDING awaiting a generated p
   that plan is simply not generated until something else queues it. The brief accepts this; the plan does not add
   the sweep.
 - **`ARCHITECTURE.md:82` still says In-Flight's enqueue "comes next".** The brief limits the change to four files,
-  so the row is left as it is for a later doc pass rather than edited here.
+  so the row is left as it is for a later doc pass.
 - **The gate can hang** on `:app:testDebugUnitTest` for about five minutes, writing no report XML. Run it detached
   with the log-and-exit sentinel, and re-run the identical tree once before treating a hang as a failure.
 
 
 ## Decisions
 
-**Does In-Flight show anything about the generation it just queued?** No — the enqueue is silent, with no new
+**Does In-Flight show anything about the generation it just queued?** No. The enqueue is silent, with no new
 line, chip or toast on the In-Flight screen. The alternative is a short "Coach plan queued" where the confirmation
-used to be. In-Flight only ever shows the sortie you are on, and landing or scrubbing leaves it for the Launchpad;
-the plan for that other sortie belongs to the Launchpad, whose own display of the current sortie's status is
-already listed as the next piece of work (`ARCHITECTURE.md:82`). Drawing a status for a *different* sortie on
-In-Flight would be the surprising thing.
+used to be. In-Flight only ever shows the sortie you are on, and landing or scrubbing leaves it for the Launchpad.
+The plan for that other sortie belongs to the Launchpad, and the Launchpad's display of the current sortie's
+status is already listed as the next piece of work (`ARCHITECTURE.md:82`). Showing a status for a *different*
+sortie on In-Flight would be the surprising thing.
 
 **When does the enqueue happen?** Immediately after `land`/`landRun`/`scrub` returns a non-null id, in the same
 call, before the screen leaves. The alternative is to hand it off after the navigation back settles. The QUEUED
-row is already committed when the manager returns, so this is the earliest moment that is correct, and it is what
-the Launchpad already does with the ids its own `scrub` and Confirm hand back.
+row is already committed when the manager returns, so this is the earliest correct moment. It is also what the
+Launchpad already does with the ids its own `scrub` and Confirm hand back.
 
 **What does the user see if the enqueue itself fails?** Nothing, and no error. The brief settles the important
-half (it must not become "Couldn't land/scrub this sortie."), so the open part is whether to surface a milder
-warning instead. It chooses silence: the sortie really did land, the QUEUED row stays in Room as the record that
-this sortie still wants a plan, and the brief's rule is that a later run re-enqueues such rows at app open —
-which is a promise about that later pass, not something this change adds (see Risks). A warning would blame the
-owner for something the app is meant to recover from on its own.
+half: the failure must not become "Couldn't land/scrub this sortie.". The open part is whether to show a milder
+warning instead, and the plan chooses silence. The sortie really did land, and the QUEUED row stays in Room as the
+record that this sortie still wants a plan. The brief's rule is that a later run re-enqueues such rows at app
+open. That is a promise about the later pass, not something this change adds (see Risks). A warning would blame
+the owner for something the app is meant to recover from on its own.
 
 **Does tapping Land or Scrub twice queue two generations?** No, and this plan adds no guard of its own. The view
-model's existing `busy` and `left` guards already take the second tap (`doubleTapLandsOnce`,
-`runLandDoubleTapLandsOnce`), `advance` never writes a second row for a sortie whose Flight Plan generation is
-already QUEUED or RUNNING — it hands back the open row's id instead — and `GenerationEnqueuer` keeps the work it
+model's existing `busy` and `left` guards already absorb the second tap (`doubleTapLandsOnce`,
+`runLandDoubleTapLandsOnce`). `advance` never writes a second row for a sortie whose Flight Plan generation is
+already QUEUED or RUNNING; it hands back the open row's id instead. `GenerationEnqueuer` keeps the work it
 already scheduled under `gen-<generationId>`. One generation per sortie is what the Launchpad does and what users
 would expect here.
+
+**Added by review: Is the enqueue skipped when the screen has already left the sortie?** No. Once the manager
+call returns a non-null id, the lambda is called whether or not the leave watcher has already set `left`. Only
+the completion callback goes through `leaveOnce`. The row was committed for the sortie that became current. Not
+scheduling it because the screen noticed the land first would quietly lose that sortie's plan.
