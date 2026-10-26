@@ -177,12 +177,15 @@ run_gate() {
 # - doneBodyweightSetStepperShowsBW alone, the one name this repo has recorded failing at random on a Room pool
 #   closed under a still-collecting observe() and passing on a re-run of the identical tree. Any other failing name
 #   is treated as a real result and is not retried.
+# Only the attempt's own log is read: a hang on an earlier attempt must not turn a later attempt's reported
+# assertion failure into a retry.
 transient_failure() {
-    if grep -qiE 'daemon disappeared|may have been killed|out of memory|GC overhead|LowMemory|Could not connect to the daemon|Build terminated|could not clear|Unable to delete directory|Timeout has been exceeded|exceeded its configured timeout|Requesting stop of task|Test Executor|PersistentEnumerator storage corrupted' "$WORK"/gate-*.log 2>/dev/null; then
+    local log="$WORK/gate-$1.log"
+    if grep -qiE 'daemon disappeared|may have been killed|out of memory|GC overhead|LowMemory|Could not connect to the daemon|Build terminated|could not clear|Unable to delete directory|Timeout has been exceeded|exceeded its configured timeout|Requesting stop of task|Test Executor|PersistentEnumerator storage corrupted' "$log" 2>/dev/null; then
         return 0
     fi
     if ! ls "$RESULTS"/TEST-*.xml >/dev/null 2>&1; then
-        if grep -qiE 'compileDebugKotlin FAILED|compileDebugUnitTestKotlin FAILED|compilation error|^e: |unresolved reference' "$WORK"/gate-*.log 2>/dev/null; then
+        if grep -qiE 'compileDebugKotlin FAILED|compileDebugUnitTestKotlin FAILED|compilation error|^e: |unresolved reference' "$log" 2>/dev/null; then
             return 1
         fi
         return 0
@@ -205,7 +208,7 @@ for attempt in 1 2 3; do
         break
     fi
     index_reports
-    if transient_failure; then
+    if transient_failure "$attempt"; then
         echo "  … attempt $attempt failed on the hang or on the build itself; running the gate again"
     else
         echo "  … attempt $attempt failed on a reported test result; not running the gate again"
