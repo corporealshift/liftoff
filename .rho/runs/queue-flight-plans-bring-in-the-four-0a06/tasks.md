@@ -59,7 +59,7 @@ Rules every task follows (from `plan.md` and `map.md`):
   `bash gradlew.sh :app:testDebugUnitTest --no-build-cache --tests '*MissionManagerTest*'` reports
   0 failures with all nine `MissionManagerTest` names from tasks 1–2 present.
 
-- [ ] 3. Cherry-pick `1afea86` — the worker enqueues the plan its own store queued
+- [x] 3. Cherry-pick `1afea86` — the worker enqueues the plan its own store queued
   Covers: `work/GenerationWorker.kt` (+26/-3: `StoreDecision.Wrote` gains `queuedPlanId: Long?`, the
   worker captures the id through `storeOutline`'s `onQueued` and calls `enqueueQueuedPlan` after its
   transaction, on the success path only, rethrowing `CancellationException` and swallowing anything
