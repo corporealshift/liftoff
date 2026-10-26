@@ -116,7 +116,7 @@ Rules every task follows (from `plan.md` and `map.md`):
   tests: the untouched branch ran 662, and the twelve names are twelve new methods, unless a fix added
   one.
 
-- [ ] 6. Rewrite the ARCHITECTURE.md M3 row and confirm nothing else moved
+- [x] 6. Rewrite the ARCHITECTURE.md M3 row and confirm nothing else moved
   Covers: `ARCHITECTURE.md` line 82 only. Replace exactly the closing clause
   `Queueing Flight Plans and the Launchpad's display of the current sortie's status come next` with
   what the code now does — Flight Plans queued as sorties become current, the run-plans toggle
