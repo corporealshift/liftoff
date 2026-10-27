@@ -47,7 +47,7 @@ read back through `db.generationDao().get(id)` to check it is the row the case m
   `anEmptyGenerationTableCallsNeitherLambda`; the per-class `tests=`/`failures=`/`errors=` totals go in the commit
   body.
 
-- [ ] 2. `AppOpenSweepTest`: the rows the sweep wants
+- [x] 2. `AppOpenSweepTest`: the rows the sweep wants
   Covers the first half of plan step 2, in the class task 1 created — read what it left there first and reuse its
   seeding helpers; do not rewrite task 1's case.
   Tests it writes, spelled exactly as `verify.sh` uses them:
