@@ -32,6 +32,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -49,6 +50,7 @@ class InFlightRunTest {
     private lateinit var missionDao: MissionDao
     private lateinit var sortieDao: SortieDao
     private lateinit var flightPlanDao: FlightPlanDao
+    private lateinit var generationDao: GenerationDao
     private lateinit var settingsStore: SettingsStore
     private lateinit var manager: MissionManager
     private val job = Job()
@@ -69,6 +71,7 @@ class InFlightRunTest {
         missionDao = db.missionDao()
         sortieDao = db.sortieDao()
         flightPlanDao = db.flightPlanDao()
+        generationDao = db.generationDao()
 
         val dataStore = PreferenceDataStoreFactory.create {
             File(context.cacheDir, "settings.preferences_pb")
@@ -106,6 +109,35 @@ class InFlightRunTest {
     /** The first state the view model publishes that is a run state matching [pred]. */
     private suspend fun awaitRun(vm: InFlightViewModel, pred: (InFlightState.Run) -> Boolean = { true }) =
         withTimeout(5_000) { vm.state.first { it is InFlightState.Run && pred(it) } } as InFlightState.Run
+
+    /**
+     * The launched run with Mission Control configured and a recording lambda in place of WorkManager, so the id
+     * landRun queued is something the test can see. The host and token are set before onAppOpen because a generation
+     * is only ever queued for a coach that exists; no run-plan toggle is needed, because landing a run makes a LIFT
+     * current and a lift is always left awaiting generation. enqueueThrows makes that lambda refuse every id it is
+     * handed, the way the WorkManager call it stands in for can.
+     */
+    private suspend fun launchRunWithEnqueue(enqueueThrows: Boolean = false): EnqueueRecording {
+        settingsStore.setDaemonHost("127.0.0.1")
+        settingsStore.setDaemonToken("token-under-test")
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+        val ids = CopyOnWriteArrayList<Long>()
+        val vm = InFlightViewModel(db, settingsStore, sortie.id, scope, manager) {
+            ids.add(it)
+            if (enqueueThrows) throw IllegalStateException("the enqueue refused generation $it")
+        }
+        return EnqueueRecording(vm, awaitRun(vm), sortie, ids)
+    }
+
+    /** The view model on that fixture, the run state it reached, its sortie, and the ids its recording enqueue was handed. */
+    private class EnqueueRecording(
+        val vm: InFlightViewModel,
+        val run: InFlightState.Run,
+        val sortie: Sortie,
+        val ids: CopyOnWriteArrayList<Long>,
+    )
 
     /** A generated run plan: kind, target distance/pace and two segments. No exercises. */
     private fun tempoPlanDraft() = FlightPlanDraft(
@@ -460,6 +492,90 @@ class InFlightRunTest {
             workerJob.cancel()
             worker.shutdownNow()
         }
+    }
+
+    // ── Landing a run hands the next sortie's queued plan to the enqueue ──
+    // Mission Control configured, so landing the run queues a generation for the lift that landing makes current.
+    // The recording lambda is handed exactly one id, and that id names sortie 1's QUEUED FLIGHT_PLAN row. No
+    // run-plan toggle is needed here: a lift is always left awaiting generation.
+
+    @Test
+    fun landRunFromInFlightEnqueuesTheNextSortiesQueuedFlightPlanIdOnce() = runBlocking {
+        val enq = launchRunWithEnqueue()
+        val sortieId = enq.sortie.id
+        val missionId = enq.sortie.missionId
+        assertEquals("Run", enq.run.title)
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        assertTrue(
+            "landRun refused a distance and a duration",
+            enq.vm.landRun("5.2", "31") { onDoneRuns++; done.complete(Unit) }
+        )
+        withTimeout(5_000) { done.await() }
+
+        assertEquals(1, onDoneRuns)
+        val landed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.LANDED, landed.state)
+        assertEquals(5.2, landed.runDistance!!, 0.0)
+        assertEquals(31.0, landed.runMinutes!!, 0.0)
+        assertEquals(fixedInstant.toEpochMilli(), landed.landedAt)
+        assertNull(enq.vm.runErrors.value)
+        assertNull(enq.vm.message.value)
+
+        val next = sortieDao.getForMission(missionId)[1]
+        assertEquals(SortieType.LIFT, next.type)
+
+        assertEquals("the enqueue was handed ${enq.ids}", 1, enq.ids.size)
+        val row = generationDao.get(enq.ids[0])
+        assertNotNull("the recorded id names no generation row", row)
+        assertEquals(GenerationKind.FLIGHT_PLAN, row!!.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(next.id, row.sortieId)
+
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
+    // ── An enqueue that throws is not a failed land ──────────────────
+    // The WorkManager call the enqueue stands in for can refuse on its own. The run did land, so landRun is not a
+    // failure: the message is watched for the whole window the action takes rather than only at the moment onDone
+    // fires, the dialog's two fields stay clear, and the QUEUED row the manager wrote stays in Room.
+
+    @Test
+    fun landRunWithAFailingEnqueueStillLandsTheRunAndShowsNoMessage() = runBlocking {
+        val enq = launchRunWithEnqueue(enqueueThrows = true)
+        val sortieId = enq.sortie.id
+        val missionId = enq.sortie.missionId
+        assertEquals("Run", enq.run.title)
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        assertTrue(
+            "landRun refused a distance and a duration",
+            enq.vm.landRun("5.2", "31") { onDoneRuns++; done.complete(Unit) }
+        )
+
+        assertNull(
+            "a failed enqueue was turned into a message on a run that landed",
+            withTimeoutOrNull(2_000) { enq.vm.message.first { it != null } }
+        )
+        withTimeout(5_000) { done.await() }
+
+        assertEquals(1, onDoneRuns)
+        val landed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.LANDED, landed.state)
+        assertEquals(5.2, landed.runDistance!!, 0.0)
+        assertEquals(31.0, landed.runMinutes!!, 0.0)
+        assertNull(enq.vm.runErrors.value)
+        assertNull(enq.vm.message.value)
+        assertTrue("a failing enqueue escaped into the screen's scope: $escaped", escaped.isEmpty())
+
+        assertEquals("the enqueue was handed ${enq.ids}", 1, enq.ids.size)
+        val row = generationDao.get(enq.ids[0])
+        assertNotNull("the QUEUED row this land queued is not in the database", row)
+        assertEquals(GenerationKind.FLIGHT_PLAN, row!!.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(sortieDao.getForMission(missionId)[1].id, row.sortieId)
     }
 
     // ── Scrubbing a run from the run state ───────────────────────────

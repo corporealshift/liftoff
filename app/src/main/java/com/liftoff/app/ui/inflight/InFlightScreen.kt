@@ -47,7 +47,15 @@ fun InFlightScreen(
 ) {
     val scope = rememberCoroutineScope()
     val vm = remember(sortieId) {
-        InFlightViewModel(container.database, container.settingsStore, sortieId, scope, container.missionManager)
+        // A lambda, not a bound reference: the container asks WorkManager for itself, only at action time.
+        InFlightViewModel(
+            container.database,
+            container.settingsStore,
+            sortieId,
+            scope,
+            container.missionManager,
+            queueGeneration = { id -> container.generationEnqueuer().enqueue(id) },
+        )
     }
     // The watcher outlives a change of the onBack this screen was handed, so it reads the latest one.
     val currentOnBack by rememberUpdatedState(onBack)

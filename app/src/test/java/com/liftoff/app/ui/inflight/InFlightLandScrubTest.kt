@@ -29,6 +29,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -47,6 +48,7 @@ class InFlightLandScrubTest {
     private lateinit var missionDao: MissionDao
     private lateinit var sortieDao: SortieDao
     private lateinit var flightPlanDao: FlightPlanDao
+    private lateinit var generationDao: GenerationDao
     private lateinit var settingsStore: SettingsStore
     private lateinit var manager: MissionManager
     private val job = Job()
@@ -67,6 +69,7 @@ class InFlightLandScrubTest {
         missionDao = db.missionDao()
         sortieDao = db.sortieDao()
         flightPlanDao = db.flightPlanDao()
+        generationDao = db.generationDao()
 
         val dataStore = PreferenceDataStoreFactory.create {
             File(context.cacheDir, "settings.preferences_pb")
@@ -144,6 +147,43 @@ class InFlightLandScrubTest {
         val ready = awaitReady(vm)
         return vm to ready
     }
+
+    /**
+     * The same path with Mission Control configured and a recording lambda in place of WorkManager, so the id an
+     * action queued is something the test can see. The run-plan toggle goes on only after landSortie0: on before
+     * the seeding, sortie 0 is left PENDING awaiting a generated plan and landSortie0 cannot launch it; off, the
+     * run that landing this lift makes current gets the simple 'Run' plan and nothing is queued at all.
+     * enqueueThrows makes that lambda refuse every id it is handed, the way the WorkManager call it stands in for
+     * can, so a test can see what the view model does with a failure it did not cause.
+     */
+    private suspend fun launchSortie1WithEnqueue(
+        coachConfigured: Boolean = true,
+        generateRunPlans: Boolean = true,
+        enqueueThrows: Boolean = false,
+    ): EnqueueRecording {
+        if (coachConfigured) {
+            settingsStore.setDaemonHost("127.0.0.1")
+            settingsStore.setDaemonToken("token-under-test")
+        }
+        val mission = seedMission()
+        landSortie0(mission.id)
+        settingsStore.setGenerateRunPlans(generateRunPlans)
+        val sortie = seedSortie1LiftPlan(mission.id)
+        manager.launch(sortie.id)
+        val ids = CopyOnWriteArrayList<Long>()
+        val vm = InFlightViewModel(db, settingsStore, sortie.id, scope, manager) {
+            ids.add(it)
+            if (enqueueThrows) throw IllegalStateException("the enqueue refused generation $it")
+        }
+        return EnqueueRecording(vm, awaitReady(vm), ids)
+    }
+
+    /** The view model on that fixture, the state it reached, and the ids its recording enqueue was handed. */
+    private class EnqueueRecording(
+        val vm: InFlightViewModel,
+        val ready: InFlightState.Ready,
+        val ids: CopyOnWriteArrayList<Long>,
+    )
 
     private suspend fun awaitReady(vm: InFlightViewModel) = withTimeout(5_000) {
         vm.state.first { it is InFlightState.Ready }
@@ -486,5 +526,160 @@ class InFlightLandScrubTest {
         val after = sortieDao.get(sortieId)!!
         assertEquals(SortieState.LANDED, after.state)
         assertEquals(landedAt, after.landedAt)
+    }
+
+    // ── Landing hands the next sortie's queued plan to the enqueue ───
+    // Mission Control configured, so landing the in-flight lift queues a generation for the run that landing
+    // makes current. The recording lambda is handed exactly one id, and that id names sortie 2's QUEUED
+    // FLIGHT_PLAN row - not the open row the fixture's own landSortie0 already queued for the lift it landed.
+
+    @Test
+    fun landFromInFlightEnqueuesTheNextSortiesQueuedFlightPlanIdOnce() = runBlocking {
+        val enq = launchSortie1WithEnqueue()
+        val sortieId = enq.ready.sortieId
+        val missionId = sortieDao.get(sortieId)!!.missionId
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        enq.vm.land { onDoneRuns++; done.complete(Unit) }
+        awaitDone(done)
+
+        assertEquals(1, onDoneRuns)
+        assertEquals(SortieState.LANDED, sortieDao.get(sortieId)!!.state)
+        assertNull(enq.vm.message.value)
+
+        val next = sortieDao.getForMission(missionId)[2]
+        assertEquals(SortieType.RUN, next.type)
+
+        assertEquals("the enqueue was handed ${enq.ids}", 1, enq.ids.size)
+        val row = generationDao.get(enq.ids[0])
+        assertNotNull("the recorded id names no generation row", row)
+        assertEquals(GenerationKind.FLIGHT_PLAN, row!!.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(next.id, row.sortieId)
+
+        val forTheLandedLift = generationDao.getNewestNonCancelledForSortie(sortieId)!!
+        assertNotEquals("sortie 1's own queued row is not what the land handed over", forTheLandedLift.id, enq.ids[0])
+    }
+
+    // ── Scrubbing hands the same id, once ────────────────────────────
+    // The same fixture through scrub: one id, naming the QUEUED FLIGHT_PLAN row of the sortie the scrub made
+    // current, and the sortie SCRUBBED.
+
+    @Test
+    fun scrubFromInFlightEnqueuesTheNextSortiesQueuedFlightPlanIdOnce() = runBlocking {
+        val enq = launchSortie1WithEnqueue()
+        val sortieId = enq.ready.sortieId
+        val missionId = sortieDao.get(sortieId)!!.missionId
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        enq.vm.scrub("felt sick") { onDoneRuns++; done.complete(Unit) }
+        awaitDone(done)
+
+        assertEquals(1, onDoneRuns)
+        val scrubbed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+        assertEquals("felt sick", scrubbed.scrubReason)
+        assertNull(enq.vm.message.value)
+
+        val next = sortieDao.getForMission(missionId)[2]
+        assertEquals(SortieType.RUN, next.type)
+
+        assertEquals("the enqueue was handed ${enq.ids}", 1, enq.ids.size)
+        val row = generationDao.get(enq.ids[0])
+        assertNotNull("the recorded id names no generation row", row)
+        assertEquals(GenerationKind.FLIGHT_PLAN, row!!.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(next.id, row.sortieId)
+
+        val forTheScrubbedLift = generationDao.getNewestNonCancelledForSortie(sortieId)!!
+        assertNotEquals("sortie 1's own queued row is not what the scrub handed over", forTheScrubbedLift.id, enq.ids[0])
+    }
+
+    // ── No Mission Control: nothing is handed over, the sortie still lands ──
+    // The same settings as the case above, minus the host and the token, so what queues nothing is the missing
+    // Mission Control and not the run-plan toggle. The land is not a failure: the sortie lands, onDone ran, and
+    // no message was raised.
+
+    @Test
+    fun landWithMissionControlUnsetEnqueuesNothingAndStillLands() = runBlocking {
+        val enq = launchSortie1WithEnqueue(coachConfigured = false)
+        val sortieId = enq.ready.sortieId
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        enq.vm.land { onDoneRuns++; done.complete(Unit) }
+        awaitDone(done)
+
+        assertEquals(1, onDoneRuns)
+        assertEquals(SortieState.LANDED, sortieDao.get(sortieId)!!.state)
+        assertNull(enq.vm.message.value)
+        assertTrue("the enqueue was handed ${enq.ids}", enq.ids.isEmpty())
+    }
+
+    // ── An enqueue that throws is not a failed land ──────────────────
+    // The WorkManager call the enqueue stands in for can refuse on its own. The sortie did land, so the land is not
+    // a failure: the message is watched for the whole window the action takes rather than only at the moment onDone
+    // fires, and the QUEUED row the manager wrote stays in Room as the record that this plan is still owed.
+
+    @Test
+    fun landWithAFailingEnqueueStillLandsAndShowsNoMessage() = runBlocking {
+        val enq = launchSortie1WithEnqueue(enqueueThrows = true)
+        val sortieId = enq.ready.sortieId
+        val missionId = sortieDao.get(sortieId)!!.missionId
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        enq.vm.land { onDoneRuns++; done.complete(Unit) }
+
+        assertNull(
+            "a failed enqueue was turned into a message on a sortie that landed",
+            withTimeoutOrNull(2_000) { enq.vm.message.first { it != null } },
+        )
+        awaitDone(done)
+        assertEquals(1, onDoneRuns)
+        assertEquals(SortieState.LANDED, sortieDao.get(sortieId)!!.state)
+        assertTrue("a failing enqueue escaped into the screen's scope: $escaped", escaped.isEmpty())
+
+        assertEquals("the enqueue was handed ${enq.ids}", 1, enq.ids.size)
+        val row = generationDao.get(enq.ids[0])
+        assertNotNull("the QUEUED row this land queued is not in the database", row)
+        assertEquals(GenerationKind.FLIGHT_PLAN, row!!.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(sortieDao.getForMission(missionId)[2].id, row.sortieId)
+    }
+
+    // ── The same through scrub ───────────────────────────────────────
+    // A scrub whose enqueue throws still scrubs: the sortie is SCRUBBED with the reason it was given, onDone ran
+    // once, nothing reached the scope's handler, and the row for the sortie the scrub made current is still there.
+
+    @Test
+    fun scrubWithAFailingEnqueueStillScrubbsAndShowsNoMessage() = runBlocking {
+        val enq = launchSortie1WithEnqueue(enqueueThrows = true)
+        val sortieId = enq.ready.sortieId
+        val missionId = sortieDao.get(sortieId)!!.missionId
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        enq.vm.scrub("felt sick") { onDoneRuns++; done.complete(Unit) }
+
+        assertNull(
+            "a failed enqueue was turned into a message on a sortie that scrubbed",
+            withTimeoutOrNull(2_000) { enq.vm.message.first { it != null } },
+        )
+        awaitDone(done)
+        assertEquals(1, onDoneRuns)
+        val scrubbed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+        assertEquals("felt sick", scrubbed.scrubReason)
+        assertTrue("a failing enqueue escaped into the screen's scope: $escaped", escaped.isEmpty())
+
+        assertEquals("the enqueue was handed ${enq.ids}", 1, enq.ids.size)
+        val row = generationDao.get(enq.ids[0])
+        assertNotNull("the QUEUED row this scrub queued is not in the database", row)
+        assertEquals(GenerationKind.FLIGHT_PLAN, row!!.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(sortieDao.getForMission(missionId)[2].id, row.sortieId)
     }
 }

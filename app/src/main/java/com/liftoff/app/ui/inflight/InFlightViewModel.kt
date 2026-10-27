@@ -28,6 +28,8 @@ class InFlightViewModel(
     // Defaulted so the screen and every existing call site keep compiling; a test that wants a
     // fixed clock passes its own manager.
     private val missionManager: MissionManager = MissionManager(db, settings),
+    /** Hands one generation id to the enqueue helper. Asked for at action time, never at construction. */
+    private val queueGeneration: (Long) -> Unit = {},
 ) {
     private val dao = db.flightPlanDao()
     private val sortieDao = db.sortieDao()
@@ -93,7 +95,8 @@ class InFlightViewModel(
         message.value = null
         scope.launch {
             try {
-                missionManager.land(sortieId)
+                val queuedPlanId = missionManager.land(sortieId)
+                if (queuedPlanId != null) enqueueQuietly(queuedPlanId)
                 leaveOnce(onDone)
             } catch (e: CancellationException) {
                 throw e
@@ -129,7 +132,8 @@ class InFlightViewModel(
                 message.value = null
                 scope.launch {
                     try {
-                        missionManager.land(sortieId, entry.distance, entry.minutes)
+                        val queuedPlanId = missionManager.land(sortieId, entry.distance, entry.minutes)
+                        if (queuedPlanId != null) enqueueQuietly(queuedPlanId)
                         leaveOnce(onDone)
                     } catch (e: CancellationException) {
                         throw e
@@ -152,7 +156,8 @@ class InFlightViewModel(
         message.value = null
         scope.launch {
             try {
-                missionManager.scrub(sortieId, normalizeNote(reason))
+                val queuedPlanId = missionManager.scrub(sortieId, normalizeNote(reason))
+                if (queuedPlanId != null) enqueueQuietly(queuedPlanId)
                 leaveOnce(onDone)
             } catch (e: CancellationException) {
                 throw e
@@ -161,6 +166,16 @@ class InFlightViewModel(
             } finally {
                 busy = false
             }
+        }
+    }
+
+    // A generation the enqueue could not schedule stays QUEUED in Room; it is not a failed land or scrub.
+    private fun enqueueQuietly(generationId: Long) {
+        try {
+            queueGeneration(generationId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         }
     }
 
