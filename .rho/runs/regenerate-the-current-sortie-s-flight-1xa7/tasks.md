@@ -45,7 +45,7 @@ previous one left there before writing.
   so no existing file changes — and `git status --short` shows nothing under `app/schemas`. Write the guards and the
   compile command into the commit body.
 
-- [ ] 2. The view-model action: enqueue the new row, cancel the rest
+- [x] 2. The view-model action: enqueue the new row, cancel the rest
   Covers plan step 2. `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadViewModel.kt`: one new action
   returning `Job?`, reading `state.value` and returning null unless the derived state is `LaunchpadState.Pending` or
   `Planned` (the early return `refly` 211 uses), else `scope.launch { … }` that calls the manager operation with
