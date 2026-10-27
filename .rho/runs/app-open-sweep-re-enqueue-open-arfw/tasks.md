@@ -102,7 +102,7 @@ read back through `db.generationDao().get(id)` to check it is the row the case m
   "com.liftoff.app.work.AppOpenSweepTest"` reports 0 failures and 0 errors and its `TEST-*.xml` names all eight of
   the names `verify.sh` lists.
 
-- [ ] 5. `MainActivity`: run the sweep after `onAppOpen()` returns, off the main thread
+- [x] 5. `MainActivity`: run the sweep after `onAppOpen()` returns, off the main thread
   Covers plan step 3. File: `app/src/main/java/com/liftoff/app/MainActivity.kt` — capture the `Mission` the existing
   `repeatOnLifecycle(STARTED)` block's `onAppOpen()` returns (:26-30), then launch the sweep on `lifecycleScope` with
   a background dispatcher **outside** that block, per the plan's Decision that a repair which has started finishes
