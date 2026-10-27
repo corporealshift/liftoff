@@ -107,6 +107,19 @@ class GenerationDaoTest {
         return generationDao.get(id)!!
     }
 
+    // A row that has reached an end state, carrying the reason and the instant it got there, so a write that
+    // changes nothing is a row that reads the same afterwards rather than a null staying null.
+    private suspend fun decidedRow(
+        status: GenerationStatus,
+        createdAt: Long,
+        error: String?,
+        finishedAt: Long,
+    ): Generation {
+        val row = queueGeneration(GenerationKind.OUTLINE, missionId = 1, sortieId = null, createdAt = createdAt)
+        generationDao.update(row.copy(status = status, error = error, finishedAt = finishedAt))
+        return generationDao.get(row.id)!!
+    }
+
     @Test
     fun markingAGenerationRunningSucceededFailedOrCancelledSetsItsStatusAndFinishedAt() = runBlocking {
         val untouched = queueGeneration(GenerationKind.OUTLINE, missionId = 1, sortieId = null, createdAt = 1_000)
@@ -148,6 +161,41 @@ class GenerationDaoTest {
         assertEquals(GenerationStatus.QUEUED, stillQueued.status)
         assertNull(stillQueued.finishedAt)
         assertNull(stillQueued.error)
+    }
+
+    // The guard is on the status, not on the row: a step that arrives after the generation has already ended
+    // changes nothing and says so, while a QUEUED or RUNNING row is still marked as it always was.
+    @Test
+    fun markRunningAndMarkFailedRefuseAGenerationThatAlreadyDecidedItsOutcome() = runBlocking {
+        val cancelled = decidedRow(GenerationStatus.CANCELLED, createdAt = 1_000, error = "the owner stopped it", finishedAt = 2_000)
+        val succeeded = decidedRow(GenerationStatus.SUCCEEDED, createdAt = 3_000, error = null, finishedAt = 4_000)
+        val failed = decidedRow(GenerationStatus.FAILED, createdAt = 5_000, error = "coach unreachable", finishedAt = 6_000)
+
+        assertEquals(0, generationDao.markRunning(cancelled.id))
+        assertEquals(0, generationDao.markRunning(succeeded.id))
+        assertEquals(0, generationDao.markRunning(failed.id))
+        assertEquals(cancelled, generationDao.get(cancelled.id)!!)
+        assertEquals(succeeded, generationDao.get(succeeded.id)!!)
+        assertEquals(failed, generationDao.get(failed.id)!!)
+
+        assertEquals(0, generationDao.markFailed(cancelled.id, error = "coach needed input", finishedAt = 9_000))
+        val stillCancelled = generationDao.get(cancelled.id)!!
+        assertEquals(GenerationStatus.CANCELLED, stillCancelled.status)
+        assertEquals("the owner stopped it", stillCancelled.error)
+        assertEquals(2_000L, stillCancelled.finishedAt!!)
+
+        val queued = queueGeneration(GenerationKind.OUTLINE, 1, null, createdAt = 7_000)
+        assertEquals(1, generationDao.markRunning(queued.id))
+        assertEquals(GenerationStatus.RUNNING, generationDao.get(queued.id)!!.status)
+
+        val running = queueGeneration(
+            GenerationKind.FLIGHT_PLAN, 1, 10, createdAt = 8_000, status = GenerationStatus.RUNNING
+        )
+        assertEquals(1, generationDao.markFailed(running.id, error = "coach needed input", finishedAt = 9_000))
+        val marked = generationDao.get(running.id)!!
+        assertEquals(GenerationStatus.FAILED, marked.status)
+        assertEquals("coach needed input", marked.error)
+        assertEquals(9_000L, marked.finishedAt!!)
     }
 
     @Test
