@@ -17,11 +17,19 @@ import com.liftoff.app.data.SortieDao
 import com.liftoff.app.data.SortieState
 import com.liftoff.app.data.SortieType
 import com.liftoff.app.settings.SettingsStore
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,6 +39,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * The sweep against in-memory Room with the container's two helpers replaced by recording lambdas: no
@@ -130,6 +139,60 @@ class AppOpenSweepTest {
         db,
         enqueue = { enqueued += it },
         cancel = { cancelled += it }
+    )
+
+    /**
+     * One sweep run in its own scope with a CoroutineExceptionHandler and a bounded wait, so whatever leaves the
+     * sweep is either recorded in the returned list or is the sweep's own cancellation — never something the
+     * test's own scope has to absorb. Returns the sweep's Job and what reached the handler.
+     */
+    private suspend fun runSweep(
+        weekStart: LocalDate,
+        enqueue: (Long) -> Unit,
+        cancel: suspend (Long) -> Unit,
+    ): Pair<Job, List<Throwable>> {
+        val escaped = CopyOnWriteArrayList<Throwable>()
+        val job = CoroutineScope(SupervisorJob() + CoroutineExceptionHandler { _, cause -> escaped += cause })
+            .launch { AppOpenSweep(db, enqueue, cancel).run(weekStart) }
+        withTimeout(15_000L) { job.join() }
+        return job to escaped
+    }
+
+    /**
+     * The four open rows the two failure cases share: two on the current week's ACTIVE Mission's current sortie,
+     * which the sweep hands to enqueue, and two on sorties that are no longer current, which it hands to cancel.
+     * Each helper therefore has a first id to throw on and a next id it must still be handed.
+     */
+    private fun seedOpenRows(): OpenRows = runBlocking {
+        val missionId = insertMission(LocalDate.of(2026, 1, 12), "RLRLR", MissionStatus.ACTIVE)
+        val landed = insertSortie(missionId, 0, SortieType.LIFT, "push", SortieState.LANDED)
+        val scrubbed = insertSortie(missionId, 1, SortieType.RUN, "easy", SortieState.SCRUBBED)
+        val current = insertSortie(missionId, 2, SortieType.LIFT, "pull", SortieState.PENDING)
+        insertSortie(missionId, 3, SortieType.RUN, "easy", SortieState.PENDING)
+        OpenRows(
+            missionId = missionId,
+            landedRow = seedGeneration(
+                GenerationKind.FLIGHT_PLAN, missionId, landed, GenerationStatus.QUEUED, 1000L
+            ),
+            scrubbedRow = seedGeneration(
+                GenerationKind.FLIGHT_PLAN, missionId, scrubbed, GenerationStatus.RUNNING, 1100L
+            ),
+            wantedQueued = seedGeneration(
+                GenerationKind.FLIGHT_PLAN, missionId, current, GenerationStatus.QUEUED, 1200L
+            ),
+            wantedRunning = seedGeneration(
+                GenerationKind.FLIGHT_PLAN, missionId, current, GenerationStatus.RUNNING, 1300L
+            ),
+        )
+    }
+
+    /** The rows [seedOpenRows] wrote. */
+    private class OpenRows(
+        val missionId: Long,
+        val landedRow: Generation,
+        val scrubbedRow: Generation,
+        val wantedQueued: Generation,
+        val wantedRunning: Generation,
     )
 
     // ── nothing to repair ──────────────────────────────────────────────
@@ -326,5 +389,90 @@ class AppOpenSweepTest {
         assertEquals(GenerationStatus.SUCCEEDED, generationDao.get(succeeded.id)!!.status)
         assertEquals(GenerationStatus.FAILED, generationDao.get(failed.id)!!.status)
         assertEquals(GenerationStatus.CANCELLED, generationDao.get(alreadyCancelled.id)!!.status)
+    }
+
+    // ── what a failing row does, and what cancellation does ──────────────
+
+    /**
+     * One bad row must not stop the rest and the app must not crash on one: both helpers throw on the first id
+     * they are handed, and each is still handed the next row's id. The sweep runs in its own scope with a
+     * CoroutineExceptionHandler, so a failure that escaped the per-row wrap would have been recorded there and
+     * would have left the sweep's own coroutine cancelled.
+     */
+    @Test
+    fun aRowThatFailsDoesNotStopTheSweepOrTheOtherRows() = runBlocking {
+        val rows = seedOpenRows()
+        val mission = manager.onAppOpen()
+        assertEquals(rows.missionId, mission.id)
+        assertEquals(MissionStatus.ACTIVE, mission.status)
+
+        val thrown = mutableListOf<String>()
+        val (job, escaped) = runSweep(
+            mission.weekStart,
+            enqueue = { id ->
+                enqueued += id
+                if (enqueued.size == 1) {
+                    thrown += "enqueue"
+                    throw IllegalStateException("the enqueue helper cannot reach WorkManager")
+                }
+            },
+            cancel = { id ->
+                cancelled += id
+                if (cancelled.size == 1) {
+                    thrown += "cancel"
+                    throw IllegalStateException("the cancel helper cannot reach the daemon")
+                }
+            },
+        )
+
+        assertEquals(listOf("enqueue", "cancel"), thrown)
+        assertEquals(listOf(rows.wantedQueued.id, rows.wantedRunning.id), enqueued)
+        assertEquals(listOf(rows.landedRow.id, rows.scrubbedRow.id), cancelled)
+        assertEquals(emptyList<Throwable>(), escaped)
+        assertFalse("the sweep's own coroutine finished normally", job.isCancelled)
+    }
+
+    /**
+     * Cancellation is the one failure the per-row wrap does not swallow, so a sweep that is being stopped still
+     * stops. Each helper in turn throws CancellationException on the first id it is handed: the sweep's own
+     * coroutine ends cancelled, the ids after the throwing one are never handed to either helper, and the handler
+     * records nothing, because a cancelled coroutine is not a failure.
+     */
+    @Test
+    fun aCancelledSweepStaysCancelledRatherThanCarryingOn() = runBlocking {
+        val rows = seedOpenRows()
+        val mission = manager.onAppOpen()
+        assertEquals(rows.missionId, mission.id)
+        assertEquals(MissionStatus.ACTIVE, mission.status)
+
+        val enqStopped = mutableListOf<Long>()
+        val canStopped = mutableListOf<Long>()
+        val (jobAtEnqueue, escapedAtEnqueue) = runSweep(
+            mission.weekStart,
+            enqueue = { id ->
+                enqStopped += id
+                if (enqStopped.size == 1) throw CancellationException("the sweep was cancelled")
+            },
+            cancel = { id -> canStopped += id },
+        )
+        assertEquals(listOf(rows.wantedQueued.id), enqStopped)
+        assertEquals(emptyList<Long>(), canStopped)
+        assertTrue("the sweep ended cancelled", jobAtEnqueue.isCancelled)
+        assertEquals(emptyList<Throwable>(), escapedAtEnqueue)
+
+        val enqAfter = mutableListOf<Long>()
+        val canAfter = mutableListOf<Long>()
+        val (jobAtCancel, escapedAtCancel) = runSweep(
+            mission.weekStart,
+            enqueue = { id -> enqAfter += id },
+            cancel = { id ->
+                canAfter += id
+                if (canAfter.size == 1) throw CancellationException("the sweep was cancelled")
+            },
+        )
+        assertEquals(listOf(rows.wantedQueued.id, rows.wantedRunning.id), enqAfter)
+        assertEquals(listOf(rows.landedRow.id), canAfter)
+        assertTrue("the sweep ended cancelled", jobAtCancel.isCancelled)
+        assertEquals(emptyList<Throwable>(), escapedAtCancel)
     }
 }
