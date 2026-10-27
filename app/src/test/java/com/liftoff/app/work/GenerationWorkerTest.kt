@@ -296,6 +296,53 @@ class GenerationWorkerTest {
     }
 
     /**
+     * a CANCELLED row is left unchanged: the guard above, on the row a user cancelled. The row already reads
+     * CANCELLED, with its finishedAt, error, nabuSessionId and lastEventId filled in, when `doWork()` is asked
+     * for it. `doWork()` returns Result.success(), the row still reads exactly as it was seeded, not pulled
+     * back to RUNNING, not re-stamped, not written over, and the fake receives no frame at all: no session was
+     * created and no prompt sent for a generation that had already ended.
+     */
+    @Test
+    fun aGenerationCancelledBeforeTheWorkerStartsOpensNoTurnAndEndsAsDone() {
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val seeded = Generation(
+            kind = GenerationKind.OUTLINE,
+            missionId = mission.id,
+            status = GenerationStatus.CANCELLED,
+            nabuSessionId = "session-the-cancelled-generation-ran-on",
+            lastEventId = "01E000000000000000000000007",
+            attempt = 1,
+            error = "left there by the cancel",
+            createdAt = SEEDED_CREATED_AT,
+            finishedAt = SEEDED_FINISHED_AT,
+        )
+        val generationId = runBlocking { container.database.generationDao().insert(seeded) }
+        // The seeded row as the table holds it, so the equality below means "nothing changed it", not
+        // "Room reads it back differently".
+        val expected = seeded.copy(id = generationId)
+        assertEquals("the table does not hold the row it was given", expected, runBlocking { container.database.generationDao().get(generationId) })
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals("the cancelled row was pulled back to RUNNING", GenerationStatus.CANCELLED, row.status)
+        assertEquals("the cancelled row was re-stamped", SEEDED_FINISHED_AT, row.finishedAt)
+        assertEquals("the cancelled row's error was written over", seeded.error, row.error)
+        assertEquals("the cancelled row's session was written over", seeded.nabuSessionId, row.nabuSessionId)
+        assertEquals("the cancelled row's cursor was written over", seeded.lastEventId, row.lastEventId)
+        assertEquals("the row no longer reads as it was seeded", expected, row)
+
+        assertNothingReachedTheDaemon()
+        assertEquals("the generation that never ran stored something", MissionStatus.DRAFT, runBlocking { container.database.missionDao().get(mission.id) }!!.status)
+        assertEquals(
+            "the generation that never ran wrote sorties anyway",
+            emptyList<Any>(),
+            runBlocking { container.database.sortieDao().getForMission(mission.id) },
+        )
+    }
+
+    /**
      * a row that already has a session id: no `rho.session.create` frame. The row is seeded with the fake's
      * own `sessionId` and with a cursor that is one of the fake's own log events, so this is the resume the
      * stored session and cursor exist for (invariant 6): the events the fake pushes carry the session the

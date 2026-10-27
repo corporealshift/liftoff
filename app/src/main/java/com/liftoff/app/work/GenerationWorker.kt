@@ -61,7 +61,9 @@ class GenerationWorker(
         // the coach for a second answer to the same question.
         if (row.status in FINISHED_STATUSES) return Result.success()
 
-        generations.markRunning(generationId)
+        // A cancel or a late duplicate attempt that landed after the read above: the guarded write refused
+        // the row, so there is no generation left to open a turn for.
+        if (generations.markRunning(generationId) == 0) return Result.success()
 
         // The prompt and the validator both need the Mission's pattern and the Sortie's type, so a row
         // that outlived them has nothing left to resume.
