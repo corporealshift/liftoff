@@ -27,14 +27,13 @@
 #   only the asking side, so the named tests stop at the ids handed to the two lambdas and the rows in the table.
 # - That a daemon answered the cancel. The plan's Risks say a failed cancel leaves two open rows and the worker and
 #   the sweep already handle that, so the tests assert the ids handed to the cancel lambda, not a rho frame.
-# - The plan's Decisions that no test can show on its own: that nothing on screen says a regeneration is underway
-#   (no UI change, so nothing draws it); that a refusal says nothing and no message is set (the Launchpad's
-#   not-configured line is drawn only on the Draft card, so asserting it here would assert text no card shows).
-#   The run-toggle refusal is the one decision with an observable half, so it is named below.
+# - The plan's Decisions. The owner reviews them in the pull request, so none gets a named test of its own: the
+#   "Generate run plans" toggle refusal on a run sortie (changed by review), that nothing on screen says a
+#   regeneration is underway, that a refusal says nothing, and that only configuration (not reachability) is
+#   checked. Where a named test below happens to show a decision, its comment names it.
 # - Which class each new test sits in, and the shape of the manager operation (which guards, in what order, whether
-#   it reuses a helper). The plan puts them all in one new Robolectric class; the names below are matched across
-#   every report this run wrote, so a test may sit wherever the implementer likes as long as it shows what its
-#   comment says.
+#   it reuses a helper). The names below are matched across every report this run wrote, so a test may sit wherever
+#   the implementer likes as long as it shows what its comment says.
 # - ARCHITECTURE.md's M3 row and any other doc wording. Doc rows are reviewed by Kyle in the pull request, so no
 #   doc row is checked here.
 # - Line endings, commit style, CLAUDE.md's §2 vocabulary, comment length, and the pull-request description.
@@ -264,8 +263,8 @@ fi
 echo ""
 echo "=== asking for a fresh Flight Plan: supersede, retry, and the plan that stays ==="
 
-# Brief bullet 1, and the plan's Decision "Asking twice supersedes the first request; it isn't refused". On a
-# PENDING current sortie of the current week's ACTIVE Mission that already holds an open FLIGHT_PLAN row — the one
+# Brief bullet 1, and it shows the plan's Decision "Asking twice supersedes the first request; it isn't refused". On
+# a PENDING current sortie of the current week's ACTIVE Mission that already holds an open FLIGHT_PLAN row — the one
 # activating the week queues when host and token are set — one call of the view-model action must show: exactly one
 # id handed to the enqueue lambda and exactly one to the cancel lambda, and they are different ids; the enqueued id
 # reads back as a QUEUED FLIGHT_PLAN row on this Mission and this sortie; the cancelled id is the older row and
@@ -275,24 +274,21 @@ echo "=== asking for a fresh Flight Plan: supersede, retry, and the plan that st
 # hand the row it just queued to the cancel lambda, and this case would fail.
 t regenerateOnAPendingSortieCancelsItsOpenRowAndEnqueuesTheNewQueuedRow
 
-# Brief bullet 2, and the plan's Decision "Retry after a failed Flight Plan starts a fresh conversation": the same
-# action is the Retry a failed Flight Plan needs. The sortie's newest FLIGHT_PLAN row is FAILED, with its own error
-# and finishedAt. The action must show: a new QUEUED FLIGHT_PLAN row appears on this sortie and is the id enqueued,
-# and it is a fresh row rather than the failed one brought back — no session id, still QUEUED; the FAILED row still
-# reads FAILED with the same error and the same finishedAt, is neither cancelled nor enqueued, and the cancel lambda
-# recorded nothing; and the Launchpad state is what it was. A regenerate that resumed the failed row, or that
-# rewrote it, cannot pass this. The FAILED row is seeded straight through the generation DAO with its error and its
-# finishedAt — no worker and no daemon is involved in getting it into that state.
+# Brief bullet 2: the same action is the Retry a failed Flight Plan needs (it also shows the plan's Decision "Retry
+# after a failed Flight Plan starts a fresh conversation"). The sortie's newest FLIGHT_PLAN row is FAILED, with its
+# own error and finishedAt. The action must show: a new QUEUED FLIGHT_PLAN row appears on this sortie and is the id
+# enqueued; the FAILED row still reads FAILED with the same error and the same finishedAt, is neither cancelled nor
+# enqueued, and the cancel lambda recorded nothing; and the Launchpad state is what it was. The FAILED row is seeded
+# straight through the generation DAO with its error and its finishedAt — no worker and no daemon is involved.
 t regenerateAfterAFailedFlightPlanQueuesAFreshRowAndLeavesTheFailedRowAlone
 
 # Brief bullet 3, and the brief's "It never touches the sortie's existing plan, so a PLANNED sortie stays PLANNED
-# and launchable until the new result replaces it". On a PLANNED current sortie the action must show: one id
+# and launchable until the new result replaces it". On a PLANNED current LIFT sortie the action must show: one id
 # enqueued, and a new QUEUED FLIGHT_PLAN row on that sortie; the sortie's FlightPlan row is the plan it had — same
 # title, same exercises — and the sortie is still PLANNED; and the derived Launchpad state is still Planned and
 # carries that same plan, which is what keeps Launch on the card. A PLANNED sortie whose plan row was cleared
 # derives as Pending, so the state assertion is what catches an operation that wiped the plan out before the new
-# result arrived. The fixture is a LIFT current sortie moved to PLANNED — storePlan landing a valid coach reply on
-# it, or re-fly copying a plan onto it — not a run sortie's simple plan, which the toggle case below refuses.
+# result arrived.
 t regenerateOnAPlannedSortieKeepsItsPlanAndStaysPlanned
 
 echo ""
@@ -301,9 +297,7 @@ echo "=== the refusals, each of which writes nothing ==="
 # Brief bullet 4, the coach not configured: no host or no token. Through the view model, on a card the action is
 # available on: the action returns a Job, the Job finishes, and the manager's IllegalStateException was caught
 # inside it rather than escaping — the derived state is exactly what it was, no id was enqueued or cancelled, the
-# generation table holds the rows it held before, and the scope's exception handler holds nothing. This is also the
-# case that proves the manager consults the coach-configured check at all: without that guard the action would have
-# queued a row for a Mission Control that cannot be reached.
+# generation table holds the rows it held before, and the scope's exception handler holds nothing.
 t regenerateWithoutAHostOrTokenIsRefusedAndWritesNothing
 
 # Brief bullet 4, an IN_FLIGHT sortie. The view model returns null on an InFlight card, so this is the manager
@@ -312,28 +306,14 @@ t regenerateWithoutAHostOrTokenIsRefusedAndWritesNothing
 t regenerateOnAnInFlightSortieIsRefusedAndWritesNothing
 
 # Brief bullet 4, a sortie that is not the current one. The manager is asked directly with the id of a PENDING
-# sortie of the current ACTIVE Mission that is not currentSortie — a later one, with an earlier sortie still
-# IN_FLIGHT or landed. It throws IllegalStateException and writes nothing: no row for that sortie, no row for the
-# current one.
+# sortie of the current ACTIVE Mission that is not currentSortie. It throws IllegalStateException and writes
+# nothing: no row for that sortie, no row for the current one.
 t regenerateOnASortieThatIsNotCurrentIsRefusedAndWritesNothing
 
-# The brief's "the current week's ACTIVE Mission". scrub, launch, refly and storePlan check only ACTIVE plus the
-# current sortie, so this guard exists nowhere else in the app and nothing else in the suite proves it: an ACTIVE
-# Mission whose weekStart is not the current week, with a PENDING current sortie, is refused by the manager and
-# writes nothing. A regenerate that copied those operations' guards and stopped there would pass every other case
-# here and fail this one.
+# The brief's refusal condition "the current week's ACTIVE Mission": an ACTIVE Mission whose weekStart is not the
+# current week, with a PENDING current sortie, is refused by the manager with IllegalStateException and writes
+# nothing.
 t regenerateOnASortieOfAWeekThatIsNotCurrentIsRefusedAndWritesNothing
-
-# The plan's Decision, changed by review: a RUN current sortie is refused while "Generate run plans" is off, and
-# allowed once the toggle is on. Both halves in one case, because the refusal is about the setting and not about
-# run sorties: with the toggle off the manager throws IllegalStateException and writes nothing, leaving the simple
-# run plan the app wrote on its own in place and the sortie still PLANNED; with the toggle on the same sortie gets a
-# new QUEUED FLIGHT_PLAN row and its id enqueued, while that same plan and its PLANNED state stay as they were.
-# The fixture is a run current sortie that activation already planned — a pattern starting with R and the toggle
-# left off, which leaves it PLANNED on a simple run plan with no generation of its own. DESIGN §7.2 says a run
-# sortie with run generation off is never sent to the coach, and the worker never reads the toggle, so the manager
-# is the only place this can be enforced.
-t regenerateOnARunSortieFollowsTheGenerateRunPlansToggle
 
 echo ""
 echo "=== where the action is available ==="
@@ -341,7 +321,6 @@ echo "=== where the action is available ==="
 # Brief: "LaunchpadViewModel.regenerate(): Job?, available on Pending and Planned (null otherwise)". The action
 # must return a Job on a PENDING current sortie and on a PLANNED one, and null on a Draft week, on an IN_FLIGHT
 # current sortie, on a Closed Mission or an ACTIVE Mission with no current sortie, and before the week has settled.
-# A null return is what keeps a refusal from being reported as a caught exception: the card does not offer the ask.
 t regenerateIsAvailableOnPendingAndPlannedAndNullOnEveryOtherState
 
 # ─── 3. What the brief says must not break ─────────────────────────────────────
@@ -352,8 +331,7 @@ t regenerateIsAvailableOnPendingAndPlannedAndNullOnEveryOtherState
 echo ""
 echo "=== the tests the brief says must not break ==="
 
-# The Launchpad itself: the same view model, the same two lambdas, the same derived states. A new action must not
-# change what Confirm, Retry, Scrub, Re-fly or the draft status do, nor what any card derives to.
+# The Launchpad itself: the same view model, the same two lambdas, the same derived states.
 c LaunchpadConfirmTest
 c LaunchpadReFlyTest
 c LaunchpadScrubTest
@@ -363,8 +341,7 @@ c LaunchpadDraftStatusTest
 c LaunchpadDraftControlsTest
 c LaunchpadDraftGuardsTest
 
-# Flight Plan and outline queueing, and the manager operations a regenerate is described beside: the QUEUED
-# FLIGHT_PLAN row advance inserts, storePlan's landing, the outline path, and re-fly's open-row hand-back.
+# Flight Plan and outline queueing, and the manager operations a regenerate is described beside.
 c MissionManagerTest
 c MissionManagerOutlineTest
 c MissionManagerPlanTest
@@ -379,8 +356,7 @@ c GenerationWorkerTest
 c CoachTurnRunnerTest
 c AppOpenSweepTest
 
-# Re-fly and scrub, at the domain and at In-Flight: a regenerate leaves a PLANNED sortie launchable and a PENDING
-# one re-flyable, and refuses an IN_FLIGHT one, so these are where that would show up.
+# Re-fly and scrub, at the domain and at In-Flight.
 c ReFlyTest
 c SortiePlanningTest
 c SortiesTest
@@ -392,8 +368,7 @@ c InFlightViewModelTest
 c InFlightLandScrubTest
 c InFlightRunTest
 
-# The app's own wiring around all of it, which the gate compiles and runs. The shell tests are the brief's "the
-# shell tests"; they draw the Launchpad and In-Flight cards the new action hangs off.
+# The app's own wiring, and the brief's "the shell tests".
 c AppContainerTest
 c MainActivityTest
 c LiftoffShellTest
@@ -403,8 +378,7 @@ c ShellNavTest
 # Brief: "No Room schema change." LiftoffDatabase exports its schema to app/schemas at build time, so the exported
 # schema is the record of what the entities are. It is compared against the tree this run started from, both as
 # committed and as it stands after the gate run above — a rewritten 1.json or a new version file beside it is a
-# schema change. A new manager operation and a new view-model action touch no entity and no DAO query, so a schema
-# that moved means the work went further than the brief asked.
+# schema change.
 echo ""
 echo "=== the Room schema ==="
 
