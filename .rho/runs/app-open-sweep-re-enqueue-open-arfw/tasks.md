@@ -86,7 +86,7 @@ read back through `db.generationDao().get(id)` to check it is the row the case m
   "com.liftoff.app.work.AppOpenSweepTest"` reports 0 failures and 0 errors and its `TEST-*.xml` names all seven cases
   in the class so far.
 
-- [ ] 4. `AppOpenSweepTest`: a row that fails does not stop the sweep, and a cancelled sweep stays cancelled
+- [x] 4. `AppOpenSweepTest`: a row that fails does not stop the sweep, and a cancelled sweep stays cancelled
   Covers the plan's Risks on the per-row wrap, in the same class.
   Tests it writes, spelled exactly as `verify.sh` uses it:
   `aRowThatFailsDoesNotStopTheSweepOrTheOtherRows` — a lambda that throws for the first id it is handed is still
