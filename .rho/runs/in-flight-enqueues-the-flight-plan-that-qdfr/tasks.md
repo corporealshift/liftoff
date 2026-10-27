@@ -84,7 +84,7 @@ tests; every wait goes through the class's own `withTimeout(5_000)` helpers; a r
   Done when: a cold `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.ui.inflight.InFlightRunTest"`
   passes with every case in the class green and its `TEST-*.xml` naming both.
 
-- [ ] 6. The whole gate, run once, and any fallout it turns up
+- [x] 6. The whole gate, run once, and any fallout it turns up
   Covers plan step 5 and the brief's Done-when. Run
   `.rho/runs/in-flight-enqueues-the-flight-plan-that-qdfr/verify.sh` detached through a copy under `app/build/`
   (`mkdir -p app/build` first; run the copy, never the real file, so editing it mid-run cannot give a phantom syntax
