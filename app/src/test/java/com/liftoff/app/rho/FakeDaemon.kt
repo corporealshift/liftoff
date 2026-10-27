@@ -44,6 +44,12 @@ sealed interface DaemonScript {
 
     /** rho.rpc.permission.request, sent by the daemon and answered by the client. */
     data class Permission(val tool: String, val summary: String, val risk: String = "low") : DaemonScript
+
+    /**
+     * Runs [action] where it sits in the turn, so a test can act while the turn is still open. It is not an
+     * event and the daemon never answers it; it must not throw.
+     */
+    class Act(val action: () -> Unit) : DaemonScript
 }
 
 /**
@@ -364,6 +370,9 @@ class FakeDaemon {
                     }, steps.drop(index + 1))
                     return
                 }
+
+                // On this thread, in order, so the next step's event is pushed only after it has run.
+                is DaemonScript.Act -> step.action()
             }
         }
     }

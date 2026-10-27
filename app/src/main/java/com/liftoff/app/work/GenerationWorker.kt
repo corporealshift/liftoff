@@ -61,7 +61,9 @@ class GenerationWorker(
         // the coach for a second answer to the same question.
         if (row.status in FINISHED_STATUSES) return Result.success()
 
-        generations.markRunning(generationId)
+        // A cancel or a late duplicate attempt that landed after the read above: the guarded write refused
+        // the row, so there is no generation left to open a turn for.
+        if (generations.markRunning(generationId) == 0) return Result.success()
 
         // The prompt and the validator both need the Mission's pattern and the Sortie's type, so a row
         // that outlived them has nothing left to resume.
@@ -380,6 +382,9 @@ class GenerationWorker(
      * The one permanent end: the row is FAILED with the reason it ended for, the session this generation got
      * is given up, and nothing is retried. A stop the daemon refuses changes nothing — the outcome was already
      * decided before it was attempted.
+     *
+     * A FAILED write the row refused because it already reads CANCELLED is a generation the user ended first:
+     * the row keeps the record the cancel left on it, the session is still given up, and the work is done.
      */
     private suspend fun failGeneration(
         generations: GenerationDao,
@@ -388,8 +393,12 @@ class GenerationWorker(
         client: DaemonClient?,
         sessionId: String?,
     ): Result {
-        generations.markFailed(generationId, message, clock.millis())
+        val written = generations.markFailed(generationId, message, clock.millis())
         if (client != null && sessionId != null) giveUpSession(client, sessionId)
+        // A row the user cancelled has already decided its outcome: the cancel ended the generation, not this.
+        if (written == 0 && generations.get(generationId)?.status == GenerationStatus.CANCELLED) {
+            return Result.success()
+        }
         return Result.failure()
     }
 

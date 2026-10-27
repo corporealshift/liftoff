@@ -30,17 +30,23 @@ interface GenerationDao {
     suspend fun delete(generation: Generation)
 
     // The generation worker's row helpers. Each one writes only the columns that step owns, so a row that is
-    // restarted keeps its session, its event cursor and its attempt count.
+    // restarted keeps its session, its event cursor and its attempt count. Each answers with how many rows it
+    // changed, so a caller can tell a refusal from a write.
 
-    @Query("UPDATE generation SET status = 'RUNNING' WHERE id = :id")
-    suspend fun markRunning(id: Long)
+    // A late or duplicate attempt cannot drag a row that has already decided its outcome back to RUNNING.
+    @Query("UPDATE generation SET status = 'RUNNING' WHERE id = :id AND status IN ('QUEUED', 'RUNNING')")
+    suspend fun markRunning(id: Long): Int
 
     @Query("UPDATE generation SET status = 'SUCCEEDED', finishedAt = :finishedAt WHERE id = :id")
     suspend fun markSucceeded(id: Long, finishedAt: Long)
 
     // A generation that failed has still finished, so it stamps finishedAt too and keeps the reason it failed for.
-    @Query("UPDATE generation SET status = 'FAILED', error = :error, finishedAt = :finishedAt WHERE id = :id")
-    suspend fun markFailed(id: Long, error: String, finishedAt: Long)
+    // A row the user cancelled keeps the record it already has, so it takes the same status guard as markRunning.
+    @Query(
+        "UPDATE generation SET status = 'FAILED', error = :error, finishedAt = :finishedAt " +
+            "WHERE id = :id AND status IN ('QUEUED', 'RUNNING')"
+    )
+    suspend fun markFailed(id: Long, error: String, finishedAt: Long): Int
 
     @Query("UPDATE generation SET status = 'CANCELLED', finishedAt = :finishedAt WHERE id = :id")
     suspend fun markCancelled(id: Long, finishedAt: Long)
