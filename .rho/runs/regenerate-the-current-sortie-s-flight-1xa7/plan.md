@@ -1,19 +1,59 @@
 # Plan
 
 ## Approach
-<!-- One paragraph: how the brief will be met, and why that fits this codebase. -->
+
+The brief's two halves are two shapes this codebase already has. The manager operation is `MissionManager.refly`'s guard shape — `check` the Mission is ACTIVE and is the current week's (its `weekStart` equals `currentWeekOf(clock, zone)`, which `MissionManager` already holds privately and `continueWithoutOutline` compares the same way), that this sortie is `currentSortie`, and that its state is PENDING or PLANNED — with `confirm`'s habit of reading settings before the transaction, `advance`'s QUEUED FLIGHT_PLAN insert, and `continueWithoutOutline`'s way of handing ids out: the new id reaches the enqueuer only after the transaction has committed. The view-model action is `continueWithoutOutline`'s enqueue-then-cancel with `refly`'s early return when the derived state is not the one the action applies to. Nothing else has to change: the enqueue and cancel helpers, the worker's currency guard and the app-open sweep already exist, `MainActivity` already passes the view model its two lambdas, and no new column, DAO query or screen is needed. DESIGN §7.2 already lists "Regenerate" as a `FLIGHT_PLAN` trigger and §7.3 already states the supersede rule, so this fills in a promised trigger rather than inventing a behaviour. The map has the files, line numbers and harnesses.
 
 ## Files
-<!-- One line for each file to create or change, saying what changes in it. What a file already holds belongs in the map: point there. -->
+
+- `app/src/main/java/com/liftoff/app/data/MissionManager.kt` — one new operation: the ACTIVE / current-week / current-sortie / PENDING-or-PLANNED guards, the configured check, one QUEUED `FLIGHT_PLAN` row built the way `advance` builds its row, and a return carrying the new id plus the sortie's other open `FLIGHT_PLAN` ids. All four refusals throw `IllegalStateException`, including the unconfigured one — unlike `confirm`/`retryOutline`, which return `ConfirmOutcome.CoachNotConfigured` instead of throwing.
+- `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadViewModel.kt` — one new action, Pending and Planned only: enqueue the new id, then cancel the others, catching the refusal the way every other action does.
+- `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadRegenerateTest.kt` — new; the brief's four behaviors, harness copied from `LaunchpadConfirmTest`.
+- `ARCHITECTURE.md` — M3's row: move Regenerate out of its "come next" tail and record what the operation does. Wording is Kyle's to review in the pull request.
+- Nothing else. No `Generation` column, no new DAO query, no screen, no `AppContainer` or `MainActivity` change, so `app/schemas/…/1.json` must stay byte-identical.
 
 ## Order
-<!-- A short numbered list. Each step leaves the build passing. -->
+
+1. The `MissionManager` operation. `bash gradlew.sh :app:compileDebugKotlin` green.
+2. `LaunchpadViewModel.regenerate()`. Compile green.
+3. `LaunchpadRegenerateTest` with the four behaviors, run class-scoped: `bash gradlew.sh :app:testDebugUnitTest --tests '*LaunchpadRegenerateTest'`.
+4. Mutation-check each behavior — one named token removed, expect that case to redden, then restore the file from a copy kept under `app/build/`.
+5. `ARCHITECTURE.md` row, then the full gate detached.
 
 ## Testing
-<!-- One line for each behavior the tests must show, and the kind of test. Not test code: the verify step names the tests. -->
+
+One new Robolectric class (`@Config(sdk = [34])`), no Compose, no WorkManager, no daemon: in-memory Room, a real `SettingsStore` over a `cacheDir` DataStore file, a fixed `Clock` with `zone = { ZoneOffset.UTC }`, recording `queueGeneration` / `cancelGeneration` lambdas where the cancel lambda also marks the row CANCELLED the way `GenerationCanceller` does, a scope whose handler collects escaped throwables, and every wait bounded at 5s. Fixture for an ACTIVE week with a current PENDING sortie: `setDefaultPattern` → `onAppOpen()` → `continueWithoutOutline()`, as `LaunchpadReFlyTest` does; settings are set before `onAppOpen()`.
+
+- **Supersede on a PENDING sortie.** With one open row already on the sortie, the action enqueues exactly one id and cancels exactly one id: the enqueued row reads back QUEUED, `FLIGHT_PLAN`, this mission and this sortie; the cancelled row is the older one and reads back CANCELLED. The two ids are different and each is named.
+- **Retry after a failure.** With the sortie's newest row FAILED, a new QUEUED row appears and the FAILED row keeps `FAILED`, its error and its `finishedAt`, and is neither cancelled nor enqueued.
+- **PLANNED keeps its plan.** On a PLANNED current sortie the action queues a row, and the sortie's `FlightPlan` row and its `PLANNED` state are exactly what they were; the derived state is still `Planned` with the same plan title.
+- **Refusals write nothing.** No token; an IN_FLIGHT sortie; a PENDING sortie that is not the current one. Each leaves the generation table as it was, records no enqueue and no cancel, leaves the derived state as it was, and puts nothing in the scope's handler.
+- **Availability.** The action returns a `Job` on Pending and on Planned and null on Draft, InFlight, Closed and Loading — the harness's null-Job guard is what keeps the other assertions from being vacuous.
+- **Mutation checks**, each a one-token edit that still compiles: drop each manager guard in turn and its refusal case reddens; enqueue the older id instead of the new one, or skip the cancels, and the supersede case reddens; hand back rows read *after* the insert and the supersede case reddens too.
 
 ## Risks
-<!-- One line for each thing that could go wrong or is uncertain, and what the work does about it. -->
+
+- **The brief's "Every action calls `manager.onAppOpen()` first" is not what the code does** (map: `MainActivity` runs it on cold start; the view model calls it only inside its `IllegalStateException` catch). The work follows the code and re-syncs in the catch, rather than running the app-open sweep on every tap. Making every action sweep is a change to all of them, not to this one.
+- **The other ids must be read before the insert.** `getOpenFlightPlanForSortie` is newest-first, so reading it after the insert returns the row just queued and the action would cancel the generation it just enqueued. The manager hands back ids collected before the insert; the Testing mutation check reddens the reverse.
+- **A fixed test clock puts the new row in the same millisecond as the older one.** Both `getOpenFlightPlanForSortie` and the worker's `getNewestNonCancelledForSortie` tie-break on `id DESC`, so the new row is still the current one; a case that seeds two rows staggers `createdAt` so "older" means more than id order.
+- **A failed cancel is not a correctness risk.** If the daemon is unreachable and the older row stays open, two `FLIGHT_PLAN` rows sit on one sortie: the worker stores only against the newest non-cancelled row, and `AppOpenSweep` re-enqueues both because it judges each row by its own target. The tests assert the ids handed to the cancel lambda, not that a daemon answered.
+- **A refusal that wrote something would still look clean** in a state-only assertion, so each refusal case reads the generation table back and requires no new row, no recorded enqueue or cancel, and nothing in the scope's exception handler.
+- **The PLANNED case has to assert the state, not just the row.** `LaunchpadStates.derive` maps a PLANNED sortie with no plan row back to `Pending`, so asserting the state is still `Planned` is what catches an operation that cleared the plan; the case also reads the plan row back.
+- **The gate can hang ~5 minutes writing no `TEST-*.xml`.** Run it detached with the log and an `EXIT=` sentinel under `app/build/`, move the earlier results dir aside with `mv` (never `rm` — a stranded executor holds `binary/output.bin`), and re-run the identical tree once if it hangs.
+- **`ARCHITECTURE.md`'s M3 tail names three things, not one.** It also lists In-Flight's enqueue — which has already shipped — and the Launchpad's status display. The work moves only Regenerate out of that tail and leaves the rest of the sentence for Kyle's review in the pull request.
 
 ## Decisions
-<!-- Fill this in first, from the brief alone. One short paragraph for each behavior the brief leaves open that someone using the result could notice. -->
+
+**Asking twice supersedes the first ask, it is not refused.** A regenerate always inserts one new QUEUED row and hands back every other open FLIGHT_PLAN row for the sortie, including a row that is already RUNNING. The alternative was to refuse while a generation is open, so the owner had to wait or cancel first — which is what `MissionManager.retryOutline` does for a week's outline. For a Flight Plan the design already chose the other answer: DESIGN §7.3's supersede rule cancels the older generation when a regeneration is asked for while it is queued or running, and the worker already treats only the newest non-cancelled row as current. A double tap therefore lands on the outcome the app would reach on its own anyway, only sooner and without a dead end.
+
+**Retry after a failed Flight Plan starts a fresh conversation.** The FAILED row is not an open row, so regenerate leaves it FAILED with its error and queues a brand-new row, which opens a new rho session. The alternative was to resume the failed row's session id so the coach carried on where it stopped. A fresh start is what the owner would expect from a button labelled the same way as "ask the coach again": the coach re-reads the mission and sortie state that is already stored, and the old row stays as the record of what went wrong.
+
+**A refusal says nothing, and nothing on screen changes.** The view model catches the manager's `IllegalStateException` and leaves the Launchpad state exactly as it was — no message, no status change. The alternative was to reuse the Launchpad's existing "Mission Control isn't set up" line. That line is drawn only on the Draft's status line today, so setting it from a Pending or Planned action would be text the owner never sees, and the manager reports all three refusals as the same exception, so the view model could not tell the unconfigured one from the others without reading settings again. The later button run decides how to explain a refusal, most likely by not offering the action in those states.
+
+**Nothing on screen says a regeneration is underway.** After the action the Launchpad shows the same card it showed before — the same plan, the same Launch/Scrub or Re-fly/Scrub — until the new plan lands and `storePlan` overwrites the old one. The alternative was a "Mission Control is writing…" line on the Pending and Planned cards. The Launchpad derives a coach status only for a DRAFT week today, and the brief says no UI change, so inventing that line here would be a screen change nobody asked for; the run that adds the button is the one that has to decide how the owner sees progress.
+
+**Regenerate checks that the coach is configured, not that it can be reached.** The manager refuses when host or token is missing, but a configured host that is down or unreachable still gets a new QUEUED row and an enqueue; the worker reports it as an unreachable-coach failure. The alternative was to probe the daemon before queueing. Every other queueing path in this app already behaves this way, and the worker already retries an unreachable daemon and ends the row FAILED `coach unreachable` after its eighth attempt, so the owner sees the same failure they see today from any other generation — and the same Re-fly offer afterwards.
+
+**Regenerate does not consult the "Generate run plans" toggle.** That Mission Control setting decides whether the app *voluntarily* sends a run sortie to the coach — it is read only in `advance`, and a run sortie with it off is planned without the coach and stays PLANNED. DESIGN §5.3 says the toggle Off means "No generation is involved", which describes what the app queues on its own, not what the owner may ask for. Regenerate asks for a plan the owner asked for, so it queues one for a run sortie too, and the new result replaces the simple run plan the same way it replaces a coach plan. The alternative was to refuse on a run sortie while the toggle is off. That reads the setting as a ban on the coach ever touching runs, which is not what the setting says, and it would mean the same button doing nothing on some cards for a reason the owner cannot see from the Launchpad. The button run can still choose not to offer the action there.
+
+Everything else this plan touches is settled by the brief: its refusal conditions — the current sortie of the current week's ACTIVE Mission, PENDING or PLANNED, the coach configured — the existing plan and PLANNED state being left alone until the new result replaces them, and `regenerate()` returning null outside Pending and Planned.
