@@ -23,7 +23,7 @@ Mission Control unset. The week each case hands the sweep is the `weekStart` of 
 not one the sweep works out. Every assertion is on the exact ids each lambda was handed, and the row each id names is
 read back through `db.generationDao().get(id)` to check it is the row the case meant.
 
-- [ ] 1. `GenerationDao`: the whole-table open query, and `AppOpenSweep` that decides every open row
+- [x] 1. `GenerationDao`: the whole-table open query, and `AppOpenSweep` that decides every open row
   Covers plan step 1. Files:
   `app/src/main/java/com/liftoff/app/data/GenerationDao.kt` — one added `@Query` selecting every row whose status is
   QUEUED or RUNNING. Both existing open queries are keyed to one missionId or one sortieId, so neither can find the
