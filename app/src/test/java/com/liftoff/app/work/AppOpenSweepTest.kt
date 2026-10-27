@@ -20,6 +20,7 @@ import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -221,5 +222,109 @@ class AppOpenSweepTest {
         assertEquals(GenerationStatus.RUNNING, handed.status)
         assertEquals(current, handed.sortieId)
         assertEquals(SortieState.PLANNED, sortieDao.get(current)!!.state)
+    }
+
+    // ── the rows whose target has moved on ─────────────────────────────
+
+    /**
+     * The week-ended rollover scrubs a past Mission's not-done sorties with 'week ended' and closes it, so the
+     * generation still queued for one of those sorties is asking for a sortie that will never happen, and a past
+     * draft's outline is asking for a week that is already closed. The sweep is handed the weekStart the rollover
+     * returned, so it judges both rows against the week that did the scrubbing.
+     */
+    @Test
+    fun weekEndedRolloverCancelsTheScrubbedSortiesRowAndThePastDraftsOutlineRow() = runBlocking {
+        val pastActiveWeek = LocalDate.of(2026, 1, 5)
+        val pastActiveId = insertMission(pastActiveWeek, "RLR", MissionStatus.ACTIVE)
+        val notDoneSortie = insertSortie(pastActiveId, 0, SortieType.LIFT, "full body", SortieState.PENDING)
+        val planRow = seedGeneration(
+            GenerationKind.FLIGHT_PLAN, pastActiveId, notDoneSortie, GenerationStatus.QUEUED, 1000L
+        )
+
+        val pastDraftWeek = LocalDate.of(2025, 12, 29)
+        val pastDraftId = insertMission(pastDraftWeek, "RL", MissionStatus.DRAFT)
+        val outlineRow = seedGeneration(GenerationKind.OUTLINE, pastDraftId, null, GenerationStatus.RUNNING, 1100L)
+
+        advanceClock(7)
+        val mission = manager.onAppOpen()
+        assertEquals(LocalDate.of(2026, 1, 19), mission.weekStart)
+        assertEquals(MissionStatus.DRAFT, mission.status)
+
+        // The rollover really ran before the sweep was called: both past Missions closed, the sortie scrubbed.
+        assertEquals(MissionStatus.CLOSED, missionDao.get(pastActiveId)!!.status)
+        assertEquals(MissionStatus.CLOSED, missionDao.get(pastDraftId)!!.status)
+        val scrubbed = sortieDao.get(notDoneSortie)!!
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+        assertEquals("week ended", scrubbed.scrubReason)
+
+        sweep().run(mission.weekStart)
+
+        assertEquals(listOf(planRow.id, outlineRow.id), cancelled)
+        assertEquals(emptyList<Long>(), enqueued)
+        val cancelledPlan = generationDao.get(cancelled[0])!!
+        assertEquals(GenerationKind.FLIGHT_PLAN, cancelledPlan.kind)
+        assertEquals(pastActiveId, cancelledPlan.missionId)
+        assertEquals(notDoneSortie, cancelledPlan.sortieId)
+        val cancelledOutline = generationDao.get(cancelled[1])!!
+        assertEquals(GenerationKind.OUTLINE, cancelledOutline.kind)
+        assertEquals(pastDraftId, cancelledOutline.missionId)
+        assertNull(cancelledOutline.sortieId)
+    }
+
+    /**
+     * A row for a sortie the owner has already landed or scrubbed is asking for a plan nobody will act on, even
+     * while its Mission is still the current week's ACTIVE one and a later sortie is now current. Both rows go to
+     * cancel, the RUNNING one included: a generation that has left PENDING/PLANNED is stopped mid-turn.
+     */
+    @Test
+    fun rowsForSortiesThatAreNoLongerCurrentAreCancelled() = runBlocking {
+        val missionId = insertMission(LocalDate.of(2026, 1, 12), "RLRLR", MissionStatus.ACTIVE)
+        val landed = insertSortie(missionId, 0, SortieType.LIFT, "push", SortieState.LANDED)
+        val scrubbed = insertSortie(missionId, 1, SortieType.RUN, "easy", SortieState.SCRUBBED)
+        val current = insertSortie(missionId, 2, SortieType.LIFT, "pull", SortieState.PENDING)
+        val landedRow = seedGeneration(GenerationKind.FLIGHT_PLAN, missionId, landed, GenerationStatus.QUEUED, 1000L)
+        val scrubbedRow = seedGeneration(GenerationKind.FLIGHT_PLAN, missionId, scrubbed, GenerationStatus.RUNNING, 1100L)
+
+        val mission = manager.onAppOpen()
+        assertEquals(missionId, mission.id)
+        assertEquals(MissionStatus.ACTIVE, mission.status)
+
+        sweep().run(mission.weekStart)
+
+        assertEquals(listOf(landedRow.id, scrubbedRow.id), cancelled)
+        assertEquals(emptyList<Long>(), enqueued)
+        assertEquals(landed, generationDao.get(cancelled[0])!!.sortieId)
+        assertEquals(scrubbed, generationDao.get(cancelled[1])!!.sortieId)
+        assertEquals(SortieState.PENDING, sortieDao.get(current)!!.state)
+    }
+
+    /**
+     * A Generation that has already decided its outcome is not reopened by an app open. Three decided rows sit on
+     * the same Mission and the same current sortie as the open one, so only their status separates them: none of
+     * their ids reaches either helper, and the open row is still resumed.
+     */
+    @Test
+    fun decidedGenerationsAreLeftAlone() = runBlocking {
+        val missionId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.ACTIVE)
+        val current = insertSortie(missionId, 0, SortieType.LIFT, "full body", SortieState.PENDING)
+        val succeeded = seedGeneration(GenerationKind.FLIGHT_PLAN, missionId, current, GenerationStatus.SUCCEEDED, 1000L)
+        val failed = seedGeneration(GenerationKind.FLIGHT_PLAN, missionId, current, GenerationStatus.FAILED, 1100L)
+        val alreadyCancelled = seedGeneration(GenerationKind.FLIGHT_PLAN, missionId, current, GenerationStatus.CANCELLED, 1200L)
+        val open = seedGeneration(GenerationKind.FLIGHT_PLAN, missionId, current, GenerationStatus.QUEUED, 1300L)
+
+        val mission = manager.onAppOpen()
+        assertEquals(missionId, mission.id)
+
+        sweep().run(mission.weekStart)
+
+        assertEquals(listOf(open.id), enqueued)
+        assertEquals(emptyList<Long>(), cancelled)
+        for (row in listOf(succeeded, failed, alreadyCancelled)) {
+            assertFalse(enqueued.contains(row.id))
+            assertFalse(cancelled.contains(row.id))
+        }
+        assertEquals(GenerationStatus.SUCCEEDED, generationDao.get(succeeded.id)!!.status)
+        assertEquals(GenerationStatus.FAILED, generationDao.get(failed.id)!!.status)
+        assertEquals(GenerationStatus.CANCELLED, generationDao.get(alreadyCancelled.id)!!.status)
     }
 }
