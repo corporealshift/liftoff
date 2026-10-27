@@ -35,7 +35,7 @@ minutes without writing any `TEST-*.xml`. Baseline for the whole suite is 690 te
   `markRunning`'s, then `markFailed`'s — watching this case go red each time, restoring it, and re-running the
   class; write the mutations, the gate command, EXIT and the per-class totals into the commit body.
 
-- [ ] 2. Let a test act part-way through a scripted turn, and stop the failure write over a cancelled row
+- [x] 2. Let a test act part-way through a scripted turn, and stop the failure write over a cancelled row
   Covers plan step 2's first half. `app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt`: add one `DaemonScript`
   step that runs a test-supplied action synchronously inside `play`, before the next step's event is appended —
   today nothing in a script holds a turn open long enough for a poll-then-cancel to win a race against a turn that
