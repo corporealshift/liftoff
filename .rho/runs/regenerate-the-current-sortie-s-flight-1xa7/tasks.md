@@ -28,7 +28,7 @@ by a one-token edit to the **implementation** file (`MissionManager.kt` or `Laun
 copy under `app/build/` for restoring. Tasks 3, 4 and 5 all add to the same new test class, so each reads what the
 previous one left there before writing.
 
-- [ ] 1. The manager operation: ask for a fresh Flight Plan for a sortie
+- [x] 1. The manager operation: ask for a fresh Flight Plan for a sortie
   Covers plan step 1. `app/src/main/java/com/liftoff/app/data/MissionManager.kt`: one new operation for a sortie id,
   guarding the way `refly` (306) guards a sortie — Mission ACTIVE, this sortie is `currentSortie`, sortie PENDING or
   PLANNED — plus the two guards nothing else in the file has: `mission.weekStart == currentWeekOf(clock, zone)`
