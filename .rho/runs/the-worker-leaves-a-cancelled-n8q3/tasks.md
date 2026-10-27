@@ -83,7 +83,7 @@ minutes without writing any `TEST-*.xml`. Baseline for the whole suite is 690 te
   go red on the `doWork()` outcome alone — the row would still stay CANCELLED through task 1's DAO filter — then
   restoring it and re-running the class.
 
-- [ ] 4. The mark-running step refuses a decided row, and the worker ends quietly there
+- [x] 4. The mark-running step refuses a decided row, and the worker ends quietly there
   Covers plan step 3. `app/src/main/java/com/liftoff/app/work/GenerationWorker.kt` `doWork`: when the guarded
   `markRunning` write (line 64) reports it changed no row, the work ends quietly as done — before the Mission and
   Sortie reads and before `container.daemonConnectionCheck()`, so no session is created and no prompt is sent for a
