@@ -12,10 +12,7 @@
 # names under sections 2 and 3 are new to this branch — none of them appears anywhere under app/src/test today, nothing
 # in app/src/main reads every open Generation row at app open, and MainActivity runs only onAppOpen() at open. Against
 # the untouched branch the gate passes, every class check and the schema check pass, and the eight names report "did
-# not run": exit 1. Proven on this branch by one real detached run: the gate hung on its first attempt exactly the way
-# the brief says it can ("Timeout has been exceeded" on :app:testDebugUnitTest, no reports), the retry ran it again and
-# it passed with 681 tests / 0 failures / 0 errors / 0 skipped, every class and schema check passed, and the eight
-# names reported "did not run".
+# not run": exit 1.
 #
 # What is NOT checked here, and why:
 # - That MainActivity calls the sweep after onAppOpen() returns, on a background dispatcher, with the returned
@@ -32,7 +29,7 @@
 #   has gone away is cancelled rather than skipped; that a generation for a sortie that has left PENDING/PLANNED is
 #   cancelled even mid-turn; that the sweep only acts on generations that already exist and never queues one the app
 #   did not ask for. Wanted rows being resumed under their own row, and wanted rows being resumed even when Mission
-#   Control has no host or token, are shown by the tests below: no case configures a daemon, and a wanted row is
+#   Control has no host or token now, are shown by the tests below: no case configures a daemon, and a wanted row is
 #   handed to enqueue and not to cancel. Decisions are reviewed in the pull request.
 # - The whole-sweep wrap for a failing read (the plan's Risks: a database that is gone ends the sweep quietly). The
 #   per-row test below pins the swallow rule it shares, and the shell classes pin that app open never crashes.
@@ -272,22 +269,18 @@ echo ""
 echo "=== the rows the sweep wants, and what it does with them ==="
 
 # A QUEUED FLIGHT_PLAN row on the current week's ACTIVE Mission's current PENDING sortie is wanted: the enqueue
-# lambda is handed exactly that row's id and the cancel lambda nothing. The case holds a second open row for the same
-# sortie in RUNNING as well, because the brief says every open row — QUEUED or RUNNING — and a sweep that only looks
-# at QUEUED rows fails here by never handing over the RUNNING row's id. Both ids are handed to enqueue, neither to
-# cancel. This is also the plan's decision that a wanted row is resumed under the row it already has, rather than
-# cancelled and replaced by a fresh generation.
+# lambda is handed exactly that row's id and the cancel lambda nothing. Shows the plan's decision that a wanted row
+# is resumed under the row it already has, rather than cancelled and replaced by a fresh generation.
 t queuedFlightPlanForTheCurrentPendingSortieIsEnqueuedNotCancelled
 
 # A QUEUED OUTLINE row whose missionId is the current week's DRAFT Mission and whose sortieId is null is wanted: its
 # id is handed to enqueue and to nothing else.
 t queuedOutlineForTheCurrentDraftMissionIsEnqueuedNotCancelled
 
-# The PLANNED arm of the Flight Plan rule: the brief wants an open row while its sortie is PENDING *or* PLANNED, so a
-# QUEUED FLIGHT_PLAN row on the current week's ACTIVE Mission's current sortie that is already PLANNED — the state a
-# re-fly leaves a row in when its cancel was lost — is handed to enqueue, not to cancel. A sweep that accepted only
-# PENDING sorties fails here.
-t flightPlanForRowOnTheCurrentPlannedSortieIsEnqueuedNotCancelled
+# The PLANNED arm of the Flight Plan rule, and the RUNNING half of "every open row": a RUNNING FLIGHT_PLAN row (a
+# re-plan mid-turn) on the current week's ACTIVE Mission's current sortie that is already PLANNED is handed to
+# enqueue, not to cancel. A sweep that accepted only PENDING sorties, or looked only at QUEUED rows, fails here.
+t runningFlightPlanForTheCurrentPlannedSortieIsEnqueuedNotCancelled
 
 # ─── 3. The rows whose target has moved on, and the sweep's own failures ───────
 # Brief: "it cleans up after the week-ended rollover, which scrubs open sorties", and "Any failure (except
@@ -306,26 +299,23 @@ t weekEndedRolloverCancelsTheScrubbedSortiesRowAndThePastDraftsOutlineRow
 
 # Open FLIGHT_PLAN rows on sorties that are no longer the Mission's current sortie, in a current week's ACTIVE
 # Mission whose later sortie is now current: one on a LANDED sortie and one on a SCRUBBED sortie. Both ids handed to
-# cancel, nothing to enqueue. A row for a sortie that has left PENDING/PLANNED is cancelled even if its generation is
-# mid-turn — the canceller stops its work and its rho session, and the sweep does not wait for a turn to finish.
+# cancel, nothing to enqueue. The plan's decision: a row for a sortie that has left PENDING/PLANNED is cancelled even
+# if its generation is mid-turn.
 t rowsForSortiesThatAreNoLongerCurrentAreCancelled
 
 # A row that has already decided its outcome is left alone: a SUCCEEDED, a FAILED and a CANCELLED row sitting in the
-# same table beside wanted rows are handed to neither lambda. The sweep acts on open rows only; the decided ones keep
-# their status and their finishedAt.
+# same table beside wanted rows are handed to neither lambda.
 t decidedGenerationsAreLeftAlone
 
-# With no open rows in the generation table, neither lambda is called at all — not called with an empty list, not
-# called with a zero or a null. This is what keeps the sweep away from WorkManager in the shell tests, which run
-# MainActivity.onCreate against a database with no Generation rows and no WorkManager initialized.
+# With no open rows in the generation table, neither lambda is called at all. This is what keeps the sweep away from
+# WorkManager in the shell tests, which run MainActivity.onCreate against a database with no Generation rows and no
+# WorkManager initialized.
 t anEmptyGenerationTableCallsNeitherLambda
 
 # One bad row must not stop the rest, and the app must not crash: a lambda that throws for the first id it is handed
-# must still be handed the next row's id, and the sweep must return normally with nothing escaping it — no exception
-# reaching the caller, the test scope or the sweep's own coroutine. The case may use the enqueue lambda, the cancel
-# lambda, or both, as long as it shows a row that threw does not stop the others. The one failure that is not
-# swallowed is cancellation: a lambda that throws CancellationException lets it propagate, so a sweep whose coroutine
-# was cancelled is still cancelled rather than carrying on as if nothing had happened.
+# must still be handed the next row's id, and the sweep must return normally with nothing escaping it. The case may
+# use the enqueue lambda, the cancel lambda, or both. The one failure that is not swallowed is cancellation: a lambda
+# that throws CancellationException lets it propagate.
 t aRowThatFailsDoesNotStopTheSweepOrTheOtherRows
 
 # ─── 4. What the brief says must not break ─────────────────────────────────────
@@ -333,11 +323,6 @@ t aRowThatFailsDoesNotStopTheSweepOrTheOtherRows
 # Flight Plan queueing, In-Flight and reopening, the Launchpad tests, the domain tests and the build gate." The gate
 # above runs the whole suite; these name the classes so that one renamed away, skipped or deleted is caught, and a
 # failure is reported as the class it belongs to rather than only as a red gate.
-#
-# The shell and container classes are the ones that break if anything reaches WorkManager at composition or on an
-# app open over an empty table, since MainActivity's app-open hook is where the sweep is wired. The generation
-# classes are the helpers the sweep hands ids to, and GenerationDao is where the whole-table open query is added. The
-# manager and queueing classes are the ones whose rules the sweep re-checks.
 echo ""
 echo "=== the tests the brief says must not break ==="
 
@@ -354,8 +339,7 @@ c GenerationCancellerTest
 c CoachTurnRunnerTest
 c GenerationDaoTest
 
-# Outline and Flight Plan queueing: the manager's own authority over what a generation may still write, which the
-# sweep re-checks, and the screens that queue them.
+# Outline and Flight Plan queueing.
 c MissionManagerTest
 c MissionManagerOutlineTest
 c MissionManagerPlanTest
@@ -391,8 +375,7 @@ c SortiePlanningTest
 c ReFlyTest
 c CoachStatusTest
 
-# The data the sweep reads, and the import path that calls onAppOpen() (an imported database is swept at the next
-# foreground, not at the moment of the import).
+# The data the sweep reads, and the import path that calls onAppOpen().
 c MissionDaoTest
 c SortieDaoTest
 c FlightPlanDaoTest
@@ -405,8 +388,7 @@ c SettingsStoreTest
 # Brief: "No Room schema change." LiftoffDatabase exports its schema to app/schemas at build time, so the exported
 # schema is the record of what the entities are. It is compared against the tree this run started from, both as
 # committed and as it stands after the gate run above — a rewritten 1.json or a new version file beside it is a
-# schema change. A new @Query on GenerationDao is not one, and leaves these files byte-identical. SchemaExportTest,
-# which the gate runs, only checks the file mentions each table; it does not notice a changed entity.
+# schema change. A new @Query on GenerationDao is not one, and leaves these files byte-identical.
 echo ""
 echo "=== the Room schema ==="
 
