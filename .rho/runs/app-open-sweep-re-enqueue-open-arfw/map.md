@@ -106,3 +106,28 @@ Gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` (CLAUDE.md); c
 - `app/src/test/java/com/liftoff/app/ui/ShellNavTest.kt` — pure `ShellNav` unit test; **does not** touch the
   container or MainActivity (the brief's fact about it is out of date).
 - `GenerationDaoTest`, `MissionDaoTest`, `SortieDaoTest` — DAO-level in-memory Room tests.
+- `MainActivityTest` is two placeholder assertions on literals (no Robolectric, launches nothing); `ShellNavTest` is a
+  pure `ShellNav` unit test. Only `LiftoffShellTest` really runs `MainActivity.onCreate`.
+- `MissionManager.refly` (line 303) marks the current PENDING sortie PLANNED and returns its open FLIGHT_PLAN ids for
+  the caller to cancel. So the state the sweep's PLANNED arm meets is real: a row left QUEUED on a PLANNED current
+  sortie is a re-fly whose cancel was lost. Per the brief's rule that row is **wanted** and is re-enqueued, not
+  cancelled — the coach's plan then replaces the copied one, which `storePlan` allows on a PLANNED sortie.
+- 822 test methods across 60 `*Test.kt` classes today; 681 `@Test` annotations.
+
+## verify.sh (this run)
+
+Eight named tests, all new to this branch (checked against every `fun name()` under app/src/test), all matched by
+method name across every report the gate run writes:
+`queuedFlightPlanForTheCurrentPendingSortieIsEnqueuedNotCancelled` (holds a QUEUED **and** a RUNNING open row on the
+same current PENDING sortie, so a QUEUED-only sweep fails), `queuedOutlineForTheCurrentDraftMissionIsEnqueuedNotCancelled`,
+`flightPlanForRowOnTheCurrentPlannedSortieIsEnqueuedNotCancelled`,
+`weekEndedRolloverCancelsTheScrubbedSortiesRowAndThePastDraftsOutlineRow`,
+`rowsForSortiesThatAreNoLongerCurrentAreCancelled`, `decidedGenerationsAreLeftAlone`,
+`anEmptyGenerationTableCallsNeitherLambda`, `aRowThatFailsDoesNotStopTheSweepOrTheOtherRows` (also the
+CancellationException arm).
+Then 40 class checks, then the exported schema under `app/schemas` compared byte-for-byte against `a40dff8` (the
+commit that added this run's brief) — a new `@Query` leaves it identical. No ARCHITECTURE.md wording check.
+The MainActivity wiring itself is not checked: proving it needs a Robolectric test that launches MainActivity with
+WorkManager initialized and rows seeded in the app's own database, which the brief's test list ("no WorkManager") and
+the plan's Testing section both rule out. What is checked instead is that the shell classes stay green with
+WorkManager uninitialized, plus the empty-table test.
