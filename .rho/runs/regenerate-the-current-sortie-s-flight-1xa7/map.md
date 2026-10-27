@@ -1,6 +1,6 @@
 # Map — regenerate the current sortie's Flight Plan
 
-Branch `rho/regenerate-the-current-sortie-s-flight-1xa7`, HEAD `e56802c` (plan outline) on top of `a33dea0` (#45, the worker leaves a cancelled generation cancelled).
+Branch `rho/regenerate-the-current-sortie-s-flight-1xa7`, HEAD `765b275` ("run: plan revised by claude review") on top of `a33dea0` (#45, the worker leaves a cancelled generation cancelled). The commit that added this run's brief is `8096d18`, so `8096d18^` = `a33dea0` is the tree verify.sh compares the Room schema against.
 
 ## Docs that set the rules
 
@@ -60,6 +60,68 @@ Branch `rho/regenerate-the-current-sortie-s-flight-1xa7`, HEAD `e56802c` (plan o
 - Fixture variants the new cases need: a **PLANNED** current sortie is `setDefaultPattern("RL")` with the toggle left off — `advance` writes the simple "Run" plan (`source = SIMPLE_RUN`) and `markPlanned`, and queues no generation; a **not-current** PENDING sortie is any pattern with a second, still-PENDING sortie after the current one; **unconfigured** is host or token left unset, which also means no open row exists to cancel.
 - `data/MissionManagerPlanTest.kt` — `storePlan`'s refusals ("not the current sortie", IN_FLIGHT, LANDED, SCRUBBED) and its use of `coach/CoachFixtures.validReply(fixture, context)` to build a `CoachReplyResult.Valid` from the recorded reply fixtures.
 - Also green today: `MissionManagerTest`, `MissionManagerOutlineTest`, `MissionManagerReFlyTest`, `LaunchpadScrubTest`, `LaunchpadStatesTest`, `LaunchpadDraft*`, `LaunchpadCoachStatusTest`, `GenerationWorkerTest`, `GenerationCancellerTest`, `GenerationEnqueuerTest`, `GenerationDaoTest`, `AppOpenSweepTest`, `FlightPlanDaoTest`, `SortiePlanningTest`, `ReFlyTest`, `LiftoffShellTest`, `MainActivityTest`, `ShellNavTest`, `AppContainerTest`. Baseline whole gate: ~694 tests across 83 classes.
+
+## verify.sh (committed by this step)
+
+`.rho/runs/regenerate-the-current-sortie-s-flight-1xa7/verify.sh`, copied whole in structure from
+`.rho/runs/the-worker-leaves-a-cancelled-n8q3/verify.sh` (same `index_reports` one-awk-pass indexer, same `t <method>` /
+`c <ClassName>` helpers, same gate with `clear_results` mv-aside + `timeout 1800 bash gradlew.sh :app:assembleDebug
+:app:testDebugUnitTest --no-build-cache` + `transient_failure` retry on the 5-minute hang signature and on
+`doneBodyweightSetStepperShowsBW`, same schema section comparing against `git log --diff-filter=A -- <run>/brief.md`^).
+
+42 checks: 9 named tests + 33 class checks + the gate line + the schema line. Names are matched by **method name across
+every report**, so the implementer chooses the class. The nine names:
+
+1. `regenerateOnAPendingSortieCancelsItsOpenRowAndEnqueuesTheNewQueuedRow` — brief bullet 1; also the proof the manager
+   reads the open rows *before* its insert.
+2. `regenerateAfterAFailedFlightPlanQueuesAFreshRowAndLeavesTheFailedRowAlone` — brief bullet 2 (Retry). Seed the FAILED
+   row straight through `generationDao`, not with a worker.
+3. `regenerateOnAPlannedSortieKeepsItsPlanAndStaysPlanned` — brief bullet 3. Fixture must be a **LIFT** sortie moved to
+   PLANNED (`storePlan` with a valid reply, or `refly`), because a run sortie's simple plan is refused by the toggle case.
+4. `regenerateWithoutAHostOrTokenIsRefusedAndWritesNothing` — through the view model.
+5. `regenerateOnAnInFlightSortieIsRefusedAndWritesNothing` — manager-direct.
+6. `regenerateOnASortieThatIsNotCurrentIsRefusedAndWritesNothing` — manager-direct.
+7. `regenerateOnASortieOfAWeekThatIsNotCurrentIsRefusedAndWritesNothing` — manager-direct; the current-week guard exists
+   nowhere else in the app, so nothing else in the suite proves it. Seed an ACTIVE mission with a past `weekStart` the way
+   `MissionManagerReFlyTest` seeds its ACTIVE mission (`insertMission(weekStart…, pattern, MissionStatus.ACTIVE)`), and do
+   **not** call `onAppOpen` first, because the sweep would close it.
+8. `regenerateOnARunSortieFollowsTheGenerateRunPlansToggle` — both halves: refused with the toggle off, queued with it on.
+9. `regenerateIsAvailableOnPendingAndPlannedAndNullOnEveryOtherState` — Job on Pending/Planned, null on Draft, InFlight,
+   Closed and Loading.
+
+Class checks (33): the eight `Launchpad*Test`, `MissionManagerTest`/`OutlineTest`/`PlanTest`/`ReFlyTest`,
+`FlightPlanDaoTest`, the six generation classes (`GenerationDaoTest`, `GenerationEnqueuerTest`, `GenerationCancellerTest`,
+`GenerationWorkerTest`, `CoachTurnRunnerTest`, `AppOpenSweepTest`), `ReFlyTest`, `SortiePlanningTest`, `SortiesTest`,
+`MissionsTest`, `RolloverTest`, `WeekTest`, `InFlightStatesTest`, `InFlightViewModelTest`, `InFlightLandScrubTest`,
+`InFlightRunTest`, `AppContainerTest`, `MainActivityTest`, `LiftoffShellTest`, `ShellNavTest`.
+
+All 33 class names match an existing `app/src/test/**/<Class>.kt` today, which is why they pass on the untouched branch.
+
+**First real run against untouched code** (`app/build/verify-1xa7.sh` → `app/build/verify-1xa7.log`, 2026-10-27): gate
+attempt 1 passed, `BUILD SUCCESSFUL in 2m 36s`, `46 actionable tasks: 46 executed`, **694 tests, 0 failures, 0 errors,
+0 skipped**; 35 ✓ / 9 ✗, all nine ✗ are "did not run"; schema check ✓; **EXIT=1**. That is the script doing its job.
+
+**Confirmed again from its own path** (`bash .rho/runs/…/verify.sh` → `app/build/verify-final.log`, same tree, comments
+only changed since the first run): gate attempt 1 passed in 1m 14s with `> Task :app:testDebugUnitTest` executed (not
+FROM-CACHE / UP-TO-DATE), same 694/0/0/0 reports, same 35 ✓ / 9 ✗, **EXIT=1**.
+
+## Things the map did not say before
+
+- `LaunchpadState` variants are exactly: `Loading` (object), `Draft`, `Planned`, `Pending`, `InFlight`, `Closed`
+  ("Mission is CLOSED or ACTIVE with no current sortie").
+- `LaunchpadViewModel` actions all read `state.value`, return early, and catch `IllegalStateException` with
+  `runCatching { manager.onAppOpen() }`. `refly()` returns `Unit` (not `Job?`) and cancels `manager.refly(...)`'s ids.
+- `LaunchpadConfirmTest`'s harness verbatim: `Clock.fixed(2026-01-12T00:00:00Z, UTC)`, `Dispatchers.Unconfined + Job() +
+  CoroutineExceptionHandler → escaped`, `CopyOnWriteArrayList` for `queuedIds` / `cancelledIds` / `escaped`,
+  `PreferenceDataStoreFactory.create { File(context.cacheDir, "settings.preferences_pb") }`, `MissionManager(db,
+  settingsStore, clock = clock, zone = { ZoneOffset.UTC })`, `primedDraft(host, token)` sets host, token,
+  `setDefaultPattern("LRL")` then `manager.onAppOpen()`; `tearDown` does `job.cancel()` then `db.close()` then deletes
+  the DataStore file. It imports `com.liftoff.app.domain.currentWeekStart` — the helper a stale-week fixture needs.
+- `SettingsStore.setGenerateRunPlans(value: Boolean)` exists (line 88); default false. `MissionManager` reads settings
+  per call, so a test can flip the toggle mid-case.
+- No method or file under `app/src` contains "regenerate" today, which is what makes all nine names fail.
+- Whole-suite class inventory (83 classes) is what `find app/src/test -name '*Test.kt'` gives; the domain package holds
+  `CoachStatusTest`, `MissionsTest`, `ReFlyTest`, `RolloverTest`, `SortiePlanningTest`, `SortiesTest`, `WeekTest`.
 
 ## Domain helpers
 
