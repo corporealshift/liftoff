@@ -323,6 +323,59 @@ class MissionManager(
     }
 
     /**
+     * Ask Mission Control for a fresh Flight Plan for [sortieId] (DESIGN.md §7.2's "Regenerate" trigger): insert
+     * one new QUEUED FLIGHT_PLAN [Generation] row and hand back this sortie's other open Flight Plan ids for the
+     * caller to cancel, which is §7.3's supersede rule — the new request is now the sortie's current generation
+     * and the older one's result will be dropped. The plan the sortie already holds is untouched, so a PLANNED
+     * sortie stays PLANNED and launchable until the new result replaces it. [onQueued] gets the new id only after
+     * this transaction commits.
+     *
+     * Every refusal is an [IllegalStateException] and writes nothing. Being unconfigured is one of them here,
+     * unlike [confirm] and [retryOutline], which report it as [ConfirmOutcome.CoachNotConfigured]: a regenerate
+     * has no outcome to branch on, and its caller treats every refusal the same way.
+     */
+    suspend fun regenerateFlightPlan(sortieId: Long, onQueued: (Long) -> Unit = {}): List<Long> {
+        val settings = settingsStore.settings.first()
+        check(coachIsConfigured(settings.daemonHost, settings.daemonToken)) {
+            "Can't ask Mission Control for a Flight Plan with no host and token"
+        }
+        var queued: Long? = null
+        val supersededIds = db.withTransaction {
+            val sortie = db.sortieDao().get(sortieId)!!
+            val mission = db.missionDao().get(sortie.missionId)!!
+            check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
+            check(mission.weekStart == currentWeekOf(clock, zone)) {
+                "Can only regenerate a sortie of the current week"
+            }
+            val current = currentSortie(db.sortieDao().getForMission(mission.id))
+            check(current != null && current.id == sortieId) { "Sortie must be current" }
+            check(sortie.state == SortieState.PENDING || sortie.state == SortieState.PLANNED) {
+                "Sortie must be PENDING or PLANNED"
+            }
+            // DESIGN.md §7.2: a run sortie with run generation off is never sent to the coach, and this is the
+            // only place that can enforce it — the worker never reads the toggle.
+            check(sortie.type != SortieType.RUN || settings.generateRunPlans) {
+                "Run sorties aren't sent to Mission Control while 'Generate run plans' is off"
+            }
+            // Read the open rows before the insert: getOpenFlightPlanForSortie is newest first, so reading them
+            // afterwards would hand the row this operation just queued back to the caller to cancel.
+            val toCancel = db.generationDao().getOpenFlightPlanForSortie(sortieId).map { it.id }
+            queued = db.generationDao().insert(
+                Generation(
+                    kind = GenerationKind.FLIGHT_PLAN,
+                    missionId = mission.id,
+                    sortieId = sortieId,
+                    status = GenerationStatus.QUEUED,
+                    createdAt = clock.millis(),
+                )
+            )
+            toCancel
+        }
+        queued?.let(onQueued)
+        return supersededIds
+    }
+
+    /**
      * Store a validated coach plan on [sortieId]. `writePlan` replaces whatever plan that sortie already
      * holds — a repair round or a retry is the normal reason a second plan arrives — and the sortie moves to
      * PLANNED only when it was PENDING, so a plan that lands on a PLANNED sortie leaves it PLANNED.
