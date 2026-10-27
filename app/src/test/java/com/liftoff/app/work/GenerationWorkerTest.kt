@@ -835,6 +835,66 @@ class GenerationWorkerTest {
     }
 
     /**
+     * cancelled part-way through a turn that then runs out of repairs: the same rule as the blocked case, at the
+     * other end of the repair loop. The [DaemonScript.Act] step marks the row CANCELLED inside the first turn,
+     * before that turn's `State("idle")`, so the row has decided its outcome long before the generation reaches
+     * its 'invalid output' end. The repair loop is not stopped by a cancel, so the refused replies still play out
+     * to the cap and the three prompts and attempt 2 are what today's case sees; only the FAILED write is refused.
+     * The row stays CANCELLED with the error it carried when it was cancelled rather than 'invalid output: ...',
+     * nothing is stored, and the session is given up once.
+     */
+    @Test
+    fun aGenerationCancelledMidTurnThatRunsOutOfRepairsStaysCancelledAndStoresNothing() {
+        val carriedError = "the reason this row carried when it was cancelled"
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        // The step belongs in the first script: the fake replays its last scripted turn for every later prompt,
+        // so one placed in the second would cancel the row again on each repair.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.BAD_JSON)),
+            DaemonScript.Act {
+                runBlocking {
+                    val generations = container.database.generationDao()
+                    // The worker blanks whatever a row carried once it reaches a coach, so this is the one
+                    // moment a mid-turn cancel can be caught holding an error.
+                    generations.update(requireNotNull(generations.get(generationId)).copy(error = carriedError))
+                    generations.markCancelled(generationId, System.currentTimeMillis())
+                }
+            },
+            DaemonScript.State("idle"),
+        )
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.SCHEMA_VIOLATION)),
+            DaemonScript.State("idle"),
+        )
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        // The cancel stopped nothing but the final write: the generation still spent its two repairs.
+        val prompts = promptsSent()
+        assertEquals("a cancelled generation was asked to repair a different number of times: $prompts", 3, prompts.size)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.CANCELLED, row.status)
+        assertEquals("the cancelled row was written over with the repairs' reason", carriedError, row.error)
+        assertFalse("the cancelled row took the failed end's error: ${row.error}", row.error!!.contains("invalid output"))
+        assertEquals("the cancelled generation stopped repairing at a different count", 2, row.attempt)
+        assertNotNull("a generation cancelled mid-turn lost its finishedAt stamp", row.finishedAt)
+
+        assertEquals("a cancelled generation stored its outline anyway", MissionStatus.DRAFT, runBlocking { container.database.missionDao().get(mission.id) }!!.status)
+        assertEquals(
+            "a cancelled generation wrote sorties anyway",
+            emptyList<Any>(),
+            runBlocking { container.database.sortieDao().getForMission(mission.id) },
+        )
+
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
+    /**
      * blocked ends the generation for good: `Result.failure()` and the row FAILED with 'coach needed input'.
      * Scripted as an assistant line then `State("blocked")` on an OUTLINE row over a mission seeded with
      * onAppOpen() only. A coach that asked for input will not answer itself, so this is not a retry: nothing is
