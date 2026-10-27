@@ -122,7 +122,7 @@ read back through `db.generationDao().get(id)` to check it is the row the case m
   "com.liftoff.app.work.AppOpenSweepTest"` reports 0 failures and 0 errors in all five classes, with the eight sweep
   names still present in its reports.
 
-- [ ] 6. Name the sweep in ARCHITECTURE.md's `work` row, then run the whole gate once
+- [x] 6. Name the sweep in ARCHITECTURE.md's `work` row, then run the whole gate once
   Covers plan steps 4 and 5 and the brief's Done-when, in one commit. File: `ARCHITECTURE.md` line 36, the
   `com.liftoff.app.work` row only — its third column names each file in the package today (`CoachTurnRunner.kt`,
   `GenerationWorker.kt`, `GenerationEnqueuer.kt`); add `AppOpenSweep.kt` and a clause on what it does: at every app
