@@ -81,6 +81,27 @@ Cases to copy:
   `nabuSessionId` exist, then `container.generationCanceller().cancel(generationId)`, `await()` under
   `withTimeout(turnWait)`; asserts Success, row CANCELLED with `finishedAt`, nothing stored.
 
+All 29 existing `GenerationWorkerTest` case names (the report says 29; so a new name cannot collide and a later
+session can see what must keep passing): anOutlineGenerationStoresTheReplyAndMarksTheRowSucceeded · aLiftPlanGenerationMarksTheSortiePlannedAndStoresAGeneratedPlan
+· aRunPlanGenerationMarksTheSortiePlannedAndStoresAGeneratedPlan · aGenerationRowThatDoesNotExistReturnsFailureAndSendsNothingToTheDaemon
+· aGenerationRowThatAlreadyFinishedIsLeftAsItIsAndReportedAsDone (a **SUCCEEDED** row only — not CANCELLED)
+· aGenerationRowWithASessionIdAlreadyStoredIsResumedWithoutCreatingAnotherSession · aGenerationWhosePromptAlreadyLandedResumesFromTheStoredCursorAndStoresTheReply
+· aCursorAtTheEndOfTheTurnStillFindsTheReplyTheWorkerAlreadyRead · aRetriedGenerationSendsItsPromptAgainUnderTheSameClientIdAndTheDaemonDeliversItOnce
+· oneSessionStopFrameIsSentAfterASuccessfulStore · aRefusedStopAfterASuccessfulStoreStillEndsTheGenerationSucceeded · anInvalidReplyIsRepairedInTheSameSessionAndThenTheGenerationSucceeds
+· afterTwoFailedRepairsTheGenerationFailsWithTheLastErrorsAndStoresNothing · aTurnThatEndsBlockedFailsTheGenerationWithCoachNeededInput
+· aPermanentRefusalAtACallFailsTheGenerationWithTheDaemonsMessageAndStopsTheSession · aValidReplyForASortieThatHasMovedOnFailsTheGenerationWithTheStoresOwnReason
+· aProtocolMismatchFromARefusedHelloFailsTheGenerationWithoutOpeningASession · aProtocolMismatchFromAnAcceptedHelloFailsTheGenerationWithoutOpeningASession
+· aProtocolMismatchThatNamesNoVersionFailsTheGenerationWithTheDaemonsOwnMessage · aPausedTurnSendsAResumeForTheSessionItStoppedIn
+· aRefusedResumeStillRetriesAndLeavesTheRowRunningWithItsSessionAndCursor · aTurnThatEndsInErrorRetriesAndLeavesTheRowRunningWithItsSessionAndCursor
+· anUnreachableDaemonMarksTheGenerationOfflineAndRetries · aLaterRunThatReachesTheDaemonClearsTheOfflineMark · theEighthAttemptThatCannotConnectFailsTheGenerationAsCoachUnreachable
+· aWorkerWhoseGenerationWasCancelledMidTurnStoresNothingAndEndsAsDone · aWorkerThatStoresAnOutlineEnqueuesTheFlightPlanItQueuedForSortieOne
+· aSupersededFlightPlanGenerationStoresNothingAndTheNewerGenerationStillStoresItsPlan · aSupersededOutlineGenerationStoresNothingAndTheNewerGenerationStillStoresItsOutline
+
+`GenerationDaoTest`'s existing cases: insertGetUpdateDelete · markingAGenerationRunningSucceededFailedOrCancelledSetsItsStatusAndFinishedAt
+· savingTheSessionIdAndLastEventIdAndBumpingTheAttemptUpdatesTheGenerationRow · isCoachOfflineIsTrueOnlyForARowStillWaitingOnTheCoach
+· theNewestNonCancelledGenerationForASortieIgnoresCancelledRows · theNewestNonCancelledGenerationForAMissionIsItsOwnOutlineGeneration
+· theLiveOutlineReadForAMissionDropsACancelledRow. Its `queueGeneration(...)` helper writes a QUEUED row with the fields named.
+
 ## app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt
 
 `script(vararg DaemonScript)` — `Assistant(content)` (37), `State(to, reason)` (40), `Ask(question, choices)`
@@ -102,6 +123,42 @@ step placed before the event that ends the turn.
 `queueGeneration(...)` helper (writes a QUEUED row with the fields named); 110
 `markingAGenerationRunningSucceededFailedOrCancelledSetsItsStatusAndFinishedAt` asserts each mark writes
 only its own columns.
+
+## verify.sh — the run's definition of done (committed this session)
+
+`.rho/runs/the-worker-leaves-a-cancelled-n8q3/verify.sh`. Shape: CI gate → four named tests read out of that gate's
+own reports → 27 whole-class checks → the exported Room schema. `t <method>` matches a test name across every
+`TEST-*.xml` this run wrote (so which file/package a test sits in is the implementer's call); `c <ClassName>`
+requires the class ran and every test in it passed. Reports are indexed by one awk pass keeping the worst outcome.
+Stale reports are `mv`'d to `app/build/verify-old-results-<stamp>`; `--no-build-cache`; a `FROM-CACHE`/`UP-TO-DATE`
+on `:app:testDebugUnitTest` is itself a failure; the gate is retried up to 3× only for the known hang / build-fault
+signature / `doneBodyweightSetStepperShowsBW` alone.
+
+The four names it requires (all new to this branch — verified zero hits under `app/src` before the work):
+- `aGenerationCancelledMidTurnThatEndsBlockedStaysCancelledAndKeepsItsError`
+- `aGenerationCancelledMidTurnThatRunsOutOfRepairsStaysCancelledAndStoresNothing`
+- `aGenerationCancelledBeforeTheWorkerStartsOpensNoTurnAndEndsAsDone`
+- `markRunningAndMarkFailedRefuseAGenerationThatAlreadyDecidedItsOutcome`
+
+Each name's comment in verify.sh is what the task-writer and the test-writing session read; the tasks are written from
+that script. The two mid-turn comments say the cancel must land **before the event that ends the turn** and must write
+the row through `GenerationDao.markCancelled`, not through `container.generationCanceller()` (whose own
+`rho.session.stop` would make `assertSessionGivenUpOnce` pass on a worker that stopped nothing).
+
+Checked deliberately: the whole gate (which is also the check that every *existing* FAILED-expecting worker case —
+blocked, two refused repairs, permanent refusal, protocol mismatches, 8th unreachable attempt, store-found-gone —
+still lands FAILED); the 27 classes the brief's "Must not break" list names; `app/schemas` byte-identical against the
+commit that added this run's brief (`git log --diff-filter=A -- <run>/brief.md`, then `^`), committed *and* working
+tree, plus the file *set* under `app/schemas` (an untracked new version file is invisible to `git diff`).
+Not checked, and why, is written in the script's header: the other `failGeneration` call sites (same guarded write),
+an early stop of the repair loop (the plan's Decision leaves it running), the read→write race for `markRunning`
+(a test cannot control SQLite lock timing — the DAO case proves that guard), the FakeDaemon action step (test-only
+scaffolding), and any doc row.
+
+**Ran against the untouched branch** (`app/build/n8q3-verify.log`, launched detached from `app/build/n8q3-verify-run.sh`):
+gate attempt 1 `BUILD SUCCESSFUL in 2m 21s`, `46 actionable tasks: 46 executed`, 690 tests / 0 failures / 0 errors /
+0 skipped; gate ✓, all 27 class checks ✓, schema ✓, and the four names each reported "did not run" →
+`Result: 29 passed, 4 failed` / `EXIT=1`. That is the intended failure mode.
 
 ## Project rules
 
