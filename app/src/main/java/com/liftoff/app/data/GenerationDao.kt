@@ -98,4 +98,11 @@ interface GenerationDao {
             "AND status IN ('QUEUED', 'RUNNING') ORDER BY createdAt DESC, id DESC"
     )
     suspend fun getOpenFlightPlanForSortie(sortieId: Long): List<Generation>
+
+    // The same status filter over the whole table, oldest first: what an app open sweeps. Both queries above are
+    // keyed to one Mission or one sortie, so neither can find a row whose target has already gone away.
+    @Query(
+        "SELECT * FROM generation WHERE status IN ('QUEUED', 'RUNNING') ORDER BY createdAt ASC, id ASC"
+    )
+    suspend fun getOpen(): List<Generation>
 }
