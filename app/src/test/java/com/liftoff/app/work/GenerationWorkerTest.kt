@@ -879,6 +879,55 @@ class GenerationWorkerTest {
     }
 
     /**
+     * cancelled part-way through a turn that then ends blocked: the row is made CANCELLED by the script's own
+     * [DaemonScript.Act] step, which calls [GenerationDao.markCancelled] while the turn is still open, so the
+     * worker's FAILED write is refused and the generation ends as done. The row keeps the CANCELLED status and
+     * the error it held when it was cancelled rather than 'coach needed input', and nothing is stored. The one
+     * `rho.session.stop` the fake sees is the worker's own: the cancel goes through the DAO and not through
+     * `container.generationCanceller()`, which sends a stop of its own and would prove nothing about the worker.
+     */
+    @Test
+    fun aGenerationCancelledMidTurnThatEndsBlockedStaysCancelledAndKeepsItsError() {
+        val carriedError = "the reason this row carried when it was cancelled"
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        daemon.script(
+            DaemonScript.Assistant("Which equipment do you mean by 'the bar'?"),
+            DaemonScript.Assistant("I need the weights you actually have."),
+            DaemonScript.Act {
+                runBlocking {
+                    val generations = container.database.generationDao()
+                    // The worker blanks whatever a row carried once it reaches a coach, so this is the one
+                    // moment a mid-turn cancel can be caught holding an error.
+                    generations.update(requireNotNull(generations.get(generationId)).copy(error = carriedError))
+                    generations.markCancelled(generationId, System.currentTimeMillis())
+                }
+            },
+            DaemonScript.State("blocked", "the coach is waiting for input"),
+        )
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.CANCELLED, row.status)
+        assertEquals("the cancelled row was written over with the blocked turn's reason", carriedError, row.error)
+        assertNotNull("a generation cancelled mid-turn lost its finishedAt stamp", row.finishedAt)
+
+        val storedMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+        assertEquals("the cancelled generation stored its outline anyway", MissionStatus.DRAFT, storedMission.status)
+        assertEquals(
+            "the cancelled generation wrote sorties anyway",
+            emptyList<Any>(),
+            runBlocking { container.database.sortieDao().getForMission(mission.id) },
+        )
+
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
+    /**
      * a permanent refusal at a call ends the generation for good: `Result.failure()` and the row FAILED with
      * the daemon's own words. `rho.session.send_prompt` is refused through [FakeDaemon.refuseMethod] with a code
      * in `RpcCodes.PERMANENT` and a message of the fake's own, on an OUTLINE row over a mission seeded with
