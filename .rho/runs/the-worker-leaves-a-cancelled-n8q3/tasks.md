@@ -101,7 +101,7 @@ minutes without writing any `TEST-*.xml`. Baseline for the whole suite is 690 te
   ever runs — that is the limit plan §Risks states, and the reason task 1's DAO case is the proof that the
   `markRunning` guard bites. Say that in the commit body, along with the totals.
 
-- [ ] 5. The whole gate, once, and the classes the brief says must not break
+- [x] 5. The whole gate, once, and the classes the brief says must not break
   Covers plan step 4. No new behaviour and no new test: this task runs the gate and fixes only what it names, in
   its own commit if anything needs fixing. One cold detached run of `bash gradlew.sh :app:assembleDebug
   :app:testDebugUnitTest --no-build-cache`, launched from a scratch script under `app/build/` with the log and an
