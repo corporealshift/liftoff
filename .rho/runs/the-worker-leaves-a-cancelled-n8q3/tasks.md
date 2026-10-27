@@ -65,7 +65,7 @@ minutes without writing any `TEST-*.xml`. Baseline for the whole suite is 690 te
   red; restore and re-run the class. Write the mutation, the gate command, EXIT and the per-class totals into the
   commit body.
 
-- [ ] 3. The same rule for a cancelled turn that runs out of repairs
+- [x] 3. The same rule for a cancelled turn that runs out of repairs
   Covers plan step 2's second half. No new scaffolding and no new production behaviour: task 2's FakeDaemon step and
   the guarded `failGeneration` are already in place, and the repair loop is deliberately left running (plan
   §Decisions) — only the final FAILED write is refused.
