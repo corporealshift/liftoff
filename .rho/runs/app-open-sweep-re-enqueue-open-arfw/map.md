@@ -1,6 +1,7 @@
 # Map — app-open sweep
 
-Branch HEAD at planning: `62d43c8` ("run: plan outline"), on top of `bda0e26` (#43 In-Flight enqueues…).
+Branch HEAD at the tasks step: `78ce856` ("verify.sh rewritten by claude review"); at planning it was `62d43c8`
+("run: plan outline"), on top of `bda0e26` (#43 In-Flight enqueues…).
 Gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` (CLAUDE.md); counts come from
 `app/build/test-results/testDebugUnitTest/TEST-*.xml`, not stdout.
 
@@ -114,13 +115,52 @@ Gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` (CLAUDE.md); c
   cancelled — the coach's plan then replaces the copied one, which `storePlan` allows on a PLANNED sortie.
 - 822 test methods across 60 `*Test.kt` classes today; 681 `@Test` annotations.
 
+## Fixture and wiring facts (read at the tasks step)
+
+- `MainActivity.kt` :26-30 is the whole app-open hook: `lifecycleScope.launch { repeatOnLifecycle(STARTED) { …
+  onAppOpen() } }`, and the `Mission` it returns is discarded today. `onAppOpen(): Mission` is **non-null**
+  (`MissionManager.kt`:70-93), so the wiring task can capture the returned Mission's `weekStart` there; `setContent`
+  follows at :31.
+- `MissionManagerTest.kt` is the fixture `AppOpenSweepTest` copies: clock `Clock.fixed(Instant.parse(
+  "2026-01-12T00:00:00Z"), ZoneOffset.UTC)` with `zone = { ZoneOffset.UTC }`, so the fixture's week starts
+  **2026-01-12**; helpers `insertMission(weekStart, pattern, status): Long` (:72), `insertSortie(missionId, index,
+  type, focus, state): Long` (:78, every nullable Sortie column passed null), `configureCoach(host, token)` (:87),
+  `seedOutline(missionId, status): Generation` (:104 — `createdAt = 0L`, `finishedAt = 1L` only for SUCCEEDED/FAILED,
+  `error` only for FAILED), and `advanceClock(days)` (:62) which **rebuilds the manager** on `2026-01-12 + days`;
+  that rebuild is how a test makes the week-ended rollover run. There is no `seedFlightPlan` helper — a FLIGHT_PLAN
+  row is seeded with the same `db.generationDao().insert(Generation(kind = FLIGHT_PLAN, missionId = …, sortieId = …,
+  status = …))` shape.
+- For the sweep's cancel cases, seed the not-done sorties directly through `insertSortie`: `MissionManager.land`
+  rewrites the pattern's OPEN sets to SKIPPED and can queue a `FLIGHT_PLAN` row of its own through `advance`, so a
+  case that lands its way to a LANDED sortie also gains a row it did not ask for.
+- Packages for `--tests` flags: `com.liftoff.app.MainActivityTest`, `com.liftoff.app.AppContainerTest`,
+  `com.liftoff.app.ui.LiftoffShellTest`, `com.liftoff.app.ui.ShellNavTest`, `com.liftoff.app.data.GenerationDaoTest`
+  / `MissionDaoTest` / `SortieDaoTest` / `MissionManagerTest`. The new sweep class and its test are
+  `com.liftoff.app.work.AppOpenSweep` / `AppOpenSweepTest`.
+- `ARCHITECTURE.md`: the `com.liftoff.app.work` **package** row (line 36) names `CoachTurnRunner.kt`,
+  `GenerationWorker.kt` and `GenerationEnqueuer.kt` in its third column and does **not** name
+  `GenerationCanceller.kt`; the canceller is described in the M3 **milestone** row (line 82). The brief asks only for
+  the package row, so the doc task adds the sweep there without contradicting either row's existing wording.
+
+## tasks.md (this run)
+
+Six tasks. 1 = the `GenerationDao` whole-table open query + `AppOpenSweep` + the new `AppOpenSweepTest` holding the
+fixture and `anEmptyGenerationTableCallsNeitherLambda`. 2 = the three wanted-row tests. 3 = the three cancel tests.
+4 = `aRowThatFailsDoesNotStopTheSweepOrTheOtherRows` plus its CancellationException arm. 5 = the `MainActivity`
+wiring, gated on `LiftoffShellTest`, `ShellNavTest`, `MainActivityTest`, `AppContainerTest` and `AppOpenSweepTest`.
+6 = the ARCHITECTURE.md `work` row and the whole gate, run through a copy of `verify.sh` under `app/build/`. Each
+task's Done-when is one cold class-scoped Gradle run naming every class it touches; only task 6 runs the whole suite.
+
 ## verify.sh (this run)
 
-Eight named tests, all new to this branch (checked against every `fun name()` under app/src/test), all matched by
-method name across every report the gate run writes:
-`queuedFlightPlanForTheCurrentPendingSortieIsEnqueuedNotCancelled` (holds a QUEUED **and** a RUNNING open row on the
-same current PENDING sortie, so a QUEUED-only sweep fails), `queuedOutlineForTheCurrentDraftMissionIsEnqueuedNotCancelled`,
-`flightPlanForRowOnTheCurrentPlannedSortieIsEnqueuedNotCancelled`,
+HEAD's `verify.sh` is `78ce856` "verify.sh rewritten by claude review" (on top of `2d7b584` "run: verify"); the
+review rewrite shortened comments and **renamed one test**. Read the file at HEAD, not an earlier note.
+Eight named tests, all new to this branch (re-confirmed at the tasks step: none of the eight names appears anywhere
+under `app/src` today), all matched by method name across every report the gate run writes:
+`queuedFlightPlanForTheCurrentPendingSortieIsEnqueuedNotCancelled` (a QUEUED FLIGHT_PLAN row on the current week's
+ACTIVE Mission's current PENDING sortie), `queuedOutlineForTheCurrentDraftMissionIsEnqueuedNotCancelled`,
+`runningFlightPlanForTheCurrentPlannedSortieIsEnqueuedNotCancelled` (the PLANNED arm *and* the RUNNING half of "every
+open row": a RUNNING row on a current PLANNED sortie),
 `weekEndedRolloverCancelsTheScrubbedSortiesRowAndThePastDraftsOutlineRow`,
 `rowsForSortiesThatAreNoLongerCurrentAreCancelled`, `decidedGenerationsAreLeftAlone`,
 `anEmptyGenerationTableCallsNeitherLambda`, `aRowThatFailsDoesNotStopTheSweepOrTheOtherRows` (also the
