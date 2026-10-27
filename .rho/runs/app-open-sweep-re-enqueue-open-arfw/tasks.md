@@ -67,7 +67,7 @@ read back through `db.generationDao().get(id)` to check it is the row the case m
   "com.liftoff.app.work.AppOpenSweepTest"` reports 0 failures and 0 errors and its `TEST-*.xml` names all four cases
   in the class so far.
 
-- [ ] 3. `AppOpenSweepTest`: the rows whose target has moved on
+- [x] 3. `AppOpenSweepTest`: the rows whose target has moved on
   Covers the second half of plan step 2, in the same class.
   Tests it writes, spelled exactly as `verify.sh` uses them:
   `weekEndedRolloverCancelsTheScrubbedSortiesRowAndThePastDraftsOutlineRow` (a past week's ACTIVE Mission carrying an
