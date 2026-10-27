@@ -20,6 +20,7 @@ import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -146,5 +147,79 @@ class AppOpenSweepTest {
 
         assertEquals(emptyList<Long>(), enqueued)
         assertEquals(emptyList<Long>(), cancelled)
+    }
+
+    // ── the rows the sweep wants ───────────────────────────────────────
+
+    /**
+     * A QUEUED FLIGHT_PLAN row on the current week's ACTIVE Mission's current PENDING sortie is resumed under the
+     * row it already has, rather than cancelled and replaced by a fresh generation.
+     */
+    @Test
+    fun queuedFlightPlanForTheCurrentPendingSortieIsEnqueuedNotCancelled() = runBlocking {
+        val missionId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.ACTIVE)
+        val current = insertSortie(missionId, 0, SortieType.LIFT, "full body", SortieState.PENDING)
+        insertSortie(missionId, 1, SortieType.RUN, "easy", SortieState.PENDING)
+        val row = seedGeneration(GenerationKind.FLIGHT_PLAN, missionId, current, GenerationStatus.QUEUED, 1000L)
+
+        val mission = manager.onAppOpen()
+        assertEquals(missionId, mission.id)
+
+        sweep().run(mission.weekStart)
+
+        assertEquals(listOf(row.id), enqueued)
+        assertEquals(emptyList<Long>(), cancelled)
+        val handed = generationDao.get(enqueued.single())!!
+        assertEquals(GenerationKind.FLIGHT_PLAN, handed.kind)
+        assertEquals(current, handed.sortieId)
+        assertEquals(GenerationStatus.QUEUED, handed.status)
+    }
+
+    /**
+     * A QUEUED OUTLINE row whose missionId is the current week's DRAFT Mission and whose sortieId is null is still
+     * what that draft is waiting on.
+     */
+    @Test
+    fun queuedOutlineForTheCurrentDraftMissionIsEnqueuedNotCancelled() = runBlocking {
+        val missionId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.DRAFT)
+        val row = seedGeneration(GenerationKind.OUTLINE, missionId, null, GenerationStatus.QUEUED, 1000L)
+
+        val mission = manager.onAppOpen()
+        assertEquals(missionId, mission.id)
+        assertEquals(MissionStatus.DRAFT, mission.status)
+
+        sweep().run(mission.weekStart)
+
+        assertEquals(listOf(row.id), enqueued)
+        assertEquals(emptyList<Long>(), cancelled)
+        val handed = generationDao.get(enqueued.single())!!
+        assertEquals(GenerationKind.OUTLINE, handed.kind)
+        assertEquals(missionId, handed.missionId)
+        assertNull(handed.sortieId)
+    }
+
+    /**
+     * A RUNNING FLIGHT_PLAN row on the current sortie that is already PLANNED — a re-fly whose cancel was lost, or
+     * a turn still in progress — is wanted too: only PENDING or only QUEUED would miss it.
+     */
+    @Test
+    fun runningFlightPlanForTheCurrentPlannedSortieIsEnqueuedNotCancelled() = runBlocking {
+        val missionId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.ACTIVE)
+        val current = insertSortie(missionId, 0, SortieType.LIFT, "full body", SortieState.PLANNED)
+        insertSortie(missionId, 1, SortieType.RUN, "easy", SortieState.PENDING)
+        val row = seedGeneration(GenerationKind.FLIGHT_PLAN, missionId, current, GenerationStatus.RUNNING, 1000L)
+
+        val mission = manager.onAppOpen()
+        assertEquals(missionId, mission.id)
+        assertEquals(MissionStatus.ACTIVE, mission.status)
+
+        sweep().run(mission.weekStart)
+
+        assertEquals(listOf(row.id), enqueued)
+        assertEquals(emptyList<Long>(), cancelled)
+        val handed = generationDao.get(enqueued.single())!!
+        assertEquals(GenerationStatus.RUNNING, handed.status)
+        assertEquals(current, handed.sortieId)
+        assertEquals(SortieState.PLANNED, sortieDao.get(current)!!.state)
     }
 }
