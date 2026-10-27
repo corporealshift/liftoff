@@ -16,7 +16,7 @@ move `app/build/test-results/testDebugUnitTest` aside with `mv`, never `rm`; nev
 check names is run in ONE invocation; re-run the identical tree once if the build kills the test task at five
 minutes without writing any `TEST-*.xml`. Baseline for the whole suite is 690 tests in 83 classes.
 
-- [ ] 1. Guard the two row writes in the DAO, and prove the guard at the row itself
+- [x] 1. Guard the two row writes in the DAO, and prove the guard at the row itself
   Covers plan step 1. `app/src/main/java/com/liftoff/app/data/GenerationDao.kt`: `markRunning` and `markFailed`
   gain the status filter `setCoachOfflineMark` already carries (`AND status IN ('QUEUED', 'RUNNING')`), and each
   returns how many rows it changed so a caller can tell a refusal from a write. Existing callers that ignore the
