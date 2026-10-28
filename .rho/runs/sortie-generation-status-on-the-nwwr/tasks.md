@@ -115,7 +115,7 @@ is not touched.
   line while the status is planning, watching the new case go red, restoring from the copy under `app/build/`. Write
   the gate command, EXIT, the totals and the mutation into the commit body.
 
-- [ ] 5. The live cards, one subscription at a time
+- [x] 5. The live cards, one subscription at a time
   Covers plan step 4. New `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadSortieStatusTest.kt`, harness
   copied from `LaunchpadCoachStatusTest` (the map records it whole): `@Config(sdk = [34])`, in-memory Room with
   `allowMainThreadQueries()`, a real `SettingsStore` over its own file in `context.cacheDir`, a real `MissionManager`
