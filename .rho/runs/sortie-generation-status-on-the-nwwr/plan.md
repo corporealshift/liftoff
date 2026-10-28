@@ -10,11 +10,12 @@ joins it only on the DRAFT arm through `observeNewestNonCancelledOutlineForMissi
 `GenerationDao.getNewestNonCancelledForSortie`, and a join on the PENDING and PLANNED arms only. The §5.4 Re-fly rule
 lives inside the derivation — it takes "a landed plan of this type exists" as a plain Boolean input and answers the
 rule — so the whole rule is covered by plain JUnit and `LaunchpadStates` just passes the answer through.
-`LaunchpadScreen` already gates Re-fly on `pending.reFlyAvailable`, so it needs no change beyond compiling; no Room
-schema change, no worker change, and the draft's `CoachStatus` is left alone. "Plain" means the same thing it means
-next door: the `GenerationStatus` enum from `data/` is an acceptable input, as it is for `deriveCoachStatus`, but no
-`Generation` row, no DAO and nothing from Android crosses the signature. The brief asks for no doc change, so
-`ARCHITECTURE.md` is not touched.
+`LaunchpadScreen` already gates Re-fly on `pending.reFlyAvailable`; beyond compiling, its one change is that the
+"No earlier plan to re-fly." line is not shown while the coach is planning (see Decisions), because under the new
+rule a false `reFlyAvailable` no longer means "no earlier plan". No Room schema change, no worker change, and the
+draft's `CoachStatus` is left alone. "Plain" means the same thing it means next door: the `GenerationStatus` enum
+from `data/` is an acceptable input, as it is for `deriveCoachStatus`, but no `Generation` row, no DAO and nothing
+from Android crosses the signature. The brief asks for no doc change, so `ARCHITECTURE.md` is not touched.
 
 
 ## Files
@@ -32,13 +33,15 @@ next door: the `GenerationStatus` enum from `data/` is an acceptable input, as i
   status; `Pending.reFlyAvailable` comes from the derivation's §5.4 answer; `derive()` works out the current sortie
   before it picks flows, so only the PENDING and PLANNED arms join the generation Flow and `manager.coachConfigured`,
   and those arms end in `distinctUntilChanged()`.
-- `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt` — only as far as it needs to compile; Re-fly
-  stays shown only when `pending.reFlyAvailable`.
+- `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt` — compile fixes; Re-fly stays shown only when
+  `pending.reFlyAvailable`; `PendingActions` shows "No earlier plan to re-fly." only when Re-fly is refused and the
+  status is not planning (under failed, offline or not configured, a refusal can only mean no source). No status line
+  is drawn — that is a later run's.
 - `app/src/test/java/com/liftoff/app/domain/SortieGenerationStatusTest.kt` (new) — plain JUnit for the derivation.
 - `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadSortieStatusTest.kt` (new) — Robolectric live-subscription
   tests, shaped like `LaunchpadCoachStatusTest`.
 - `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadStatesTest.kt` and `LaunchpadReFlyTest.kt` — only if an
-  existing Re-fly assumption meets the §5.4 rule; see Risks.
+  existing Re-fly assumption meets the §5.4 rule; see Risks. `LaunchpadReFlyTest` gains one case for the line above.
 
 
 ## Order
@@ -47,8 +50,9 @@ next door: the `GenerationStatus` enum from `data/` is an acceptable input, as i
    `:app:compileDebugKotlin` and the existing `GenerationDaoTest`.
 2. `domain/`: the new sealed type and its derivation, then its plain JUnit test in the same step. Gate: that test class.
 3. `LaunchpadState` / `LaunchpadStates`: `Pending` and `Planned` carry the status, `reFlyAvailable` comes from the
-   derivation, the joins appear only on those two arms with `distinctUntilChanged()`. Gate: `LaunchpadStatesTest`,
-   `LaunchpadReFlyTest`, `LaunchpadCoachStatusTest`, `LaunchpadRegenerateTest`.
+   derivation, the joins appear only on those two arms with `distinctUntilChanged()`. Then the `LaunchpadScreen`
+   line condition. Gate: `LaunchpadStatesTest`, `LaunchpadReFlyTest`, `LaunchpadCoachStatusTest`,
+   `LaunchpadRegenerateTest`.
 4. The Robolectric live tests for the joined arms. Gate: the new class plus the Launchpad package.
 5. The whole gate, detached: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`, re-run once if it hangs.
 
@@ -82,8 +86,10 @@ Robolectric (`LaunchpadSortieStatusTest`, `@Config(sdk = [34])`, in-memory Room,
 - An unrelated write — a plan for a different sortie, a settings value that does not change the answer — produces no
   new emission.
 
-Nothing new is asked for the draft: `CoachStatusTest` and `LaunchpadCoachStatusTest` pass unchanged, as do the existing
-Launchpad Re-fly assertions (see Risks).
+`LaunchpadReFlyTest` gains one Compose case: a source plan exists, the coach is configured and the sortie's row is
+open → neither Re-fly nor "No earlier plan to re-fly." is shown, and Scrub still is. Its existing cases run with no
+coach configured, so they keep their assertions. Nothing new is asked for the draft: `CoachStatusTest` and
+`LaunchpadCoachStatusTest` pass unchanged.
 
 
 ## Risks
@@ -104,9 +110,9 @@ Launchpad Re-fly assertions (see Risks).
 - **Restructuring the ACTIVE arm** (work out the current sortie before choosing which flows to join) touches the
   IN_FLIGHT and no-current-sortie paths. Those arms stay on `planChanges.map` as they are, and the gate for that step
   covers the whole Launchpad package plus the shell tests.
-- **Keep the screen change to compiling only.** Drawing the status line is a later run's job; adding one now could push
+- **Keep the screen change small.** Drawing the status line is a later run's job; adding one now could push
   Re-fly or Scrub out of the fixed `@Config` window the Compose tests measure (`LaunchpadReFlyTest` uses
-  `w411dp-h2000dp`).
+  `w411dp-h2000dp`). The line condition only removes text, never adds it.
 - Known local hazards the work must respect: the full gate can hang about five minutes on one Robolectric/Room test —
   run it detached and re-run the same tree once without `--stop`; a Compose test that writes through Room must unmount
   the screen before `db.close()`; every wait in the new Robolectric class is bounded.
@@ -155,3 +161,11 @@ list visible".
 there is no plan and gets Regenerate; Re-fly stays refused because `MissionManager.refly` refuses a PLANNED sortie, and
 offering it would put a control on the card that fails when tapped.
 
+**Added by review: "No earlier plan to re-fly." is not shown while the coach is planning.** `PendingActions`
+(`LaunchpadScreen.kt:371-380`) shows that line whenever `reFlyAvailable` is false. Under §5.4, a sortie that has an
+earlier plan while its generation is open also gets false, so the line would tell the owner something untrue. The
+brief limits the screen to compiling, but leaving a false line up is not what the owner would expect. So the screen
+shows the line only when Re-fly is refused and the status is not planning. Under failed, offline or not configured,
+a refusal can only mean there is no source. While planning, the card shows neither the control nor the line; the
+status line a later run draws covers that state. The alternative was a new "source exists" field on `Pending`. It was
+not needed, because the status already tells the two cases apart.
