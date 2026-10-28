@@ -329,6 +329,7 @@ class LaunchpadRegenerateTest {
         generationDao.markFailed(failed.id, FAILED_ERROR, clock.millis() - 30_000)
 
         val before = awaitPending(vm, sortie)
+        assertEquals(SortieGenerationStatus.Failed(FAILED_ERROR), before.generationStatus)
 
         joinAction(vm.regenerate(), vm)
 
@@ -343,10 +344,12 @@ class LaunchpadRegenerateTest {
         assertTrue(failed.id !in cancelledIds)
         assertTrue(cancelledIds.isEmpty())
 
-        val after = withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Pending } } as LaunchpadState.Pending
-        // The card carries this sortie's status now, so the one thing that legitimately moves is that status: the
-        // FAILED row the ask was a Retry of, then the fresh QUEUED row the ask wrote. Nothing else on the card moved.
-        assertEquals(SortieGenerationStatus.Failed(FAILED_ERROR), before.generationStatus)
+        // vm.state still holds the card from before the ask when that ask's write commits, so the wait is for the
+        // card to move rather than for a Pending: it was already Pending.
+        val after = withTimeout(5_000L) {
+            vm.state.first { it is LaunchpadState.Pending && it.generationStatus != before.generationStatus }
+        } as LaunchpadState.Pending
+        // The FAILED row the ask was a Retry of, then the fresh QUEUED row the ask wrote. Nothing else moved.
         assertEquals(SortieGenerationStatus.Planning, after.generationStatus)
         assertEquals(before.copy(generationStatus = SortieGenerationStatus.Planning), after)
         assertTrue(escaped.isEmpty())
