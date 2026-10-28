@@ -5,17 +5,25 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.liftoff.app.coach.CoachFixtures
+import com.liftoff.app.data.FlightPlan
 import com.liftoff.app.data.FlightPlanDao
+import com.liftoff.app.data.FlightPlanSource
 import com.liftoff.app.data.Generation
 import com.liftoff.app.data.GenerationDao
 import com.liftoff.app.data.GenerationKind
 import com.liftoff.app.data.GenerationStatus
 import com.liftoff.app.data.LiftoffDatabase
+import com.liftoff.app.data.Mission
 import com.liftoff.app.data.MissionDao
 import com.liftoff.app.data.MissionManager
+import com.liftoff.app.data.MissionStatus
+import com.liftoff.app.data.PlannedExercise
+import com.liftoff.app.data.PlannedSet
+import com.liftoff.app.data.RunSegment
 import com.liftoff.app.data.Sortie
 import com.liftoff.app.data.SortieDao
 import com.liftoff.app.data.SortieState
+import com.liftoff.app.data.SortieType
 import com.liftoff.app.data.StoreOutcome
 import com.liftoff.app.domain.currentWeekStart
 import com.liftoff.app.settings.SettingsStore
@@ -28,7 +36,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,10 +52,11 @@ import java.time.ZoneOffset
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * [LaunchpadViewModel.regenerate] on the three states where asking succeeds: the open FLIGHT_PLAN row a second ask
- * supersedes, the FAILED row it leaves alone, and the PLANNED sortie whose plan it must not touch. View model and
- * DAO only — the harness is LaunchpadConfirmTest's, so nothing here touches Compose, WorkManager or a daemon, and
- * the failed row is seeded straight through the generation DAO rather than by a worker.
+ * [LaunchpadViewModel.regenerate] and [MissionManager.regenerateFlightPlan] on the states where asking succeeds —
+ * the open FLIGHT_PLAN row a second ask supersedes, the FAILED row it leaves alone, the PLANNED sortie whose plan
+ * it must not touch — and on each state where asking is refused, every refusal writing nothing. View model and DAO
+ * only: the harness is LaunchpadConfirmTest's, so nothing here touches Compose, WorkManager or a daemon, and a
+ * failed row is seeded straight through the generation DAO rather than by a worker.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -100,13 +112,14 @@ class LaunchpadRegenerateTest {
      * The week a regenerate is asked on, built the way the screen builds it: settings first, because onAppOpen
      * reads defaultPattern for the new Mission, then the week activated with no outline. That leaves one open
      * QUEUED FLIGHT_PLAN row on the current sortie — the row a second ask has to supersede — and its id is not
-     * recorded here, because the manager is called directly with its default onQueued. The pattern starts with L
-     * so the current sortie is a LIFT, the only kind Mission Control is asked about while run generation is off.
+     * recorded here, because the manager is called directly with its default onQueued. The pattern defaults to
+     * one starting with L, so the current sortie is a LIFT: the kind Mission Control is asked about while run
+     * generation is off. A pattern starting with R makes the current sortie a RUN instead.
      */
-    private suspend fun activeWeek(): Triple<LaunchpadViewModel, Long, Sortie> {
+    private suspend fun activeWeek(pattern: String = "LRL"): Triple<LaunchpadViewModel, Long, Sortie> {
         settingsStore.setDaemonHost(VALID_HOST)
         settingsStore.setDaemonToken(VALID_TOKEN)
-        settingsStore.setDefaultPattern("LRL")
+        settingsStore.setDefaultPattern(pattern)
         manager.onAppOpen()
         val missionId = missionDao.getByWeekStart(currentWeekStart(clock, ZoneOffset.UTC))!!.id
         manager.continueWithoutOutline(missionId)
@@ -169,6 +182,71 @@ class LaunchpadRegenerateTest {
         assertEquals(missionId, row.missionId)
         assertEquals(sortieId, row.sortieId)
         return row
+    }
+
+    /**
+     * The manager asked directly, with the view model's own recording lambdas wired in as its callbacks: the
+     * refusal is an [IllegalStateException], and neither lambda was handed an id. A manager that accepted instead
+     * hands back the ids it would have had cancelled, so the fail names what it queued.
+     */
+    private suspend fun assertManagerRefuses(sortieId: Long) {
+        try {
+            val superseded = manager.regenerateFlightPlan(sortieId) { queuedIds.add(it) }
+            for (id in superseded) {
+                cancelledIds.add(id)
+            }
+            fail("regenerateFlightPlan accepted sortie $sortieId and handed back $superseded")
+        } catch (expected: IllegalStateException) {
+        }
+        assertTrue(queuedIds.isEmpty())
+        assertTrue(cancelledIds.isEmpty())
+    }
+
+    /** Every table a refusal is answerable for, read in one go so before and after compare as one value. */
+    private data class Tables(
+        val generations: List<Generation>,
+        val missions: List<Mission>,
+        val sorties: List<Sortie>,
+        val plans: List<FlightPlan>,
+        val exercises: List<PlannedExercise>,
+        val sets: List<PlannedSet>,
+        val segments: List<RunSegment>,
+    )
+
+    private suspend fun snapshot(): Tables = Tables(
+        generations = generationDao.getAll(),
+        missions = missionDao.getAll(),
+        sorties = sortieDao.getAll(),
+        plans = flightPlanDao.getAllPlans(),
+        exercises = flightPlanDao.getAllPlannedExercises(),
+        sets = flightPlanDao.getAllPlannedSets(),
+        segments = flightPlanDao.getAllRunSegments(),
+    )
+
+    /**
+     * "Writes nothing": each table holds exactly the rows it held before, in the same order and with the same
+     * statuses; no id reached either lambda; nothing reached the scope's exception handler.
+     */
+    private suspend fun assertWroteNothing(before: Tables) {
+        assertEquals(before, snapshot())
+        assertTrue(queuedIds.isEmpty())
+        assertTrue(cancelledIds.isEmpty())
+        assertTrue(escaped.isEmpty())
+    }
+
+    /** One sortie of a Mission seeded straight through the DAO, the way MissionManagerReFlyTest seeds them. */
+    private suspend fun insertSortieOf(
+        missionId: Long,
+        index: Int,
+        state: SortieState,
+        type: SortieType = SortieType.LIFT,
+    ): Sortie {
+        val sortie = Sortie(
+            missionId = missionId, index = index, type = type, focus = "upper",
+            focusRationale = null, state = state, launchedAt = null, landedAt = null,
+            scrubReason = null, notes = null, runDistance = null, runMinutes = null,
+        )
+        return sortie.copy(id = sortieDao.insert(sortie))
     }
 
     // Supersede: asking twice on a PENDING current sortie queues one fresh row and hands back the row that was
@@ -287,6 +365,147 @@ class LaunchpadRegenerateTest {
         assertEquals(planned, stillPlanned)
         assertEquals(planBefore, stillPlanned.plan)
         assertTrue(escaped.isEmpty())
+    }
+
+    // Unconfigured is a refusal here rather than a ConfirmOutcome.CoachNotConfigured for the caller to branch on:
+    // the action still starts on a Pending card, and the manager's IllegalStateException is caught inside the Job
+    // rather than reaching the scope's handler. Had the manager accepted, the row that activating this week queued
+    // would now be cancelled and a second one open, so the unchanged table is also the proof that it refused.
+    @Test
+    fun regenerateWithoutAHostOrTokenIsRefusedAndWritesNothing() = runBlocking {
+        val (vm, _, sortie) = activeWeek()
+        settingsStore.setDaemonHost("")
+        settingsStore.setDaemonToken("")
+        val stateBefore = awaitPending(vm, sortie)
+        val before = snapshot()
+
+        joinAction(vm.regenerate(), vm)
+
+        assertWroteNothing(before)
+        assertEquals(stateBefore, vm.state.value)
+    }
+
+    // The view model offers nothing on an InFlight card, so this is the manager asked directly. The sortie the owner
+    // has launched is not the one to ask Mission Control about, and its plan and its exercises stay as they were —
+    // as does the row activating this week queued, still open because nothing arrived to supersede it.
+    @Test
+    fun regenerateOnAnInFlightSortieIsRefusedAndWritesNothing() = runBlocking {
+        val (_, _, sortie) = activeWeek()
+        assertEquals(
+            StoreOutcome.Stored,
+            manager.storePlan(
+                sortie.id,
+                CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT),
+            ),
+        )
+        manager.launch(sortie.id)
+        val planBefore = flightPlanDao.getPlan(sortie.id)!!
+        val before = snapshot()
+
+        assertManagerRefuses(sortie.id)
+
+        assertWroteNothing(before)
+        assertEquals(SortieState.IN_FLIGHT, sortieDao.get(sortie.id)!!.state)
+        val planAfter = flightPlanDao.getPlan(sortie.id)!!
+        assertEquals(planBefore, planAfter)
+        assertEquals(
+            planBefore.exercises.map { it.displayName },
+            planAfter.exercises.map { it.displayName },
+        )
+        // Still the one open row on this sortie: nothing was queued, so nothing superseded it.
+        assertEquals(GenerationStatus.QUEUED, openPlanRowFor(sortie.id).status)
+    }
+
+    // A PENDING sortie of the current ACTIVE Mission that is not the current one. Index 2 is a LIFT on purpose:
+    // index 1 of "LRL" is a RUN, which the run toggle refuses too, and a case two guards refuse cannot show that
+    // dropping either one of them is what let the ask through.
+    @Test
+    fun regenerateOnASortieThatIsNotCurrentIsRefusedAndWritesNothing() = runBlocking {
+        val (_, missionId, current) = activeWeek()
+        val later = sortieDao.getForMission(missionId).first { it.index == 2 }
+        assertEquals(SortieType.LIFT, later.type)
+        assertEquals(SortieState.PENDING, later.state)
+        assertTrue(later.id != current.id)
+        val before = snapshot()
+
+        assertManagerRefuses(later.id)
+
+        assertWroteNothing(before)
+        assertEquals(later, sortieDao.get(later.id))
+        assertEquals(current, sortieDao.get(current.id)!!)
+    }
+
+    // An ACTIVE Mission of a past week with a PENDING current sortie, seeded through the DAOs the way
+    // MissionManagerReFlyTest seeds its ACTIVE mission. onAppOpen is deliberately not called first: its rollover
+    // sweep would close this Mission before the guard was ever asked, and the refusal would prove nothing.
+    @Test
+    fun regenerateOnASortieOfAWeekThatIsNotCurrentIsRefusedAndWritesNothing() = runBlocking {
+        settingsStore.setDaemonHost(VALID_HOST)
+        settingsStore.setDaemonToken(VALID_TOKEN)
+        val missionId = missionDao.insert(
+            Mission(
+                weekStart = currentWeekStart(clock, ZoneOffset.UTC).minusWeeks(1),
+                pattern = "LLL", status = MissionStatus.ACTIVE, outlineNotes = null,
+            )
+        )
+        val sortie = insertSortieOf(missionId, 0, SortieState.PENDING)
+        val before = snapshot()
+
+        assertManagerRefuses(sortie.id)
+
+        assertWroteNothing(before)
+        assertEquals(MissionStatus.ACTIVE, missionDao.get(missionId)!!.status)
+        assertEquals(SortieState.PENDING, sortieDao.get(sortie.id)!!.state)
+    }
+
+    // DESIGN.md §7.2: a run sortie goes to Mission Control only while 'Generate run plans' is on, and this is the
+    // only place that can enforce it — the worker never reads the toggle. The manager reads settings per call, so
+    // both halves run here: refused while the toggle is off, accepted once it is on, and the simple plan advance
+    // wrote for this sortie is the plan it holds before and after.
+    @Test
+    fun regenerateOnARunSortieFollowsTheGenerateRunPlansToggle() = runBlocking {
+        val (_, missionId, sortie) = activeWeek(pattern = "RLL")
+        assertEquals(SortieType.RUN, sortie.type)
+        assertFalse(settingsStore.settings.first().generateRunPlans)
+        assertEquals(SortieState.PLANNED, sortieDao.get(sortie.id)!!.state)
+        val planBefore = flightPlanDao.getPlan(sortie.id)!!
+        assertEquals(FlightPlanSource.SIMPLE_RUN, planBefore.plan.source)
+        val before = snapshot()
+
+        assertManagerRefuses(sortie.id)
+        assertWroteNothing(before)
+
+        settingsStore.setGenerateRunPlans(true)
+        val superseded = manager.regenerateFlightPlan(sortie.id) { queuedIds.add(it) }
+
+        // advance queued no row for a run sortie while the toggle was off, so this ask had nothing to supersede.
+        assertTrue(superseded.isEmpty())
+        val enqueued = queuedRowEnqueued(missionId, sortie.id)
+        assertEquals(before.generations.size + 1, generationDao.getAll().size)
+        assertTrue(before.generations.none { it.id == enqueued.id })
+        assertEquals(planBefore, flightPlanDao.getPlan(sortie.id))
+        assertEquals(SortieState.PLANNED, sortieDao.get(sortie.id)!!.state)
+        assertTrue(escaped.isEmpty())
+    }
+
+    // The ACTIVE check's own case: a DRAFT of the current week holding a PENDING current sortie of its own. Every
+    // other refusal in this class is on an ACTIVE Mission, so without this one no test would notice the ACTIVE
+    // check being dropped.
+    @Test
+    fun regenerateOnAMissionThatIsNotActiveIsRefusedAndWritesNothing() = runBlocking {
+        settingsStore.setDaemonHost(VALID_HOST)
+        settingsStore.setDaemonToken(VALID_TOKEN)
+        settingsStore.setDefaultPattern("LLL")
+        val draft = manager.onAppOpen()
+        assertEquals(MissionStatus.DRAFT, draft.status)
+        val sortie = insertSortieOf(draft.id, 0, SortieState.PENDING)
+        val before = snapshot()
+
+        assertManagerRefuses(sortie.id)
+
+        assertWroteNothing(before)
+        assertEquals(MissionStatus.DRAFT, missionDao.get(draft.id)!!.status)
+        assertEquals(SortieState.PENDING, sortieDao.get(sortie.id)!!.state)
     }
 
     private companion object {
