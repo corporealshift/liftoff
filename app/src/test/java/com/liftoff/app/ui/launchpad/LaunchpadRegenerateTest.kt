@@ -25,6 +25,7 @@ import com.liftoff.app.data.SortieDao
 import com.liftoff.app.data.SortieState
 import com.liftoff.app.data.SortieType
 import com.liftoff.app.data.StoreOutcome
+import com.liftoff.app.domain.SortieGenerationStatus
 import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.domain.currentWeekStart
 import com.liftoff.app.settings.SettingsStore
@@ -342,8 +343,12 @@ class LaunchpadRegenerateTest {
         assertTrue(failed.id !in cancelledIds)
         assertTrue(cancelledIds.isEmpty())
 
-        val after = withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Pending } }
-        assertEquals(before, after)
+        val after = withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Pending } } as LaunchpadState.Pending
+        // The card carries this sortie's status now, so the one thing that legitimately moves is that status: the
+        // FAILED row the ask was a Retry of, then the fresh QUEUED row the ask wrote. Nothing else on the card moved.
+        assertEquals(SortieGenerationStatus.Failed(FAILED_ERROR), before.generationStatus)
+        assertEquals(SortieGenerationStatus.Planning, after.generationStatus)
+        assertEquals(before.copy(generationStatus = SortieGenerationStatus.Planning), after)
         assertTrue(escaped.isEmpty())
     }
 
