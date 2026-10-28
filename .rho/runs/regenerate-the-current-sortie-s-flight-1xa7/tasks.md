@@ -144,7 +144,7 @@ previous one left there before writing.
   this case go red — restoring the file from the copy under `app/build/`, and re-running the class. Write the mutation,
   the gate command, EXIT and the XML totals into the commit body.
 
-- [ ] 6. Record it in ARCHITECTURE.md, then run the whole gate
+- [x] 6. Record it in ARCHITECTURE.md, then run the whole gate
   Covers plan step 5. `ARCHITECTURE.md` line 82, M3's row: move **Regenerate** out of the closing "In-Flight's
   enqueue, Regenerate and the Launchpad's display of the current sortie's status come next" list and record in the
   row what the operation does — the manager queues one QUEUED `FLIGHT_PLAN` generation for the current PENDING or
