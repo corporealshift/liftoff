@@ -61,7 +61,7 @@ previous one left there before writing.
   invocation reports `BUILD SUCCESSFUL` with 0 failures — the action exists but nothing calls it yet, so every
   existing test must still pass unchanged.
 
-- [ ] 3. The new test class and the three behaviours that ask successfully
+- [x] 3. The new test class and the three behaviours that ask successfully
   Covers plan step 3's first half. New file
   `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadRegenerateTest.kt`: Robolectric `@Config(sdk = [34])`, no
   Compose, no WorkManager, no daemon, with the harness copied from `LaunchpadConfirmTest` — fixed
