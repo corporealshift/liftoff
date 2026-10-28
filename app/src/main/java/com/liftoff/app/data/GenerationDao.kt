@@ -75,6 +75,14 @@ interface GenerationDao {
     )
     suspend fun getNewestNonCancelledForSortie(sortieId: Long): Generation?
 
+    // The live read of that same row, so a card follows a status the worker changes without re-subscribing.
+    // No kind filter: an OUTLINE row carries no sortieId, so it can never answer for a sortie.
+    @Query(
+        "SELECT * FROM generation WHERE sortieId = :sortieId AND status != 'CANCELLED' " +
+            "ORDER BY createdAt DESC, id DESC LIMIT 1"
+    )
+    fun observeNewestNonCancelledForSortie(sortieId: Long): Flow<Generation?>
+
     // Only the Mission's own outline generation: a sortie's plan generation is not what the draft screen shows.
     @Query(
         "SELECT * FROM generation WHERE missionId = :missionId AND kind = 'OUTLINE' AND status != 'CANCELLED' " +

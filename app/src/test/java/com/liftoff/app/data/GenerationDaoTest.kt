@@ -14,8 +14,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -330,6 +334,73 @@ class GenerationDaoTest {
         assertEquals(otherSortie.id, generationDao.getNewestNonCancelledForSortie(11)?.id)
     }
 
+    // Bounded wait for the subscription's answer to be this row, which only a write Room noticed can bring.
+    private suspend fun awaitAnswer(emissions: List<Generation?>, wanted: Long, says: String): Generation {
+        val deadline = System.currentTimeMillis() + AWAIT_MS
+        while (System.currentTimeMillis() < deadline) {
+            emissions.lastOrNull()?.let { if (it.id == wanted) return it }
+            delay(POLL_MS)
+        }
+        throw AssertionError("Timed out waiting for $says to answer $wanted; it emitted ${emissions.map { it?.id }}")
+    }
+
+    // Room wakes the flow on any write to the table, so a row that must not become the answer is proven by every
+    // emission so far still being the row it started on.
+    private suspend fun assertAnswerUnchanged(emissions: List<Generation?>, wanted: Long, says: String) {
+        delay(SETTLE_MS)
+        assertTrue(
+            "$says changed the live read's answer to ${emissions.map { it?.id }}",
+            emissions.isNotEmpty() && emissions.all { it?.id == wanted }
+        )
+    }
+
+    // The Flow twin of the lookup above, watched through one subscription: it starts on this sortie's newest
+    // non-cancelled row, and neither a newer cancelled row for it nor a newer row for another sortie becomes the
+    // answer. Cancelling the row it was answering drops to the live row under it, and a newer row for this sortie
+    // arrives on its own.
+    @Test
+    fun generationFlowFollowsTheNewestNonCancelledRowForOneSortie() = runBlocking {
+        val queued = queueGeneration(GenerationKind.FLIGHT_PLAN, 1, 10, createdAt = 1_000)
+        val running = queueGeneration(
+            GenerationKind.FLIGHT_PLAN, 1, 10, createdAt = 2_000, status = GenerationStatus.RUNNING
+        )
+        queueGeneration(GenerationKind.FLIGHT_PLAN, 1, 10, createdAt = 3_000, status = GenerationStatus.CANCELLED)
+        queueGeneration(GenerationKind.FLIGHT_PLAN, 1, 11, createdAt = 4_000, status = GenerationStatus.SUCCEEDED)
+
+        val emissions = CopyOnWriteArrayList<Generation?>()
+        val watch = launch(start = CoroutineStart.UNDISPATCHED) {
+            generationDao.observeNewestNonCancelledForSortie(10).collect { emissions.add(it) }
+        }
+        try {
+            assertEquals(
+                running.id,
+                awaitAnswer(emissions, running.id, "the live read of sortie 10").id
+            )
+
+            queueGeneration(GenerationKind.FLIGHT_PLAN, 1, 10, createdAt = 5_000, status = GenerationStatus.CANCELLED)
+            assertAnswerUnchanged(emissions, running.id, "a newer cancelled row for sortie 10")
+
+            queueGeneration(GenerationKind.FLIGHT_PLAN, 1, 11, createdAt = 6_000, status = GenerationStatus.RUNNING)
+            assertAnswerUnchanged(emissions, running.id, "a newer row for sortie 11")
+
+            generationDao.markCancelled(running.id, finishedAt = 7_000)
+            assertEquals(
+                queued.id,
+                awaitAnswer(emissions, queued.id, "the live read after its newest row was cancelled").id
+            )
+
+            val newer = queueGeneration(GenerationKind.FLIGHT_PLAN, 1, 10, createdAt = 8_000)
+            val arrived = awaitAnswer(emissions, newer.id, "a newer row for sortie 10")
+            assertEquals(8_000L, arrived.createdAt)
+            assertEquals(GenerationStatus.QUEUED, arrived.status)
+        } finally {
+            watch.cancel()
+        }
+
+        // A sortie with no generation row at all has none, the same answer the suspend twin gives.
+        assertNull(generationDao.observeNewestNonCancelledForSortie(99).first())
+    }
+
     @Test
     fun theNewestNonCancelledGenerationForAMissionIsItsOwnOutlineGeneration() = runBlocking {
         val outline = queueGeneration(GenerationKind.OUTLINE, missionId = 5, sortieId = null, createdAt = 1_000, status = GenerationStatus.RUNNING)
@@ -375,5 +446,11 @@ class GenerationDaoTest {
 
         assertNull(generationDao.observeNewestNonCancelledOutlineForMission(7).first())
         assertTrue(generationDao.getOpenOutlineForMission(7).isEmpty())
+    }
+
+    private companion object {
+        const val AWAIT_MS = 5_000L
+        const val SETTLE_MS = 1_500L
+        const val POLL_MS = 25L
     }
 }

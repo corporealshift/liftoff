@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
 import com.liftoff.app.domain.CoachStatus
+import com.liftoff.app.domain.SortieGenerationStatus
 import com.liftoff.app.ui.PlaceholderScreen
 import com.liftoff.app.ui.inflight.ScrubDialog
 import com.liftoff.app.ui.sortie.FlightPlanSection
@@ -371,7 +372,9 @@ private fun PendingActions(
     if (pending.reFlyAvailable) {
         UnderlinedTextButton(text = "Re-fly", onClick = onRefly)
         Spacer(Modifier.height(12.dp))
-    } else {
+    } else if (pending.generationStatus != SortieGenerationStatus.Planning) {
+        // §5.4: under failed, offline or not configured a refusal can only mean no source; while the coach is
+        // planning a refusal says nothing about one.
         Text(
             text = "No earlier plan to re-fly.",
             style = LiftoffType.textButton().copy(color = Muted),
