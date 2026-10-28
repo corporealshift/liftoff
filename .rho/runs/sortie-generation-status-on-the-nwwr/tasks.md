@@ -39,7 +39,7 @@ file, kept as a byte copy under `app/build/` for restoring, with the mutant's lo
 Do not touch `verify.sh`. No doc file is touched: the brief asks for no doc change and plan.md says `ARCHITECTURE.md`
 is not touched.
 
-- [ ] 1. The DAO's live read for one sortie
+- [x] 1. The DAO's live read for one sortie
   Covers plan step 1. `app/src/main/java/com/liftoff/app/data/GenerationDao.kt`: a Flow twin of
   `getNewestNonCancelledForSortie` (76) — the same query over the same columns, with no `kind` filter (an OUTLINE
   row carries no `sortieId`), following the Flow precedent at 90; map.md records the query. Nothing calls it yet, so
