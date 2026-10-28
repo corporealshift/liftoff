@@ -52,7 +52,7 @@ is not touched.
   that name present in the class's `TEST-*.xml`; `git status --short` shows nothing under `app/schemas`. Write the
   query, the gate command, EXIT and the XML totals into the commit body.
 
-- [ ] 2. The derivation and its plain JUnit cases
+- [x] 2. The derivation and its plain JUnit cases
   Covers plan step 2. New `app/src/main/java/com/liftoff/app/domain/SortieGenerationStatus.kt` and new plain-JUnit
   class `app/src/test/java/com/liftoff/app/domain/SortieGenerationStatusTest.kt` (no Robolectric, no Room, no
   coroutine, no context). The derivation takes plain values — the newest row's status / error / offline mark / session
