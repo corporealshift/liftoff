@@ -71,6 +71,13 @@ Branch base: `34bedce` (Regenerate, PR #46). Docs: `CLAUDE.md` (gate `bash gradl
   `chooseReflySource(current, candidates)` (LANDED + same type + hasPlan, prefers matching focus, newest by `landedAt`).
   `reflyCandidates(dao, dao, sortie)` lives in `data/` (MissionManager's own helper — used by `refly` and by LaunchpadStates).
 
+## CI and the gate
+
+- `.github/workflows/ci.yml` runs exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest` on temurin JDK 17, ubuntu-latest. No lint/detekt/ktlint step. The live coach test self-skips when `LIFTOFF_LIVE_*` env vars are absent, so it is not a check.
+- `app/build.gradle.kts` kills a test task that goes 5 minutes without finishing (`timeoutDuration`-style test-task timeout recorded in earlier runs); a hang writes no `TEST-*.xml` at all.
+- `app/src/test/java/com/liftoff/app/data/SchemaExportTest.kt` → `exportedV1SchemaMatchesDatabase()` reads `app/schemas/com.liftoff.app.data.LiftoffDatabase/1.json` (the only file under `app/schemas`) and asserts it mentions each entity table. Room re-exports that file at build time, so an entity change rewrites it or adds `2.json`.
+- 85 test classes exist under `app/src/test` on this branch. `verify.sh` names 43 of them with `c <ClassName>` (all present) plus `t exportedV1SchemaMatchesDatabase`.
+
 ## Tests that already exist
 
 - `app/src/test/java/com/liftoff/app/domain/CoachStatusTest.kt` — plain JUnit over `deriveCoachStatus`; line 53
@@ -91,3 +98,12 @@ Branch base: `34bedce` (Regenerate, PR #46). Docs: `CLAUDE.md` (gate `bash gradl
   `LaunchpadStatesTest` 234/244/257/273 should keep passing unchanged.
 - `app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt:867` asserts the exact stored error text
   `"invalid output: " + lastErrors.joinToString("; ")` — so the worker's wording must not change.
+
+## The live-subscription harness to copy (LaunchpadCoachStatusTest, 350 lines)
+
+`app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadCoachStatusTest.kt` — `@Config(sdk = [34])`, no WorkManager, no daemon, no screen.
+- `setUp`: `Room.inMemoryDatabaseBuilder(...).allowMainThreadQueries()`; `settingsFile = File(context.cacheDir, "coach-status-${UUID.randomUUID()}.preferences_pb")` + `SettingsStore(PreferenceDataStoreFactory.create { settingsFile })` (a file of its own per class); `MissionManager(db, settingsStore, clock = clock, zone = { ZoneOffset.UTC })` with `clock = Clock.fixed(Instant.parse("2026-01-12T00:00:00Z"), ZoneOffset.UTC)` and `weekStart = LocalDate.parse("2026-01-12")`; `states = LaunchpadStates(db, manager)`. `tearDown`: `db.close()` then `settingsFile.delete()`.
+- `private val emissions = CopyOnWriteArrayList<LaunchpadState>()`; `CoroutineScope.openSubscription() = launch { states.observe().collect { emissions.add(it) } }` — one collector per case, opened before the writes and left open.
+- `awaitDraft(where)` = `withTimeout(AWAIT_MS)` polling `delay(POLL_MS)`; `assertNothingNewEmitted(before, newestStatus, what)` = `withTimeoutOrNull(SETTLE_MS)` for a new emission, then `assertNull` + `assertEquals(before, emissions.size)` + the newest status unchanged.
+- `outlineRow(missionId, status, createdAt, finishedAt = null) = Generation(kind = OUTLINE, missionId, sortieId = null, status, createdAt, finishedAt)` — `Generation.createdAt` has no default and `GenerationDao.insert` returns the id; `at(step) = seededAt + step * 1_000L` gives each row its own later instant (rows are ordered by `createdAt`).
+- `coachIsSetUp()` = `settingsStore.setDaemonHost("127.0.0.1")` + `setDaemonToken("coach-token")`; the blank-host case reads `settingsStore.settings.first().daemonHost == ""`; `setWeightUnit(WeightUnit.KG)` is the settings write that must not re-emit.
