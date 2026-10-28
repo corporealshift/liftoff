@@ -144,7 +144,7 @@ is not touched.
   case bites by dropping `distinctUntilChanged()` from the joined arms, watching it go red, and restoring the file
   from the copy under `app/build/`. Write the gate command, EXIT, the totals and the mutation into the commit body.
 
-- [ ] 6. The whole gate, once, and whatever it turns up
+- [x] 6. The whole gate, once, and whatever it turns up
   Covers plan step 5. No new behaviour and no new test: this task runs the gate and fixes only what it names, in its
   own commit. One cold detached `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, from a
   scratch script under `app/build/`, re-run once on the identical tree if it hangs. Read the log for `FAILED` as well
