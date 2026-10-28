@@ -43,10 +43,13 @@ Branch base: `34bedce` (Regenerate, PR #46). Docs: `CLAUDE.md` (gate `bash gradl
 - `app/src/main/java/com/liftoff/app/data/Generation.kt` — row fields incl. `nabuSessionId`, `error`, `attempt`.
   `COACH_OFFLINE = "Mission Control offline"`. `isCoachOffline` = `error == COACH_OFFLINE && status in (QUEUED, RUNNING)`
   — so a FAILED row is never "offline" by this property.
-- `app/src/main/java/com/liftoff/app/data/GenerationDao.kt` (114) —
+- `app/src/main/java/com/liftoff/app/data/GenerationDao.kt` (122) —
   `getNewestNonCancelledForSortie(sortieId)` (line 76): `WHERE sortieId = :sortieId AND status != 'CANCELLED'
-  ORDER BY createdAt DESC, id DESC LIMIT 1` — **no `kind` filter**. `observeNewestNonCancelledOutlineForMission`
-  (line 90) is the Flow precedent for the same query. `getOpenFlightPlanForSortie` (line 106) filters
+  ORDER BY createdAt DESC, id DESC LIMIT 1` — **no `kind` filter**. `observeNewestNonCancelledForSortie(sortieId):
+  Flow<Generation?>` (line 84, added by task 1) is its Flow twin: the identical `SELECT`/`WHERE`/`ORDER BY`/`LIMIT`,
+  added because a Flow cannot share a `@Query` string with the suspend read and the two must not be able to disagree.
+  `observeNewestNonCancelledOutlineForMission` (line 98) is the Flow precedent for the same shape.
+  `getOpenFlightPlanForSortie` (line 114) filters
   `kind = 'FLIGHT_PLAN' AND status IN ('QUEUED','RUNNING')`. `markFailed(id, error, finishedAt)` guards on
   `status IN ('QUEUED','RUNNING')`; `setCoachOfflineMark(id, error?)` writes `error` only while open.
 - `app/src/main/java/com/liftoff/app/work/GenerationWorker.kt` — the failure texts it writes:
