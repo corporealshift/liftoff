@@ -95,7 +95,7 @@ previous one left there before writing.
   restoring that file from the copy under `app/build/` and re-running the class. Write the mutations, the gate
   command, EXIT and the XML totals into the commit body.
 
-- [ ] 4. The refusals, each of which writes nothing
+- [x] 4. The refusals, each of which writes nothing
   Covers plan step 3's second half, in the class task 3 created (read what it left there before adding to it). Write
   these six tests. In every refusal case "writes nothing" means: the generation table holds exactly the rows it held
   before with the same statuses, no id reached the enqueue or cancel lambda, the Mission and its sorties are unchanged,
