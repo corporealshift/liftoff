@@ -25,6 +25,7 @@ import com.liftoff.app.data.SortieDao
 import com.liftoff.app.data.SortieState
 import com.liftoff.app.data.SortieType
 import com.liftoff.app.data.StoreOutcome
+import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.domain.currentWeekStart
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -54,7 +55,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * [LaunchpadViewModel.regenerate] and [MissionManager.regenerateFlightPlan] on the states where asking succeeds —
  * the open FLIGHT_PLAN row a second ask supersedes, the FAILED row it leaves alone, the PLANNED sortie whose plan
- * it must not touch — and on each state where asking is refused, every refusal writing nothing. View model and DAO
+ * it must not touch — on each state where asking is refused, every refusal writing nothing, and on the Launchpad
+ * states the action is offered on and the ones it returns null on. View model and DAO
  * only: the harness is LaunchpadConfirmTest's, so nothing here touches Compose, WorkManager or a daemon, and a
  * failed row is seeded straight through the generation DAO rather than by a worker.
  */
@@ -124,19 +126,21 @@ class LaunchpadRegenerateTest {
         val missionId = missionDao.getByWeekStart(currentWeekStart(clock, ZoneOffset.UTC))!!.id
         manager.continueWithoutOutline(missionId)
         val sortie = sortieDao.getForMission(missionId).first { it.index == 0 }
-        val vm = LaunchpadViewModel(
-            db = db,
-            manager = manager,
-            scope = scope,
-            queueGeneration = { queuedIds.add(it) },
-            cancelGeneration = {
-                // The row is marked cancelled as GenerationCanceller marks it, so a cancel read back is real.
-                cancelledIds.add(it)
-                generationDao.markCancelled(it, clock.millis())
-            },
-        )
-        return Triple(vm, missionId, sortie)
+        return Triple(newViewModel(), missionId, sortie)
     }
+
+    /** The view model under test, both of its callbacks recording the ids they were handed. */
+    private fun newViewModel(): LaunchpadViewModel = LaunchpadViewModel(
+        db = db,
+        manager = manager,
+        scope = scope,
+        queueGeneration = { queuedIds.add(it) },
+        cancelGeneration = {
+            // The row is marked cancelled as GenerationCanceller marks it, so a cancel read back is real.
+            cancelledIds.add(it)
+            generationDao.markCancelled(it, clock.millis())
+        },
+    )
 
     /** A null Job is the action never having started, which would make every assertion below vacuous. */
     private suspend fun joinAction(launched: Job?, vm: LaunchpadViewModel) {
@@ -160,6 +164,24 @@ class LaunchpadRegenerateTest {
         val planned = state as LaunchpadState.Planned
         assertEquals(sortie.id, planned.sortieId)
         return planned
+    }
+
+    /**
+     * The Closed card, awaited for the same reason as the two above and read down to the rows it was derived
+     * from: this week, this many landed sorties, this many sorties in the pattern.
+     */
+    private suspend fun awaitClosed(
+        vm: LaunchpadViewModel,
+        weekStart: java.time.LocalDate,
+        landedCount: Int,
+        total: Int,
+    ): LaunchpadState.Closed {
+        val state = withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Closed } }
+        val closed = state as LaunchpadState.Closed
+        assertEquals(weekStart, closed.weekStart)
+        assertEquals(landedCount, closed.landedCount)
+        assertEquals(total, closed.total)
+        return closed
     }
 
     /** The one open FLIGHT_PLAN row activating the week left on this sortie. */
@@ -506,6 +528,88 @@ class LaunchpadRegenerateTest {
         assertWroteNothing(before)
         assertEquals(MissionStatus.DRAFT, missionDao.get(draft.id)!!.status)
         assertEquals(SortieState.PENDING, sortieDao.get(sortie.id)!!.state)
+    }
+
+    // The action's own state gate, which is what stops every case above from passing on an action that did nothing
+    // at all: a Job on the two cards regenerate is offered on, null on each of the four it is not. Each half awaits
+    // the card it is about to act on, so a card the derivation has not produced yet cannot be mistaken for a refusal,
+    // and every Job is joined before its enqueued row is read back. The week is one sortie long so that landing it
+    // is what closes the week.
+    @Test
+    fun regenerateIsAvailableOnPendingAndPlannedAndNullOnEveryOtherState() = runBlocking {
+        settingsStore.setDaemonHost(VALID_HOST)
+        settingsStore.setDaemonToken(VALID_TOKEN)
+        settingsStore.setDefaultPattern("L")
+        val vm = newViewModel()
+
+        // Loading: onAppOpen has not settled the week, so the manager has no current week to derive a card from.
+        assertNull(manager.currentWeekStart.value)
+        assertNull(missionDao.getByWeekStart(currentWeekStart(clock, ZoneOffset.UTC)))
+        assertEquals(LaunchpadState.Loading, withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Loading } })
+        assertNull("regenerate was offered on a Loading Launchpad", vm.regenerate())
+
+        // Draft: the week settled, its current sortie not yet started.
+        val draft = manager.onAppOpen()
+        assertEquals(MissionStatus.DRAFT, draft.status)
+        val draftCard = withTimeout(5_000L) { vm.state.first { it is LaunchpadState.Draft } }
+            as LaunchpadState.Draft
+        assertEquals(draft.id, draftCard.missionId)
+        assertEquals(draft.weekStart, draftCard.weekStart)
+        assertNull("regenerate was offered on a Draft week", vm.regenerate())
+
+        // Pending: the week activated with no outline, so the current sortie is PENDING and holds the open
+        // FLIGHT_PLAN row activating the week queued. The action returns a Job, and the id it enqueued reads back as
+        // the one open row on this sortie.
+        manager.continueWithoutOutline(draft.id)
+        val sortie = sortieDao.getForMission(draft.id).single()
+        assertEquals(SortieType.LIFT, sortie.type)
+        awaitPending(vm, sortie)
+        joinAction(vm.regenerate(), vm)
+        assertEquals(1, queuedIds.size)
+        assertEquals(queuedIds.single(), openPlanRowFor(sortie.id).id)
+
+        // Planned: the plan a validated coach reply stored, which is what keeps the card Planned and launchable.
+        assertEquals(
+            StoreOutcome.Stored,
+            manager.storePlan(
+                sortie.id,
+                CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT),
+            ),
+        )
+        awaitPlanned(vm, sortie)
+        joinAction(vm.regenerate(), vm)
+        assertEquals(2, queuedIds.size)
+        assertEquals(queuedIds.last(), openPlanRowFor(sortie.id).id)
+        assertEquals(SortieState.PLANNED, sortieDao.get(sortie.id)!!.state)
+
+        // InFlight: the owner launched this sortie, and this is the card regenerate is not offered on.
+        manager.launch(sortie.id)
+        val inFlight = withTimeout(5_000L) { vm.state.first { it is LaunchpadState.InFlight } }
+            as LaunchpadState.InFlight
+        assertEquals(sortie.id, inFlight.sortieId)
+        assertNull("regenerate was offered on an InFlight card", vm.regenerate())
+
+        // Closed, the first way: the week's only sortie landed, which is what closes a week.
+        manager.land(sortie.id)
+        assertEquals(MissionStatus.CLOSED, missionDao.get(draft.id)!!.status)
+        awaitClosed(vm, draft.weekStart, landedCount = 1, total = 1)
+        assertNull("regenerate was offered on a Closed Mission", vm.regenerate())
+
+        // Closed, the other way: an ACTIVE Mission with no current sortie. The manager closes a week as soon as its
+        // last sortie is done, so this state is written straight through the DAO — not a lifecycle transition, the
+        // rows the derivation has to answer for. A fresh view model, because the card above was already Closed: a
+        // second one is derived from these rows rather than left over from the Mission that was CLOSED.
+        missionDao.update(missionDao.get(draft.id)!!.copy(status = MissionStatus.ACTIVE))
+        assertNull(currentSortie(sortieDao.getForMission(draft.id)))
+        val active = newViewModel()
+        assertEquals(MissionStatus.ACTIVE, missionDao.get(draft.id)!!.status)
+        awaitClosed(active, draft.weekStart, landedCount = 1, total = 1)
+        assertNull("regenerate was offered on an ACTIVE Mission with no current sortie", active.regenerate())
+
+        // Nothing any null state was asked for: the only ids either lambda holds are the two the Jobs handed over.
+        assertEquals(2, queuedIds.size)
+        assertEquals(2, cancelledIds.size)
+        assertTrue(escaped.isEmpty())
     }
 
     private companion object {
