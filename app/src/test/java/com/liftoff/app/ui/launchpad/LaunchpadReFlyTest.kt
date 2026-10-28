@@ -16,6 +16,7 @@ import com.liftoff.app.data.FlightPlanDetail
 import com.liftoff.app.data.FlightPlanDraft
 import com.liftoff.app.data.FlightPlanDao
 import com.liftoff.app.data.FlightPlanSource
+import com.liftoff.app.data.GenerationStatus
 import com.liftoff.app.data.LiftoffDatabase
 import com.liftoff.app.data.MissionManager
 import com.liftoff.app.data.Sortie
@@ -37,6 +38,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -134,9 +136,15 @@ class LaunchpadReFlyTest {
 
     /**
      * A two-LIFT week whose first sortie landed with a Flight Plan, so the sortie that follows is the
-     * current PENDING one with a source to re-fly from. Returns (the landed source, the current sortie).
+     * current PENDING one with a source to re-fly from. With [coachSetUp] set, the manager's own advance
+     * queues the current sortie's QUEUED FLIGHT_PLAN row as it prepares it.
+     * Returns (the landed source, the current sortie).
      */
-    private suspend fun landedSourceThenPending(): Pair<Sortie, Sortie> {
+    private suspend fun landedSourceThenPending(coachSetUp: Boolean = false): Pair<Sortie, Sortie> {
+        if (coachSetUp) {
+            settingsStore.setDaemonHost("127.0.0.1")
+            settingsStore.setDaemonToken("token-under-test")
+        }
         settingsStore.setDefaultPattern("LL")
         val mission = manager.onAppOpen()
         manager.continueWithoutOutline(mission.id)
@@ -246,6 +254,41 @@ class LaunchpadReFlyTest {
 
             assertEquals(SortieState.PENDING, sortieDao.get(current.id)!!.state)
             assertNull(flightPlanDao.getPlan(current.id))
+            assertTrue(escaped.isEmpty())
+        }
+    }
+
+    // §5.4: a source plan exists and the coach is already working on this sortie, so the card shows neither the
+    // control nor the line that stands in when there is no source. Scrub is unaffected.
+    @Test
+    fun pendingScreenShowsNeitherReFlyNorTheLineWhileTheCoachIsPlanning() {
+        runBlocking {
+            val (source, current) = landedSourceThenPending(coachSetUp = true)
+            val open = db.generationDao().getOpenFlightPlanForSortie(current.id)
+            assertTrue(
+                "the current sortie was prepared by an open QUEUED FLIGHT_PLAN row: ${open.map { it.status }}",
+                open.any { it.status == GenerationStatus.QUEUED },
+            )
+            assertNotNull(flightPlanDao.getPlan(source.id))
+
+            val viewModel = LaunchpadViewModel(
+                db = db,
+                manager = manager,
+                scope = scope,
+                queueGeneration = { },
+                cancelGeneration = { },
+            )
+            render(viewModel)
+
+            awaitOnScreen("SCRUB")
+
+            composeRule.onAllNodesWithText("RE-FLY", ignoreCase = true).assertCountEquals(0)
+            composeRule.onAllNodesWithText("No earlier plan to re-fly.").assertCountEquals(0)
+            composeRule.onNodeWithText("SCRUB").assertIsDisplayed()
+            composeRule.onNodeWithText("SCRUB").assertIsEnabled()
+
+            assertEquals(SortieState.PENDING, sortieDao.get(current.id)!!.state)
+            assertEquals(SortieState.LANDED, sortieDao.get(source.id)!!.state)
             assertTrue(escaped.isEmpty())
         }
     }
