@@ -99,6 +99,39 @@ Branch base: `34bedce` (Regenerate, PR #46). Docs: `CLAUDE.md` (gate `bash gradl
 - `app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt:867` asserts the exact stored error text
   `"invalid output: " + lastErrors.joinToString("; ")` — so the worker's wording must not change.
 
+## Facts added while splitting the plan into tasks
+
+- `MissionManager.advance` (435-472) is the only place a lifecycle call queues a `FLIGHT_PLAN` generation row: the
+  `AwaitGeneration` arm returns null at 456 when `coachIsConfigured` is false, else inserts one QUEUED row (459).
+  `continueWithoutOutline` (185) calls it at 199, `land` (282) at 296, `scrub` (252) likewise. So a fixture that sets
+  host and token **already has** one open row on its current PENDING sortie (that is where a live test's first
+  `planning` emission comes from), and a fixture that does not — every existing Launchpad re-fly assertion — has no
+  row at all, which is why §5.4 is not expected to flip any of them.
+- `refly` (306) checks the sortie is PENDING (313) and `check(source != null)` (316), so a PLANNED sortie cannot re-fly.
+- **No test constructs `LaunchpadState.Pending` or `Planned`**; tests only cast (`as LaunchpadState.Pending`), and the
+  only construction sites are in `LaunchpadState.kt` — 156 (Planned), 171, 191, 224 (Pending). Adding a field to those
+  two data classes is compile-safe once those four sites are updated. `LaunchpadScreen` reads `pending.reFlyAvailable`
+  at 371 inside `PendingActions` (365-382, the `else` arm 374-380 is the "No earlier plan to re-fly." line);
+  `LaunchpadViewModel` reads only `sortieId` from Pending/Planned.
+- `LaunchpadStatesTest`'s re-fly cases: `pendingOffersReFlyWhenALandedPlanOfTheSameTypeExists` (assertFalse 234 before
+  anything lands, assertTrue 244 after a LIFT lands with a plan) and `pendingOffersNoReFlyWithoutAMatchingLandedPlan`
+  (257, 273). With the coach unconfigured the derivation answers *not configured*, so 244 survives (a source exists)
+  and 234/257/273 survive (no source). `LaunchpadReFlyTest`'s three cases are at 188 (Re-fly shown), 226 (the line,
+  243), 257 (tap); 215 asserts the line is absent.
+- `LaunchpadReFlyTest` can seed what a §5.4 case needs: `settingsStore` (86-89, its own
+  `settings.preferences_pb` in `cacheDir`, deleted at 104) and `db.generationDao()` are both in scope; fixtures are
+  `landedSourceThenPending()` (139, pattern "LL", lands sortie 0 so sortie 1 is the current PENDING one with a source)
+  and `pendingWithNothingLanded()` (157); `awaitOnScreen` (129) waits on an action-row control.
+- Recipe for a **PLANNED current sortie** with the coach configured:
+  `manager.storePlan(sortie.id, CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT))`
+  (`LaunchpadRegenerateTest.kt:359`) moves the PENDING sortie to PLANNED with a plan; `activeWeek()` (121) sets host
+  and token **before** `onAppOpen()`/`continueWithoutOutline()`.
+- Gate baseline on this branch: **704 tests across 84 `TEST-*.xml` report files** (85 test class files under
+  `app/src/test`), from the run's own `verify.sh` gate run.
+- **Open decision the tasks must settle:** plan.md does not say whether the derivation is one function that takes the
+  card kind (PENDING vs PLANNED) or two entry points. `verify.sh`'s names require the derivation itself to answer the
+  §5.4 Re-fly offer and to answer PENDING and PLANNED differently; how is the implementer's call, recorded in the commit.
+
 ## The live-subscription harness to copy (LaunchpadCoachStatusTest, 350 lines)
 
 `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadCoachStatusTest.kt` — `@Config(sdk = [34])`, no WorkManager, no daemon, no screen.
@@ -107,3 +140,7 @@ Branch base: `34bedce` (Regenerate, PR #46). Docs: `CLAUDE.md` (gate `bash gradl
 - `awaitDraft(where)` = `withTimeout(AWAIT_MS)` polling `delay(POLL_MS)`; `assertNothingNewEmitted(before, newestStatus, what)` = `withTimeoutOrNull(SETTLE_MS)` for a new emission, then `assertNull` + `assertEquals(before, emissions.size)` + the newest status unchanged.
 - `outlineRow(missionId, status, createdAt, finishedAt = null) = Generation(kind = OUTLINE, missionId, sortieId = null, status, createdAt, finishedAt)` — `Generation.createdAt` has no default and `GenerationDao.insert` returns the id; `at(step) = seededAt + step * 1_000L` gives each row its own later instant (rows are ordered by `createdAt`).
 - `coachIsSetUp()` = `settingsStore.setDaemonHost("127.0.0.1")` + `setDaemonToken("coach-token")`; the blank-host case reads `settingsStore.settings.first().daemonHost == ""`; `setWeightUnit(WeightUnit.KG)` is the settings write that must not re-emit.
+
+## The check as it stands now (read it, do not trust an older log)
+
+`verify.sh` was rewritten by `972980a` "run: verify.sh rewritten by claude review", **after** the gate run whose log is at `app/build/verify-run.log`. That log shows a section "the PENDING action row under the new rule" and a 19th new name `neitherReFlyNorTheNoEarlierPlanLineIsShownWhileTheCoachIsPlanning`; **neither is in the current `verify.sh`** — do not write that test. What the current script requires is 14 plain-JUnit derivation names, 4 live one-subscription names, 43 `c <ClassName>` class checks, `t exportedV1SchemaMatchesDatabase` (already exists), and the `app/schemas` comparison against the commit that added this run's `brief.md`.
