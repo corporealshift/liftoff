@@ -79,7 +79,7 @@ is not touched.
   offers Re-fly while a row is open — each reddening exactly the case named for it — restoring from the copy under
   `app/build/`. Write the gate command, EXIT, the totals and the two mutations into the commit body.
 
-- [ ] 3. Pending and Planned carry the status; the join appears only on those two arms
+- [x] 3. Pending and Planned carry the status; the join appears only on those two arms
   Covers plan step 3's first half. `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadState.kt`: `Pending` and
   `Planned` each carry the derived status; `Pending.reFlyAvailable` becomes the derivation's §5.4 answer, so the
   PENDING arm feeds `chooseReflySource(current, reflyCandidates(...)) != null` in as an input instead of using it as
