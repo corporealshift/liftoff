@@ -221,4 +221,30 @@ class LaunchpadViewModel(
             }
         }
     }
+
+    // ── Regenerate ─────────────────────────────────────────────────────
+
+    /**
+     * Ask Mission Control for a fresh Flight Plan for the current sortie, offered on the Pending and Planned
+     * cards. It is also the Retry after a Flight Plan failed, because the manager queues a brand-new row rather
+     * than resuming the failed one. The plan the sortie already holds is left alone until the new result lands.
+     */
+    fun regenerate(): Job? {
+        val s = state.value
+        val sortieId = when (s) {
+            is LaunchpadState.Pending -> s.sortieId
+            is LaunchpadState.Planned -> s.sortieId
+            else -> return null
+        }
+        return scope.launch {
+            try {
+                val supersededIds = manager.regenerateFlightPlan(sortieId, queueGeneration)
+                for (generationId in supersededIds) {
+                    cancelGeneration(generationId)
+                }
+            } catch (_: IllegalStateException) {
+                runCatching { manager.onAppOpen() }
+            }
+        }
+    }
 }
