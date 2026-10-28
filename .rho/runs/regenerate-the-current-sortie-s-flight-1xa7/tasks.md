@@ -130,7 +130,7 @@ previous one left there before writing.
   the run-toggle check → the toggle case — restoring the file from the copy under `app/build/` and re-running the class
   after each. Write the mutations, the gate command, EXIT and the XML totals into the commit body.
 
-- [ ] 5. Where the action is available
+- [x] 5. Where the action is available
   Covers plan step 3's last case, in the class tasks 3-4 built. Write
   **`regenerateIsAvailableOnPendingAndPlannedAndNullOnEveryOtherState`**: the action returns a `Job` on a PENDING
   current sortie and on a PLANNED one, and null on a Draft week, on an IN_FLIGHT current sortie, on a CLOSED Mission
