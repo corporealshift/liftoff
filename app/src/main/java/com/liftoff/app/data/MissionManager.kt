@@ -67,6 +67,11 @@ class MissionManager(
         .map { coachIsConfigured(it.daemonHost, it.daemonToken) }
         .distinctUntilChanged()
 
+    /** Whether 'Generate run plans' is on. [regenerateFlightPlan] enforces it; this is the same check live. */
+    val generateRunPlans: Flow<Boolean> = settingsStore.settings
+        .map { it.generateRunPlans }
+        .distinctUntilChanged()
+
     suspend fun onAppOpen(): Mission {
         val settings = settingsStore.settings.first()
         val weekStart = currentWeekOf(clock, zone)
@@ -333,6 +338,9 @@ class MissionManager(
      * Every refusal is an [IllegalStateException] and writes nothing. Being unconfigured is one of them here,
      * unlike [confirm] and [retryOutline], which report it as [ConfirmOutcome.CoachNotConfigured]: a regenerate
      * has no outcome to branch on, and its caller treats every refusal the same way.
+     *
+     * LaunchpadState's `regenerateAvailable` mirrors the two settings checks below through [coachConfigured] and
+     * [generateRunPlans]; this function stays the authority.
      */
     suspend fun regenerateFlightPlan(sortieId: Long, onQueued: (Long) -> Unit = {}): List<Long> {
         val settings = settingsStore.settings.first()
