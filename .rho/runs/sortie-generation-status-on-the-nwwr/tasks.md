@@ -98,7 +98,7 @@ is not touched.
   and the commit body names it for the PR (the map records why none is expected to). Write which arms join, and any
   test updated, into the commit body.
 
-- [ ] 4. The screen keeps compiling and stops telling the owner something untrue
+- [x] 4. The screen keeps compiling and stops telling the owner something untrue
   Covers plan step 3's second half and plan §Files' `LaunchpadScreen` row. `PendingActions` (365): Re-fly stays shown
   only when `pending.reFlyAvailable`, and "No earlier plan to re-fly." (376) is shown only when Re-fly is refused
   **and** the status is not planning — under failed, offline or not configured a refusal can only mean no source. No
