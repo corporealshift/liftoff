@@ -177,12 +177,21 @@ private val CoachStatus.patternEditable: Boolean
 private const val PLANNING_LINE = "Coach is planning the week…"
 private const val OFFLINE_LINE = "Mission Control offline — retrying"
 
+private const val RE_PLANNING_LINE = "Coach is re-planning…"
+
 @Composable
 private fun PlannedContent(state: LaunchpadState.Planned, viewModel: LaunchpadViewModel) {
     TitleBlock(eyebrow = state.eyebrow, title = state.title)
     Spacer(Modifier.height(16.dp))
     PatternTrack(chips = state.chips)
     Spacer(Modifier.height(20.dp))
+    // A PLANNED card's status is only ever RePlanning or Idle; only RePlanning has anything to report.
+    if (state.generationStatus == SortieGenerationStatus.RePlanning) {
+        Text(
+            text = RE_PLANNING_LINE,
+            style = LiftoffType.note().copy(color = Muted),
+        )
+    }
     FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
 }
 
