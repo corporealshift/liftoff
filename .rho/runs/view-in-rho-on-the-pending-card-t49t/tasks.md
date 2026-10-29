@@ -38,7 +38,7 @@ directory.
     a class loses a node out of the fixed `w411dp-h2000dp` window, give that class the same `@Config`;
     never weaken an assertion. Commit `launchpad: the pending card offers View in rho and reveals the id`.
 
-- [ ] 2. Write the three PENDING-card cases and prove each one catches a fault
+- [x] 2. Write the three PENDING-card cases and prove each one catches a fault
   - Covers the new file `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadViewInRhoTest.kt`, three
     Robolectric Compose cases over the real PENDING card, on `LaunchpadPendingStatusTest`'s harness
     (`@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`, in-memory Room, a real `SettingsStore` on a
