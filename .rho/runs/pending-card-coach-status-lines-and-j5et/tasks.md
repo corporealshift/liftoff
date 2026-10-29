@@ -14,7 +14,7 @@ how), and the mutation check bites on it. Its eleven whole-class checks are the 
 plus `LiftoffShellTest`, the other four Launchpad classes, and nothing else — `MissionManagerTest` is not one of
 them.
 
-- [ ] 1. Bring in the derivation: `regenerateAvailable` on the Pending and Planned cards
+- [x] 1. Bring in the derivation: `regenerateAvailable` on the Pending and Planned cards
   Covers plan step 1, in one commit. Cherry-pick `e2199c5` from `rho/draw-generation-status-regenerate-and-n766` with
   its message unchanged, staging only its two files and nothing from that branch's `.rho/runs/`. That branch's newer
   commit `e53b0d6` is its own run's bookkeeping and is not brought in. If the pick cannot be made, write the same
