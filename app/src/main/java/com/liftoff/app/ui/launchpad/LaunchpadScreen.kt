@@ -177,12 +177,21 @@ private val CoachStatus.patternEditable: Boolean
 private const val PLANNING_LINE = "Coach is planning the week…"
 private const val OFFLINE_LINE = "Mission Control offline — retrying"
 
+private const val RE_PLANNING_LINE = "Coach is re-planning…"
+
 @Composable
 private fun PlannedContent(state: LaunchpadState.Planned, viewModel: LaunchpadViewModel) {
     TitleBlock(eyebrow = state.eyebrow, title = state.title)
     Spacer(Modifier.height(16.dp))
     PatternTrack(chips = state.chips)
     Spacer(Modifier.height(20.dp))
+    // A PLANNED card's status is only ever RePlanning or Idle; only RePlanning has anything to report.
+    if (state.generationStatus == SortieGenerationStatus.RePlanning) {
+        Text(
+            text = RE_PLANNING_LINE,
+            style = LiftoffType.note().copy(color = Muted),
+        )
+    }
     FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
 }
 
@@ -279,7 +288,7 @@ private fun ActionButtons(
                 onRetry,
                 onContinueWithoutOutline,
             )
-            is LaunchpadState.Planned -> PlannedActions(onLaunch, onRequestScrub)
+            is LaunchpadState.Planned -> PlannedActions(state, onLaunch, onRequestScrub, onRegenerate)
             is LaunchpadState.Pending -> PendingActions(state, onRequestScrub, onRefly, onRegenerate)
             is LaunchpadState.InFlight -> InFlightActions(onLaunch)
             is LaunchpadState.Closed -> Unit
@@ -378,7 +387,12 @@ private fun DraftStepButton(
 }
 
 @Composable
-private fun PlannedActions(onLaunch: () -> Unit, onRequestScrub: () -> Unit) {
+private fun PlannedActions(
+    planned: LaunchpadState.Planned,
+    onLaunch: () -> Unit,
+    onRequestScrub: () -> Unit,
+    onRegenerate: () -> Unit,
+) {
     PrimaryButton(
         text = "Launch",
         onClick = onLaunch,
@@ -386,7 +400,18 @@ private fun PlannedActions(onLaunch: () -> Unit, onRequestScrub: () -> Unit) {
         iconAtEnd = true,
     )
     Spacer(Modifier.height(12.dp))
-    UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub)
+    // An unavailable Regenerate is absent, not dimmed — the rule PendingActions already follows.
+    if (planned.regenerateAvailable) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            UnderlinedTextButton(text = "Regenerate", onClick = onRegenerate, modifier = Modifier.weight(1f))
+            UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub, modifier = Modifier.weight(1f))
+        }
+    } else {
+        UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub)
+    }
 }
 
 @Composable
