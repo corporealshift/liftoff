@@ -86,6 +86,56 @@ this run's plan/map.
   never sees the new button.
 - Whole-suite baseline on this branch: 733 tests in 88 reports (~1m22s).
 
+## What the seeded PENDING card actually draws (confirmed by reading the derivation and the card)
+
+- `LaunchpadState.kt` l.193: `regenerateAvailable = coachConfigured && (current.type != SortieType.RUN ||
+  generateRunPlans)`; `reFlyAvailable = …offersReFly` (l.235, l.259) — false for a sortie that has no earlier plan.
+  So the card the brief's seeding builds (host + token, pattern `LRL`, `continueWithoutOutline`) is a LIFT with
+  `generationStatus == Planning`: status line `Coach is planning…` (`PENDING_PLANNING_LINE`, LaunchpadScreen.kt:232),
+  no Retry (not a failure), and in `PendingActions` neither the Re-fly button nor the "No earlier plan to re-fly."
+  line (l.431-441 — the `else if` skips Planning). **The bar holds only SCRUB today**, so the new button is the
+  second control in that Column and the window (`h2000dp`) has room.
+- `NOT_CONFIGURED_MESSAGE` (LaunchpadViewModel.kt:18, `internal`, same package so a test can name it) is
+  "Mission Control isn't set up. Add the host and token in Mission Control." — the status line the unconfigured
+  PENDING card draws (`pendingStatusLine`, LaunchpadScreen.kt:226).
+- `LaunchpadPendingStatusTest.pendingCard(configured, pattern, runPlans)` (l.121-144) is exactly the brief's seeding;
+  `openRow()` (l.147) is `getOpenFlightPlanForSortie(sortieId).single()` and asserts it is the id
+  `continueWithoutOutline` reported through its `onQueued` callback. `pendingCardShowsThatMissionControlIsNotSetUpAndNoRetry`
+  (l.223) is the precedent that unconfigured still yields a PENDING card with `countAll() == 0`.
+- `LaunchpadSortieStatusTest` l.258-269 is the precedent for `generationDao().saveSessionId(row, ID)`; the brief's
+  `update(row.copy(nabuSessionId = …))` is the other write and is what `LaunchpadPendingStatusTest` l.202 already uses
+  for `error`.
+
+## verify.sh — the three names the work steps must produce
+
+Committed at this step. Gate first (`:app:assembleDebug :app:testDebugUnitTest`, what `.github/workflows/ci.yml` runs,
+`--no-build-cache`, results moved aside, up to 3 attempts on the hang signature), then three named tests by method
+name, then whole-class checks on the twelve Launchpad classes + `LiftoffShellTest`. The names:
+
+1. `pendingCardWithASessionIdShowsViewInRhoAndTappingItRevealsTheSessionLine` — VIEW IN RHO shown and enabled; no
+   node containing `sess-7f3a-liftoff` before the tap; after the tap the whole line `rho session sess-7f3a-liftoff`
+   is displayed and `Coach is planning…` + SCRUB are still displayed; nothing was handed to the recording enqueuer and
+   the row is still QUEUED with that id.
+2. `pendingCardWithAGenerationRowThatHasNoSessionIdShowsNoViewInRho` — wait for `Coach is planning…` (or SCRUB) first,
+   then no VIEW IN RHO and no text containing `rho session`.
+3. `pendingCardWithNoGenerationRowShowsNoViewInRho` — no host/token, assert no generation row, wait for
+   `NOT_CONFIGURED_MESSAGE`, then no VIEW IN RHO and no `rho session` text.
+
+Not checked (written in the script's header): theme-part identity and colour, that the line is inline rather than in a
+Dialog (a dialog's text is a displayed node too), the button's position relative to the id line across the two Scaffold
+slots, the "stays until the sortie changes" rule (plan says the `sortieId` key carries it, no test), the one-way
+reveal, and that `nabuSessionId` keeps its column name. Case 1 does assert the two positions the brief states, each
+inside its own slot: VIEW IN RHO above SCRUB in the bar's Column, the id line under the status line in the content
+Column.
+
+## verify.sh ran on untouched code (this step): it fails on purpose
+
+Two full detached runs of the script (`app/build/verify-t49t.log`, `app/build/verify-t49t-2.log`): gate attempt 1
+passed both times (BUILD SUCCESSFUL 2m53s / 1m33s, `:app:testDebugUnitTest` executed, 733 tests, 0 failures, 0 errors,
+0 skipped — the baseline holds), all 13 must-not-break classes green, and the three names above reported "did not run"
+→ `Result: 14 passed, 3 failed`, `EXIT=1`. So the script's only failing checks on untouched code are the three new
+tests, which is what makes it the definition of done.
+
 ## Docs that set rules
 - `DESIGN.md` §9, l.561-568: the PENDING card lists Retry, Re-fly, Scrub "plus 'View in nabu', which
   shows the nabu session id so it can be opened in nabu's app" — the brief renames it rho; the doc
