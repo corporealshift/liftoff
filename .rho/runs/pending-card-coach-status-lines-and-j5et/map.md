@@ -30,7 +30,7 @@ The whole answer already exists here; the UI only draws it.
 ## app/src/main/java/com/liftoff/app/data/MissionManager.kt
 
 - `coachConfigured: Flow<Boolean>` (line ~66); `e2199c5` adds `generateRunPlans: Flow<Boolean>` beside it.
-- `regenerateFlightPlan(sortieId, onQueued: (Long) -> Unit = {}): List<Long>` (line 337) — refuses when unconfigured, when the mission isn't ACTIVE or isn't the current week, when the sortie isn't current or isn't PENDING/PLANNED, and when `sortie.type == RUN && !settings.generateRunPlans`. Otherwise inserts one new QUEUED FLIGHT_PLAN row at `createdAt = clock.millis()` and returns the sortie's other open ids for the caller to cancel. So after a Retry the failed row is CANCELLED and a QUEUED row is newest → the card reads Planning.
+- `regenerateFlightPlan(sortieId, onQueued: (Long) -> Unit = {}): List<Long>` (line 337) — refuses when unconfigured, when the mission isn't ACTIVE or isn't the current week, when the sortie isn't current or isn't PENDING/PLANNED, and when `sortie.type == RUN && !settings.generateRunPlans`. Otherwise inserts one new QUEUED FLIGHT_PLAN row at `createdAt = clock.millis()` and returns the sortie's other open ids for the caller to cancel. With a no-op cancel the failed row stays FAILED and the new QUEUED row wins `id DESC` → the card reads Planning; in the app the caller does cancel the old ids, so they drop out of the newest-row query instead.
 - `continueWithoutOutline(missionId, onQueued: (Long) -> Unit = {}): List<Long>` (line 185) — starts the week with no outline; `advance` queues the FLIGHT_PLAN generation for the sortie it makes current.
 
 ## app/src/main/java/com/liftoff/app/data/GenerationDao.kt / Generation.kt
