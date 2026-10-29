@@ -191,11 +191,36 @@ private fun PendingContent(state: LaunchpadState.Pending, viewModel: LaunchpadVi
     Spacer(Modifier.height(16.dp))
     PatternTrack(chips = state.chips)
     Spacer(Modifier.height(20.dp))
+    val line = pendingStatusLine(state.generationStatus)
     Text(
-        text = "Flight Plan not ready yet.",
-        style = LiftoffType.textButton().copy(color = Muted),
+        text = line.text,
+        style = LiftoffType.note().copy(color = line.color),
     )
+    // A refused reply's validator lines, each on its own line under the reason that names them.
+    for (error in line.validatorErrors) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = error,
+            style = LiftoffType.note().copy(color = Muted),
+        )
+    }
 }
+
+private class PendingLine(val text: String, val color: Color, val validatorErrors: List<String> = emptyList())
+
+/** The PENDING card's one status line. Idle and RePlanning keep the line the card drew before it had a status. */
+private fun pendingStatusLine(status: SortieGenerationStatus): PendingLine =
+    when (status) {
+        SortieGenerationStatus.Planning -> PendingLine(PENDING_PLANNING_LINE, Muted)
+        SortieGenerationStatus.Offline -> PendingLine(OFFLINE_LINE, Muted)
+        SortieGenerationStatus.NotConfigured -> PendingLine(NOT_CONFIGURED_MESSAGE, Muted)
+        // The row's own words, as the domain already split them; the card does not split them again.
+        is SortieGenerationStatus.Failed -> PendingLine(status.reason, Red, status.validatorErrors)
+        SortieGenerationStatus.Idle, SortieGenerationStatus.RePlanning -> PendingLine(NOT_READY_LINE, Muted)
+    }
+
+private const val PENDING_PLANNING_LINE = "Coach is planning…"
+private const val NOT_READY_LINE = "Flight Plan not ready yet."
 
 @Composable
 private fun InFlightContent(state: LaunchpadState.InFlight, viewModel: LaunchpadViewModel, onOpenInFlight: (Long) -> Unit) {
