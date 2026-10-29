@@ -187,3 +187,27 @@ a backup taken from the *edited* file; `:app:assembleDebug` is not needed until 
   short comments.
 - `ARCHITECTURE.md` l.37 and the M3 row (l.82) describe the Launchpad's current state — not to be
   changed in this run.
+
+## The whole-suite gate (task 3, this step): green on the first attempt
+
+One cold detached run of the script, `app/build/verify-t49t-final.log`, ending `EXIT=0`. It ran its own gate once,
+with no hang and no retry: `BUILD SUCCESSFUL in 1m 31s`, `46 actionable tasks: 4 executed, 42 up-to-date`, and
+`:app:testDebugUnitTest` executed rather than coming from the cache (`--no-build-cache`, and the script moved the
+previous run's reports to `app/build/verify-old-results-1793315922` first, so every count below is from this run).
+`:app:compileDebugKotlin` and `:app:compileDebugUnitTestKotlin` were UP-TO-DATE because task 1's and task 2's
+class-scoped runs had already compiled the same sources; the test task itself was not, and the script's own
+build-cache check did not fire.
+
+**Reports: 736 tests, 0 failures, 0 errors, 0 skipped, across 89 `TEST-*.xml`** — the 733 baseline plus the 3 new
+`LaunchpadViewInRhoTest` cases (3/0/0/0). No warnings and no CloseGuard traces in this log.
+
+**Checks: `Result: 17 passed, 0 failed` → `BRIEF DONE.`** — 1 for the gate, the 3 named tests, and the 13
+whole-class checks, all green. Nothing broke on the way from the class-scoped runs to the whole suite: no class
+needed a `@Config` window, no assertion was weakened or deleted, and this task changed no code.
+
+**Per-class counts from this run**: `LaunchpadPendingStatusTest` 6, `LaunchpadPlannedActionsTest` 3,
+`LaunchpadReFlyTest` 4, `LaunchpadScrubTest` 4, `LaunchpadRegenerateTest` 10, `LaunchpadSortieStatusTest` 4,
+`LaunchpadStatesTest` 10, `LaunchpadCoachStatusTest` 5, `LaunchpadConfirmTest` 7, `LaunchpadDraftStatusTest` 8,
+`LaunchpadDraftControlsTest` 4, `LaunchpadDraftGuardsTest` 2, `LiftoffShellTest` 12 — the same counts as the
+baseline run above, so the new control pushed no node out of the fixed `w411dp-h2000dp` window anywhere in the
+Launchpad or the shell.
