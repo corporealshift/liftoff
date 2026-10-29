@@ -99,6 +99,7 @@ internal fun LaunchpadContent(
                 onLaunch = { viewModel.launch(onOpenInFlight) },
                 onRequestScrub = { viewModel.requestScrub() },
                 onRefly = { viewModel.refly() },
+                onRegenerate = { viewModel.regenerate() },
             )
         },
     )
@@ -260,6 +261,7 @@ private fun ActionButtons(
     onLaunch: () -> Unit,
     onRequestScrub: () -> Unit,
     onRefly: () -> Unit,
+    onRegenerate: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -278,7 +280,7 @@ private fun ActionButtons(
                 onContinueWithoutOutline,
             )
             is LaunchpadState.Planned -> PlannedActions(onLaunch, onRequestScrub)
-            is LaunchpadState.Pending -> PendingActions(state, onRequestScrub, onRefly)
+            is LaunchpadState.Pending -> PendingActions(state, onRequestScrub, onRefly, onRegenerate)
             is LaunchpadState.InFlight -> InFlightActions(onLaunch)
             is LaunchpadState.Closed -> Unit
             is LaunchpadState.Loading -> Unit
@@ -392,7 +394,14 @@ private fun PendingActions(
     pending: LaunchpadState.Pending,
     onRequestScrub: () -> Unit,
     onRefly: () -> Unit,
+    onRegenerate: () -> Unit,
 ) {
+    // Retry only where a regenerate would be accepted: under a failure, and never on a run sortie while
+    // 'Generate run plans' is off. PrimaryButton has no enabled parameter, so an unavailable Retry is absent.
+    if (pending.generationStatus is SortieGenerationStatus.Failed && pending.regenerateAvailable) {
+        PrimaryButton(text = "Retry", onClick = onRegenerate)
+        Spacer(Modifier.height(12.dp))
+    }
     // Decision 5: no source plan is a line of text, not a disabled control.
     if (pending.reFlyAvailable) {
         UnderlinedTextButton(text = "Re-fly", onClick = onRefly)
