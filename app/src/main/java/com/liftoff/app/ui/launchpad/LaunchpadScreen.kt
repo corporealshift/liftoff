@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -67,6 +68,10 @@ internal fun LaunchpadContent(
 ) {
     val s by viewModel.state.collectAsState()
 
+    // Keyed on the PENDING card's sortieId, so the reveal resets with the sortie and not with the status line.
+    val pendingSortieId = (s as? LaunchpadState.Pending)?.sortieId
+    var rhoSessionRevealed by rememberSaveable(pendingSortieId) { mutableStateOf(false) }
+
     Scaffold(
         modifier = Modifier.background(Cream),
         content = { padding ->
@@ -81,7 +86,7 @@ internal fun LaunchpadContent(
                     is LaunchpadState.Loading -> Unit
                     is LaunchpadState.Draft -> DraftContent(s as LaunchpadState.Draft, viewModel)
                     is LaunchpadState.Planned -> PlannedContent(s as LaunchpadState.Planned, viewModel)
-                    is LaunchpadState.Pending -> PendingContent(s as LaunchpadState.Pending, viewModel)
+                    is LaunchpadState.Pending -> PendingContent(s as LaunchpadState.Pending, viewModel, rhoSessionRevealed)
                     is LaunchpadState.InFlight -> InFlightContent(s as LaunchpadState.InFlight, viewModel, onOpenInFlight)
                     is LaunchpadState.Closed -> ClosedContent(s as LaunchpadState.Closed)
                 }
@@ -100,6 +105,8 @@ internal fun LaunchpadContent(
                 onRequestScrub = { viewModel.requestScrub() },
                 onRefly = { viewModel.refly() },
                 onRegenerate = { viewModel.regenerate() },
+                rhoSessionRevealed = rhoSessionRevealed,
+                onRevealRhoSession = { rhoSessionRevealed = true },
             )
         },
     )
@@ -196,7 +203,11 @@ private fun PlannedContent(state: LaunchpadState.Planned, viewModel: LaunchpadVi
 }
 
 @Composable
-private fun PendingContent(state: LaunchpadState.Pending, viewModel: LaunchpadViewModel) {
+private fun PendingContent(
+    state: LaunchpadState.Pending,
+    viewModel: LaunchpadViewModel,
+    rhoSessionRevealed: Boolean,
+) {
     TitleBlock(eyebrow = state.eyebrow, title = state.title)
     Spacer(Modifier.height(16.dp))
     PatternTrack(chips = state.chips)
@@ -211,6 +222,14 @@ private fun PendingContent(state: LaunchpadState.Pending, viewModel: LaunchpadVi
         Spacer(Modifier.height(4.dp))
         Text(
             text = error,
+            style = LiftoffType.note().copy(color = Muted),
+        )
+    }
+    // Revealed only on request, and always the id this sortie's generation row carries now.
+    val sessionId = state.rhoSessionId
+    if (rhoSessionRevealed && sessionId != null) {
+        Text(
+            text = "rho session $sessionId",
             style = LiftoffType.note().copy(color = Muted),
         )
     }
@@ -271,6 +290,8 @@ private fun ActionButtons(
     onRequestScrub: () -> Unit,
     onRefly: () -> Unit,
     onRegenerate: () -> Unit,
+    rhoSessionRevealed: Boolean = false,
+    onRevealRhoSession: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -289,7 +310,9 @@ private fun ActionButtons(
                 onContinueWithoutOutline,
             )
             is LaunchpadState.Planned -> PlannedActions(state, onLaunch, onRequestScrub, onRegenerate)
-            is LaunchpadState.Pending -> PendingActions(state, onRequestScrub, onRefly, onRegenerate)
+            is LaunchpadState.Pending -> PendingActions(
+                state, onRequestScrub, onRefly, onRegenerate, rhoSessionRevealed, onRevealRhoSession,
+            )
             is LaunchpadState.InFlight -> InFlightActions(onLaunch)
             is LaunchpadState.Closed -> Unit
             is LaunchpadState.Loading -> Unit
@@ -420,6 +443,8 @@ private fun PendingActions(
     onRequestScrub: () -> Unit,
     onRefly: () -> Unit,
     onRegenerate: () -> Unit,
+    rhoSessionRevealed: Boolean,
+    onRevealRhoSession: () -> Unit,
 ) {
     // Retry only where a regenerate would be accepted: under a failure, and never on a run sortie while
     // 'Generate run plans' is off. PrimaryButton has no enabled parameter, so an unavailable Retry is absent.
@@ -438,6 +463,11 @@ private fun PendingActions(
             text = "No earlier plan to re-fly.",
             style = LiftoffType.textButton().copy(color = Muted),
         )
+        Spacer(Modifier.height(12.dp))
+    }
+    // Offered whenever this sortie's row carries an id; the tap prints the id and opens nothing.
+    if (pending.rhoSessionId != null) {
+        UnderlinedTextButton(text = "View in rho", onClick = onRevealRhoSession)
         Spacer(Modifier.height(12.dp))
     }
     UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub)
