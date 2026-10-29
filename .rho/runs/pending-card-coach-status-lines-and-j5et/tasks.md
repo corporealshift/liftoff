@@ -34,7 +34,7 @@ them.
   "com.liftoff.app.ui.launchpad.LaunchpadStatesTest" --tests
   "com.liftoff.app.ui.launchpad.LaunchpadRegenerateTest"` passes cold with every case in all three classes green.
 
-- [ ] 2. `PendingContent`: draw the coach status where the fixed line is, and the three renders that need no Retry
+- [x] 2. `PendingContent`: draw the coach status where the fixed line is, and the three renders that need no Retry
   Covers plan step 2. File: `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt` only. In
   `PendingContent`, replace the fixed "Flight Plan not ready yet." line with a status line of text plus colour,
   worked out by a private file-level helper in
