@@ -29,7 +29,7 @@ the harness parts, the fixture recipes and the facts about generation rows.
   Done when: `bash gradlew.sh :app:assembleDebug` prints BUILD SUCCESSFUL and the change is
   committed.
 
-- [ ] 3. Write the two render-only cases of LaunchpadPlannedActionsTest
+- [x] 3. Write the two render-only cases of LaunchpadPlannedActionsTest
   Covers: the new class, `@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`, on the harness
   `LaunchpadPendingStatusTest` defines and `LaunchpadDraftStatusTest` originated: in-memory Room with
   `allowMainThreadQueries()`, a real `SettingsStore` over a `PreferenceDataStoreFactory` file under
