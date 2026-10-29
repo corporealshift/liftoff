@@ -73,7 +73,7 @@ them.
   "com.liftoff.app.ui.launchpad.LaunchpadReFlyTest"` passes with those three cases green and the other two classes
   unedited and fully green, and the run wrote a `TEST-*.xml` naming all three new cases.
 
-- [ ] 3. `PendingActions`: the Retry button, the renders that need it, and the one that must not
+- [x] 3. `PendingActions`: the Retry button, the renders that need it, and the one that must not
   Covers plan step 3, in `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt`, plus the cases that
   depend on the button, added to the class task 2 created — read what it left there first and reuse its seeding
   helpers.
