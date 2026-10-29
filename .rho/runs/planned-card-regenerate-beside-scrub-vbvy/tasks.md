@@ -18,7 +18,7 @@ the harness parts, the fixture recipes and the facts about generation rows.
   Done when: `bash gradlew.sh :app:assembleDebug` prints BUILD SUCCESSFUL and the change is
   committed.
 
-- [ ] 2. Draw the re-planning line on the PLANNED card
+- [x] 2. Draw the re-planning line on the PLANNED card
   Covers: `PlannedContent` (l.180) draws 'Coach is re-planning…' — the ellipsis is U+2026, as in the
   card's other line consts — in `LiftoffType.note()` with Muted, between the 20dp spacer and
   `FlightPlanSection`, only while `generationStatus` is `RePlanning`. A PLANNED card's status is only
