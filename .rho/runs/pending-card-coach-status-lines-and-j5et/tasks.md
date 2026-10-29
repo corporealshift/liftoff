@@ -115,7 +115,7 @@ them.
   the mutation log showing the toggle case failing while the condition was out. Record the mutation log path and its
   result in the commit body, since the evidence is not a file in the repo.
 
-- [ ] 4. The whole gate, run once, and any fallout it turns up
+- [x] 4. The whole gate, run once, and any fallout it turns up
   Covers plan step 5 and the brief's Done-when. Run
   `.rho/runs/pending-card-coach-status-lines-and-j5et/verify.sh` detached through a copy under `app/build/`
   (`mkdir -p app/build` first; run the copy, never the real file, so editing it mid-run cannot give a phantom syntax
