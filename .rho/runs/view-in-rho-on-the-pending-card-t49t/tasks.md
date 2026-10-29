@@ -16,7 +16,7 @@ Every gate is a cold, detached, class-scoped run: `mkdir -p app/build` first, `t
 `gradlew --stop`. Run one scratch script at a time: two Gradle runs in one invocation share the results
 directory.
 
-- [ ] 1. Draw the View in rho control and the revealed id line on the PENDING card
+- [x] 1. Draw the View in rho control and the revealed id line on the PENDING card
   - Covers the whole production change, in
     `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt` and no other file: the reveal
     state held in `LaunchpadContent` (l.64, where the card body and the bottom bar are both composed) as
