@@ -71,7 +71,7 @@ the harness parts, the fixture recipes and the facts about generation rows.
   Done when: one cold detached run of this class alone reports 3 tests / 0 failures and its
   `TEST-*.xml` names all three methods; committed.
 
-- [ ] 5. Prove each case bites, then run the whole gate
+- [x] 5. Prove each case bites, then run the whole gate
   Covers: three one-token mutations of `LaunchpadScreen.kt`, each with its own scratch log under
   `app/build/` and one scratch Gradle script at a time (two runs in one script share
   `test-results`, so a later grep reads the other run's XML): drop the `regenerateAvailable`
