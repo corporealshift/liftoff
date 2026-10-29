@@ -1,8 +1,8 @@
 # Map — View in rho on the Pending card
 
 Branch HEAD at plan time: `eebf26e` ("run: plan outline"), on top of `a3fa233` (#49, planned-card
-Regenerate) and `838e3ad` (#48, pending-card status lines + Retry). Working tree clean apart from
-this run's plan/map.
+Regenerate) and `838e3ad` (#48, pending-card status lines + Retry). At the tasks step HEAD is `7a988d0`
+("run: verify"), tree clean.
 
 ## Files the change touches
 
@@ -136,8 +136,50 @@ passed both times (BUILD SUCCESSFUL 2m53s / 1m33s, `:app:testDebugUnitTest` exec
 → `Result: 14 passed, 3 failed`, `EXIT=1`. So the script's only failing checks on untouched code are the three new
 tests, which is what makes it the definition of done.
 
-## Docs that set rules
-- `DESIGN.md` §9, l.561-568: the PENDING card lists Retry, Re-fly, Scrub "plus 'View in nabu', which
+## The task split (written at the tasks step)
+
+Three tasks in `tasks.md`, each ending in a commit, in order: draw it → test it → run the gate. Only
+`LaunchpadScreen.kt` changes in production; no task touches the derivation, the view model, the DAO or a
+doc.
+
+1. **Draw it.** The reveal state in `LaunchpadContent` (`rememberSaveable` keyed on the PENDING card's
+   `sortieId`, null when the card is not PENDING), the `UnderlinedTextButton("View in rho")` in
+   `PendingActions` between the Re-fly block and Scrub with the bar's 12 dp spacer, the
+   `rho session <id>` note line at the end of `PendingContent`, and the two new arguments threaded through
+   `ActionButtons` to the Pending arm only, defaulted. Gate: `:app:compileDebugKotlin`, then one cold
+   class-scoped run of the five Compose-rendering Launchpad classes + `LiftoffShellTest` = 37 tests, 0
+   failures.
+2. **Test it.** `LaunchpadViewInRhoTest` with the three names above, then the plan's three one-token
+   mutations of the screen file, one log each, restored from a byte-copy backup. Gate: that class alone, 3
+   tests, 0 failures.
+3. **Gate it.** `bash .rho/runs/view-in-rho-on-the-pending-card-t49t/verify.sh` detached. Expect
+   `Result: 17 passed, 0 failed`, `BRIEF DONE.`, `EXIT=0`, and the report line at 736 tests (733 baseline +
+   the 3 new).
+
+**Which mutation reddens which name** — so a work step can tell a good result from a wrong one: dropping the
+button's id condition reddens the two absence names; making the tap set nothing reddens
+`pendingCardWithASessionIdShowsViewInRhoAndTappingItRevealsTheSessionLine` (the line never appears); dropping
+the reveal condition on the id line reddens the same name (the line is there before the tap).
+
+**Where verify.sh's 17 `ok`s come from**: 1 for the CI gate + 3 named tests + 13 whole-class checks (the 12
+Launchpad classes + `LiftoffShellTest`). The build-cache check and the "reports exist" check only ever add a
+`bad`, so a clean run is 17/0.
+
+**Per-class counts from the last whole-suite run** (`app/build/verify-old-results-1793307599`):
+`LaunchpadPendingStatusTest` 6, `LaunchpadPlannedActionsTest` 3, `LaunchpadReFlyTest` 4,
+`LaunchpadDraftStatusTest` 8, `LaunchpadDraftControlsTest` 4, `LiftoffShellTest` 12. Those five Launchpad
+classes are the only ones in the package that create a Compose rule; the other seven are view-model or
+derivation tests, so a change to what the card draws cannot reach them — which is why task 1's gate names
+five plus the shell and not all twelve.
+
+**Hazards the work steps should not re-learn**: a scratch gate script must `mv` `app/build/test-results`
+aside before it runs, or the next run reads this run's XML; never two Gradle runs in one shell invocation
+(they share the results directory); `echo "EXIT=$?"` must not follow a pipe; a mutation run is *supposed* to
+print `BUILD FAILED`, and what proves it bit is the failing test's name read out of the XML; a
+`git checkout -- file` restore is denied by the approval gate in a runner session, so restore with `cp` from
+a backup taken from the *edited* file; `:app:assembleDebug` is not needed until task 3's gate.
+
+## Docs that set rules- `DESIGN.md` §9, l.561-568: the PENDING card lists Retry, Re-fly, Scrub "plus 'View in nabu', which
   shows the nabu session id so it can be opened in nabu's app" — the brief renames it rho; the doc
   stays as it is (no doc edits this run).
 - `CLAUDE.md`: gate is `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`; commit messages
