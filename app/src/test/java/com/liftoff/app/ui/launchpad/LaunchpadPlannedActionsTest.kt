@@ -9,6 +9,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.liftoff.app.coach.CoachFixtures
 import com.liftoff.app.data.FlightPlanSource
+import com.liftoff.app.data.GenerationKind
 import com.liftoff.app.data.GenerationStatus
 import com.liftoff.app.data.LiftoffDatabase
 import com.liftoff.app.data.MissionManager
@@ -41,14 +42,15 @@ import java.time.ZoneOffset
  * What the PLANNED card's action row draws, on the two PLANNED cards the app can actually have: a LIFT whose plan
  * the coach stored, and a RUN that 'Generate run plans' left off. Each case reaches a real PLANNED card the way the
  * screen does — host and token set, the pattern that makes the current sortie, onAppOpen, continueWithoutOutline,
- * and for the lift the coach's own validated reply stored through MissionManager.storePlan — and then only reads
- * what the card drew. Nothing here taps anything, and no state is built by hand.
+ * and for the lift the coach's own validated reply stored through MissionManager.storePlan — and then reads what
+ * the card drew. No state is built by hand.
  *
  * The lift card is the one where Regenerate is offered: it is drawn beside Scrub in one row, not stacked under it,
  * and neither button takes the row for itself. The run card is the other half of the same rule — an unavailable
  * Regenerate is absent, not dimmed, which is the rule PendingActions already follows — so Scrub is drawn alone and
- * full width. The re-planning line is absent from both: a PLANNED card's status is only ever RePlanning or Idle,
- * and here each card's newest row is closed or there is no row at all.
+ * full width. The re-planning line is absent from the two render-only cases: a PLANNED card's status is only ever
+ * RePlanning or Idle, and here each card's newest row is closed or there is no row at all. The third case taps
+ * Regenerate and reads the line back, with the plan the card already held still drawn.
  *
  * The lift fixture has to close the QUEUED FLIGHT_PLAN row continueWithoutOutline queued, with markSucceeded,
  * before it stores the plan: storePlan leaves that row alone, so a freshly-stored PLANNED card would otherwise be
@@ -219,6 +221,50 @@ class LaunchpadPlannedActionsTest {
         }
         assertEquals(0, queuedIds.size)
         assertEquals(0, cancelledIds.size)
+    }
+
+    // tappingRegenerateOnAPlannedCardQueuesOneGenerationAndShowsTheRePlanningLine — the tap the card offers. The id
+    // the recording enqueuer was handed is read back as a QUEUED FLIGHT_PLAN row on this Mission and this sortie, so
+    // it is a generation and not a number; the re-planning line is absent before the tap and drawn after it, while
+    // Launch, the plan's own title and Regenerate stay on screen and the plan stays in the table. Nothing is handed
+    // to the cancel helper: the row continueWithoutOutline queued was closed before the plan was stored, so
+    // regenerateFlightPlan had no open row to hand back, and the one row that appeared is the one the tap queued.
+    @Test
+    fun tappingRegenerateOnAPlannedCardQueuesOneGenerationAndShowsTheRePlanningLine() {
+        val viewModel = runBlocking { plannedLift() }
+        render(viewModel)
+
+        // regenerate() reads state.value and returns null on a card that has not been derived yet, so the tap comes
+        // only once the card is drawn; otherwise every read-back below would be true of a tap that did nothing.
+        awaitText("REGENERATE")
+        composeRule.onNodeWithText(RE_PLANNING_LINE).assertDoesNotExist()
+        composeRule.onNodeWithText("REGENERATE").performTouchInput { click() }
+
+        awaitText(RE_PLANNING_LINE)
+
+        composeRule.onNodeWithText(RE_PLANNING_LINE).assertIsDisplayed()
+        composeRule.onNodeWithText("LAUNCH").assertIsDisplayed().assertIsEnabled()
+        // The plan's title, which the theme upper-cases, is still the card's title.
+        composeRule.onNodeWithText("PUSH + CORE").assertIsDisplayed()
+        composeRule.onNodeWithText("REGENERATE").assertIsDisplayed().assertIsEnabled()
+
+        assertEquals(1, queuedIds.size)
+        assertEquals(0, cancelledIds.size)
+        runBlocking {
+            val row = db.generationDao().get(queuedIds.single())
+                ?: throw AssertionError("the enqueued id ${queuedIds.single()} has no generation row")
+            assertEquals(GenerationKind.FLIGHT_PLAN, row.kind)
+            assertEquals(GenerationStatus.QUEUED, row.status)
+            assertEquals(missionId, row.missionId)
+            assertEquals(sortieId, row.sortieId)
+            assertTrue(
+                "the tap reopened ${queuedRow} instead of queueing a fresh row",
+                row.id != queuedRow,
+            )
+            assertEquals(2L, db.generationDao().countAll())
+            assertEquals("Push + core", db.flightPlanDao().getPlan(sortieId)!!.plan.title)
+            assertEquals(SortieState.PLANNED, db.sortieDao().get(sortieId)!!.state)
+        }
     }
 
     // plannedRunCardWithRunGenerationOffShowsScrubAndNoRegenerate — DESIGN.md §7.2's other half on the card that
