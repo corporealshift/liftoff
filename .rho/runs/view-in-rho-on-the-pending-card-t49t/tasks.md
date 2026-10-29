@@ -77,7 +77,7 @@ directory.
     `git status` is clean apart from the new test file. Commit
     `launchpad tests: the pending card's View in rho and the revealed session id`.
 
-- [ ] 3. Run the run's gate over the whole suite and record what it says
+- [x] 3. Run the run's gate over the whole suite and record what it says
   - Covers the last step of the plan and nothing new: one cold detached run of
     `bash .rho/runs/view-in-rho-on-the-pending-card-t49t/verify.sh` (it runs `:app:assembleDebug
     :app:testDebugUnitTest --no-build-cache` itself, then the three names, then whole-class checks on the
