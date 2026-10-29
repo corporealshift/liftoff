@@ -64,6 +64,106 @@ The only main-source file this run edits after the cherry-pick.
 - No test anywhere asserts the text "Flight Plan not ready yet.", so replacing it is safe.
 - With `cancelGeneration = { }` the superseded FAILED row is still FAILED in the database after a Retry. The card still moves to Planning because the row `regenerateFlightPlan` inserts carries `createdAt = clock.millis()` — the same fixed instant as every seeded row — and `id DESC` breaks the tie in its favour. A seeded row must therefore not be given a `createdAt` later than the clock's.
 
+## CI and the gate
+
+- `.github/workflows/ci.yml` — one job `gate`, ubuntu-latest, Java 17 (temurin), 20-minute job timeout, and its only
+  build step is `./gradlew :app:assembleDebug :app:testDebugUnitTest`. That is the pair this run's verify.sh runs.
+- `gradlew.sh` (repo root) pins JDK, SDK and Gradle under `~/android-toolchain`; none of them are on PATH, so a bare
+  `gradle` or `java` finds nothing. Run it as `bash gradlew.sh <tasks>` from the repo root.
+- Test results are the XML under `app/build/test-results/testDebugUnitTest/TEST-*.xml`; `BUILD SUCCESSFUL` carries no
+  counts. Gradle exits 0 when a `--tests` name matches nothing, so a named test has to be looked for by name in those
+  reports.
+
+## MissionManager facts the new tests lean on
+
+- `advance(missionId, settings)` (line 435) is what prepares the current PENDING sortie inside
+  `continueWithoutOutline`. `prepareCurrent(current, settings.generateRunPlans)` gives `SimplePlan` for a RUN sortie
+  with the toggle off — it writes a plan and marks the sortie PLANNED, so it queues nothing and its card is not
+  PENDING at all — and `AwaitGeneration` otherwise. `AwaitGeneration` returns null when the host or token is blank, so
+  the not-configured PENDING card has no generation row; otherwise it returns the newest open row's id if one exists,
+  else inserts a QUEUED FLIGHT_PLAN at `createdAt = clock.millis()`.
+- `regenerateFlightPlan` refuses, as an `IllegalStateException` that writes nothing, when unconfigured, when the
+  mission is not ACTIVE or not the current week, when the sortie is not current or not PENDING/PLANNED, and when
+  `sortie.type == SortieType.RUN && !settings.generateRunPlans`. That last refusal is the only thing
+  `regenerateAvailable` exists to keep the card from offering.
+- `SettingsStore.setGenerateRunPlans(Boolean)` exists and is what Mission Control's checkbox calls;
+  `InFlightLandScrubTest` seeds it directly. `LaunchpadStates.derive`'s PENDING/PLANNED arm is a 3-flow `combine`
+  today (`planChanges`, the newest row, `manager.coachConfigured`); `e2199c5` makes it 4 by adding
+  `manager.generateRunPlans`, so a toggle change re-emits the card without the screen being rebuilt.
+- `GenerationDao.markFailed(id: Long, error: String, finishedAt: Long): Int`.
+- `failedFrom` (SortieGenerationStatus.kt:108) needs the `invalid output: ` lead to split; without it the whole error
+  string is the reason and `validatorErrors` is empty.
+
+## The toggle case verify.sh names (the sixth test)
+
+Reachable, and this is the only observable proof that Step 1's `regenerateAvailable` reaches the card:
+`setGenerateRunPlans(true)` **before** `continueWithoutOutline` on a pattern whose first sortie is a RUN (e.g. `RLL`),
+so `prepareCurrent` gives `AwaitGeneration` instead of `SimplePlan` — the sortie stays PENDING with one QUEUED
+FLIGHT_PLAN row, which `markFailed` turns into a failure with `regenerateAvailable` true and RETRY drawn. Then
+`setGenerateRunPlans(false)` mid-render: `e2199c5`'s `generateRunPlans` flow (`MissionManager.kt`, beside
+`coachConfigured`, `settingsStore.settings.map { it.generateRunPlans }.distinctUntilChanged()`) re-emits the 4-flow
+`combine`, `deriveSortieCard` recomputes `regenerateAvailable = coachConfigured && (type != RUN || generateRunPlans)`
+to false, and RETRY disappears while the reason stays. Nothing re-runs `prepareCurrent`, so the card stays PENDING.
+Assert RETRY present **before** the toggle is flipped, or the absence proves nothing.
+
+## What the existing PENDING-card tests will see
+
+- `LaunchpadReFlyTest` renders a PENDING card in three cases and none of them has a FAILED row:
+  `landedSourceThenPending(coachSetUp = false)` leaves the card NotConfigured with a source plan (RE-FLY drawn),
+  `pendingWithNothingLanded()` is NotConfigured with no source (the "No earlier plan to re-fly." line), and
+  `landedSourceThenPending(coachSetUp = true)` has the open QUEUED row `advance` queued, so Planning. So no new
+  RETRY appears in any of them, and its bounds assertion is only "Re-fly above Scrub", which a Retry drawn above
+  Re-fly does not break.
+- `LaunchpadSortieStatusTest` and `LaunchpadStatesTest` assert on the derived `LaunchpadState`, not on the screen, so
+  a field added to `Pending` cannot fail them — no test builds either state directly.
+- `LaunchpadDraftStatusTest` looks for the draft's `PLANNING_LINE` = "Coach is planning the week…", which is a
+  different sentence from the pending card's "Coach is planning…". Keep both constants.
+- No existing Compose test renders a PENDING card with a FAILED row (`LaunchpadCoachStatusTest`,
+  `LaunchpadSortieStatusTest`, `LaunchpadConfirmTest` and `LaunchpadRegenerateTest` all seed FAILED rows but drive the
+  view model or `LaunchpadStates` directly, never `setContent`), so no existing test can see a new RETRY.
+  `LaunchpadDraftStatusTest` and `LaunchpadDraftControlsTest` count pattern chips with
+  `onAllNodesWithText("R").assertCountEquals(3)` / `("L")` on exact text, which a `RETRY` label and prose status lines
+  cannot disturb.
+
+## The source branch, in full
+
+`rho/draw-generation-status-regenerate-and-n766` is HEAD + 6 commits: its brief/plan/tasks/verify, then `e2199c5`
+(the derivation), then `e53b0d6` ("run: task 1 done"). Its UI work was never written — `git diff --stat
+HEAD...that-branch` is those docs plus `MissionManager.kt` (+8) and `LaunchpadState.kt` (+16 −2) and nothing else. So
+its verify.sh is the closest precedent for this run's, and its PENDING-card test names are the ones this run's
+script reuses in shortened form.
+
 ## Commit to bring in
 
 `e2199c5` on `rho/draw-generation-status-regenerate-and-n766` (parent `2070af2`, whose merge-base with HEAD is `f9d1276`) — reachable, touches only `MissionManager.kt` (+8) and `LaunchpadState.kt` (+16 −2), no `.rho/runs/` files. That branch's newer commit `e53b0d6` ("run: task 1 done") is its own run's bookkeeping and is not brought in.
+
+## verify.sh — the definition of done (committed at the verify step)
+
+`.rho/runs/pending-card-coach-status-lines-and-j5et/verify.sh` runs the CI pair once (moving
+`app/build/test-results/testDebugUnitTest` aside with `mv` first, `--no-build-cache`, re-run up to twice on the hang or
+on a build-task failure with no failing test — never `gradlew --stop`), indexes every report's `<testcase>` names in one
+awk pass into `app/build/verify-work/methods` and `/classes`, then requires these six method names to have run and
+passed (a name matched across any report, so the class they sit in is the implementer's call), then twelve whole-class
+checks: the brief's six Launchpad classes + `LiftoffShellTest`, the other four Launchpad classes, and
+`MissionManagerTest`. The other classes the brought-in commit could touch (`GenerationDaoTest`,
+`SortieGenerationStatusTest`, `GenerationWorkerTest`, …) are deliberately not named: the gate already runs the whole
+suite, and a class name only earns its place by catching a rename or a deletion.
+
+Not checked, and said so in the script's header: ARCHITECTURE.md (brief: don't touch it), which theme parts draw each
+line and the Red/Muted split (Compose semantics carry no component identity or colour), the fallback line for `Idle` /
+`RePlanning` (unreachable on a PENDING card), and the plan's Decisions.
+
+**Run against untouched code** (`app/build/verify-run2.log`, 2026-10-29): gate attempt 1 passed in 1 m 33 s,
+`> Task :app:testDebugUnitTest` with no cache marker, 724 tests / 0 failures / 0 errors / 0 skipped; the six new names
+all read "did not run"; all twelve class checks passed; `Result: 13 passed, 6 failed`, exit 1. That is the script doing
+its job. Scratch copies of the script and its logs live under `app/build/` and are never staged.
+
+- `pendingCardShowsThePlanningLineAndNoRetry`
+- `pendingCardShowsTheOfflineLineAndNoRetry`
+- `pendingCardShowsThatMissionControlIsNotSetUpAndNoRetry`
+- `pendingCardShowsAFailedGenerationsReasonAndEachValidatorErrorOnItsOwnLineAndRetry`
+- `tappingRetryOnAFailedPendingCardQueuesAFreshGenerationAndShowsThePlanningLine`
+- `retryIsAbsentOnAFailedRunSortieWhileGenerateRunPlansIsOffAndDrawnWhileItIsOn` — the sixth is the brief's
+  `regenerateAvailable` half, which the plan expected to prove with a mutation check instead. It needs a RUN current
+  sortie (`setGenerateRunPlans(true)` before `continueWithoutOutline` on a pattern starting with R) whose row is then
+  marked FAILED, and the toggle flipped off mid-render.
