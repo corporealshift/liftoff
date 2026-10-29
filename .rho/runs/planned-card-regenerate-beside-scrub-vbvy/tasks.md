@@ -55,7 +55,7 @@ the harness parts, the fixture recipes and the facts about generation rows.
   and log under `app/build/`, `EXIT=` marker line, results dir moved aside not deleted) reports 2
   tests / 0 failures and its `TEST-*.xml` names both methods; committed.
 
-- [ ] 4. Add the tap case to LaunchpadPlannedActionsTest
+- [x] 4. Add the tap case to LaunchpadPlannedActionsTest
   Covers: the third case, on the lift fixture task 3 built. Wait for REGENERATE on screen before
   tapping, because `LaunchpadViewModel.regenerate()` reads `state.value` and returns null on a card
   that has not been derived yet, which would make the case pass without testing anything. Tap
