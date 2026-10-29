@@ -43,9 +43,30 @@ Run: planned-card-regenerate-beside-scrub-vbvy. Branch base `462a5a9` (after PR 
 
 - `UnderlinedTextButton(text, onClick, modifier = Modifier)` (l.155-…): `modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 8.dp).clickable(role = Role.Button)`, label `text.uppercase()`, underline drawn behind the text. **It takes a `modifier`, so `Modifier.weight(1f)` from the enclosing `Row` works** — no theme change needed. `PrimaryButton` has no `enabled` param.
 
+## State of this branch as of the tasks step
+
+- HEAD is `9e0553d` ("run: verify"); the newest code commit is `838e3ad` (PR #48, the PENDING card). No commit on
+  this branch touches `LaunchpadScreen.kt` yet, and `LaunchpadPlannedActionsTest.kt` does not exist: the launchpad
+  test dir holds 11 classes (`CoachStatus`, `Confirm`, `DraftControls`, `DraftGuards`, `DraftStatus`,
+  `PendingStatus`, `ReFly`, `Regenerate`, `Scrub`, `SortieStatus`, `States`).
+- Confirmed by reading the file: `PlannedActions` (l.380-390) today takes only `(onLaunch, onRequestScrub)` and
+  draws `PrimaryButton("Launch", icon = LiftoffIcons.rocket(), iconAtEnd = true)` → 12dp → one full-width
+  `UnderlinedTextButton("Scrub")`. `ActionButtons`' Planned arm (l.282) is the only arm that does not pass
+  `onRegenerate`. `PlannedContent` (l.180-187) draws no status line.
+
 ## Tests that already exist
 
-- `LaunchpadPendingStatusTest.kt` (351 lines) — the harness to copy: `@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`, in-memory Room with `allowMainThreadQueries()`, `PreferenceDataStoreFactory` + real `SettingsStore` on `context.cacheDir/settings.preferences_pb`, `MissionManager(clock = Clock.fixed(2026-01-12T00:00:00Z, UTC), zone = { UTC })`, `CoroutineScope(Dispatchers.Unconfined + Job())`, recording `queuedIds`/`cancelledIds`, `pendingCard(configured, pattern, runPlans)` fixture, `awaitText` via `composeRule.waitUntil(5_000)`, `render { LiftoffTheme { LaunchpadContent(viewModel, onOpenInFlight = {}) } }`, and `tearDown` = `runBlocking { job.cancelAndJoin() }` **then** `db.close()` (the compose rule tears down after `@After`).
+- `LaunchpadPendingStatusTest.kt` (351 lines) — the harness to copy: `@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`, in-memory Room with `allowMainThreadQueries()`, `PreferenceDataStoreFactory` + real `SettingsStore` on `context.cacheDir/settings.preferences_pb`, `MissionManager(clock = Clock.fixed(2026-01-12T00:00:00Z, UTC), zone = { UTC })`, `CoroutineScope(Dispatchers.Unconfined + Job())`, recording `queuedIds`/`cancelledIds`, `pendingCard(configured, pattern, runPlans)` fixture, `awaitText` via `composeRule.waitUntil(5_000)`, `render { LiftoffTheme { LaunchpadContent(viewModel, onOpenInFlight = {}) } }`, and `tearDown` = `runBlocking { job.cancelAndJoin() }` **then** `db.close()` (the compose rule tears down after `@After`), and it also deletes the preferences file.
+  - Its fixture `pendingCard(configured = true, pattern = "LRL", runPlans = false)` (l.121-144) is the recipe: set
+    the pattern, `setDaemonHost("127.0.0.1")` + `setDaemonToken("t")`, `setGenerateRunPlans(true)` only when
+    `runPlans`, then `missionId = manager.onAppOpen().id`, then `manager.continueWithoutOutline(missionId) {
+    queuedRow = it }` — the trailing `onQueued` callback hands back the id of the QUEUED FLIGHT_PLAN row that call
+    wrote, which is the row the new lift fixture must `markSucceeded` — then `sortieId =
+    db.sortieDao().getForMission(missionId).first { it.index == 0 }.id`, then build `LaunchpadViewModel(db,
+    manager, scope, queueGeneration = { queuedIds.add(it) }, cancelGeneration = { cancelledIds.add(it) })`.
+    `openRow()` (l.147) reads that row back through `getOpenFlightPlanForSortie`; `awaitText` (l.161) is
+    `waitUntil(5_000)` over `onAllNodesWithText(...).fetchSemanticsNodes()`; `render` (l.167) is the
+    `LiftoffTheme { LaunchpadContent(viewModel = ..., onOpenInFlight = {}) }` call.
 - `LaunchpadRegenerateTest.kt` (628 lines, `@Config(sdk = [34])`, no Compose) — reaches a PLANNED lift card: `activeWeek("LRL")` → `openPlanRowFor` → `generationDao.update(older.copy(createdAt = clock.millis() - 60_000))` (l.365) → `manager.storePlan(..., CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT))` → `StoreOutcome.Stored` (l.367-371). Its `cancelGeneration` does `generationDao.markCancelled(it, clock.millis())` (l.139-143). The run-off half is `regenerateOnARunSortieFollowsTheGenerateRunPlansToggle` (l.495-519): pattern `"RLL"`, `generateRunPlans` left off, sortie already PLANNED with `FlightPlanSource.SIMPLE_RUN`.
 - `LaunchpadSortieStatusTest.kt` — `aPlannedSortieShowsRePlanningWhenANewRowIsQueuedForIt` (l.304-…): after `storePlan` it calls `generationDao.markSucceeded(week.queuedRow, at(1))` to get `Idle`, then queues a row to get `RePlanning`. **This is the step the new Compose test needs too**: `continueWithoutOutline` leaves a QUEUED FLIGHT_PLAN row on the lift sortie and `storePlan` does not close it, so a freshly-stored PLANNED card is `RePlanning`, not `Idle`, until that row is closed.
 - Compose-rendering Launchpad tests: `LaunchpadDraftControlsTest`, `LaunchpadDraftStatusTest`, `LaunchpadPendingStatusTest`, `LaunchpadReFlyTest` (already `w411dp-h2000dp`, asserts `"SCRUB"` on a **PENDING** card). `LaunchpadScrubTest`, `LaunchpadConfirmTest`, `LaunchpadCoachStatusTest`, `LaunchpadStatesTest`, `LaunchpadRegenerateTest`, `LaunchpadDraftGuardsTest` are view-model/DAO only. `LiftoffShellTest` renders the shell with no host/token, so it never draws a PLANNED card.
@@ -57,6 +78,16 @@ Run: planned-card-regenerate-beside-scrub-vbvy. Branch base `462a5a9` (after PR 
 - A PLANNED lift card is `RePlanning` straight after `storePlan`, because `continueWithoutOutline` queued a QUEUED row and `storePlan` leaves it open. Close it with `markSucceeded` to get `Idle`.
 - A PLANNED run card with `generateRunPlans` off has **no** generation row at all — `advance` queued none for it — so its status is `Idle` and it draws no re-planning line. Its plan's source is `FlightPlanSource.SIMPLE_RUN`.
 - `PrimaryButton` uppercases its label too (`Buttons.kt` l.~74), so the assertions are `LAUNCH`, `REGENERATE`, `SCRUB`.
+- The line's text is `Coach is re-planning…`, and the ellipsis is the single character U+2026, exactly as in the
+  consts `PLANNING_LINE` (l.177) and `PENDING_PLANNING_LINE` (l.223). Write the same character in the const and in
+  every assertion, or the assertion will not match the text the card draws.
+- The run-off fixture needs no `storePlan`: `LaunchpadRegenerateTest.activeWeek(pattern = "RLL")` (l.122-128 =
+  settings, `onAppOpen`, `continueWithoutOutline`) leaves that sortie `SortieState.PLANNED` with a
+  `FlightPlanSource.SIMPLE_RUN` plan already, asserted at l.498-502 with `generateRunPlans` still off.
+- Contrast worth knowing before writing the tap case: `regenerateOnAPlannedSortieKeepsItsPlanAndStaysPlanned`
+  (l.362-389) does **not** close the row `continueWithoutOutline` queued, so there `cancelledIds == listOf(older.id)`
+  and the row ends CANCELLED. The new Compose fixture closes it with `markSucceeded` first, so nothing is open and
+  `cancelledIds` is empty. `getOpenFlightPlanForSortie` selects only QUEUED/RUNNING, which is why closing it matters.
 
 ## The gate this run is checked by
 
