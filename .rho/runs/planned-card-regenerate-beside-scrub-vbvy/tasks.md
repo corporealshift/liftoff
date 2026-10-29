@@ -6,7 +6,7 @@ class `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadPlannedActionsTes
 touch one existing test file if a class loses sight of a control. `map.md` holds the line numbers,
 the harness parts, the fixture recipes and the facts about generation rows.
 
-- [ ] 1. Draw Regenerate beside Scrub on the PLANNED card
+- [x] 1. Draw Regenerate beside Scrub on the PLANNED card
   Covers: `PlannedActions` (l.380) takes the Planned state as well as its two lambdas, and
   `ActionButtons`' Planned arm (l.282) hands it the state and `onRegenerate`, which
   `LaunchpadContent` already threads (l.102). When `regenerateAvailable` is true it draws Regenerate
