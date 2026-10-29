@@ -43,6 +43,8 @@ sealed interface LaunchpadState {
         val generationStatus: SortieGenerationStatus,
         /** The rho session id this sortie's newest non-cancelled generation row carries, if it carries one. */
         val rhoSessionId: String?,
+        /** Whether asking Mission Control again for this sortie would be accepted; see MissionManager.regenerateFlightPlan. */
+        val regenerateAvailable: Boolean,
     ) : LaunchpadState
 
     /** Current sortie is PENDING — no flight plan yet. */
@@ -58,6 +60,8 @@ sealed interface LaunchpadState {
         val rhoSessionId: String?,
         /** §5.4: a source plan exists *and* the coach cannot do the work — failed, offline, or not set up. */
         val reFlyAvailable: Boolean,
+        /** Whether asking Mission Control again for this sortie would be accepted; see MissionManager.regenerateFlightPlan. */
+        val regenerateAvailable: Boolean,
     ) : LaunchpadState
 
     /** Current sortie is IN_FLIGHT — resume available. */
@@ -139,8 +143,9 @@ class LaunchpadStates(
                         planChanges,
                         db.generationDao().observeNewestNonCancelledForSortie(current.id),
                         manager.coachConfigured,
-                    ) { _, row, configured ->
-                        deriveSortieCard(sorties, mission, current, row, configured)
+                        manager.generateRunPlans,
+                    ) { _, row, configured, runPlans ->
+                        deriveSortieCard(sorties, mission, current, row, configured, runPlans)
                     }.distinctUntilChanged()
                 } else {
                     planChanges.map {
@@ -176,6 +181,7 @@ class LaunchpadStates(
         current: Sortie,
         row: Generation?,
         coachConfigured: Boolean,
+        generateRunPlans: Boolean,
     ): LaunchpadState {
         val chips = deriveChips(mission.pattern, sorties)
         val eyebrow = formatEyebrow(mission.weekStart, current.index, mission.pattern.length, current.type)
@@ -183,6 +189,8 @@ class LaunchpadStates(
             SortieType.RUN -> "Run"
             SortieType.LIFT -> "Lift"
         }
+        // Mirrors the two settings checks in MissionManager.regenerateFlightPlan, which stays the authority.
+        val regenerateAvailable = coachConfigured && (current.type != SortieType.RUN || generateRunPlans)
 
         if (current.state == SortieState.PLANNED) {
             val planned = derivePlannedSortieGenerationStatus(
@@ -202,6 +210,7 @@ class LaunchpadStates(
                     sortieFocus = current.focus,
                     generationStatus = planned.status,
                     rhoSessionId = planned.rhoSessionId,
+                    regenerateAvailable = regenerateAvailable,
                 )
             }
             // The plan row is gone, so the card is the PENDING one and answers what a PENDING card would.
@@ -224,6 +233,7 @@ class LaunchpadStates(
                 generationStatus = pending.status,
                 rhoSessionId = pending.rhoSessionId,
                 reFlyAvailable = pending.offersReFly,
+                regenerateAvailable = regenerateAvailable,
             )
         }
 
@@ -247,6 +257,7 @@ class LaunchpadStates(
             generationStatus = answer.status,
             rhoSessionId = answer.rhoSessionId,
             reFlyAvailable = answer.offersReFly,
+            regenerateAvailable = regenerateAvailable,
         )
     }
 
@@ -299,6 +310,7 @@ class LaunchpadStates(
                     generationStatus = SortieGenerationStatus.Idle,
                     rhoSessionId = null,
                     reFlyAvailable = false,
+                    regenerateAvailable = false,
                 )
             }
         }
