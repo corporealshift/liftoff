@@ -279,7 +279,7 @@ private fun ActionButtons(
                 onRetry,
                 onContinueWithoutOutline,
             )
-            is LaunchpadState.Planned -> PlannedActions(onLaunch, onRequestScrub)
+            is LaunchpadState.Planned -> PlannedActions(state, onLaunch, onRequestScrub, onRegenerate)
             is LaunchpadState.Pending -> PendingActions(state, onRequestScrub, onRefly, onRegenerate)
             is LaunchpadState.InFlight -> InFlightActions(onLaunch)
             is LaunchpadState.Closed -> Unit
@@ -378,7 +378,12 @@ private fun DraftStepButton(
 }
 
 @Composable
-private fun PlannedActions(onLaunch: () -> Unit, onRequestScrub: () -> Unit) {
+private fun PlannedActions(
+    planned: LaunchpadState.Planned,
+    onLaunch: () -> Unit,
+    onRequestScrub: () -> Unit,
+    onRegenerate: () -> Unit,
+) {
     PrimaryButton(
         text = "Launch",
         onClick = onLaunch,
@@ -386,7 +391,18 @@ private fun PlannedActions(onLaunch: () -> Unit, onRequestScrub: () -> Unit) {
         iconAtEnd = true,
     )
     Spacer(Modifier.height(12.dp))
-    UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub)
+    // An unavailable Regenerate is absent, not dimmed — the rule PendingActions already follows.
+    if (planned.regenerateAvailable) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            UnderlinedTextButton(text = "Regenerate", onClick = onRegenerate, modifier = Modifier.weight(1f))
+            UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub, modifier = Modifier.weight(1f))
+        }
+    } else {
+        UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub)
+    }
 }
 
 @Composable
