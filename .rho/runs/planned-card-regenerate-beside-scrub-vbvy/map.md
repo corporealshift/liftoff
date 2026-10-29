@@ -57,3 +57,18 @@ Run: planned-card-regenerate-beside-scrub-vbvy. Branch base `462a5a9` (after PR 
 - A PLANNED lift card is `RePlanning` straight after `storePlan`, because `continueWithoutOutline` queued a QUEUED row and `storePlan` leaves it open. Close it with `markSucceeded` to get `Idle`.
 - A PLANNED run card with `generateRunPlans` off has **no** generation row at all — `advance` queued none for it — so its status is `Idle` and it draws no re-planning line. Its plan's source is `FlightPlanSource.SIMPLE_RUN`.
 - `PrimaryButton` uppercases its label too (`Buttons.kt` l.~74), so the assertions are `LAUNCH`, `REGENERATE`, `SCRUB`.
+
+## The gate this run is checked by
+
+- `.github/workflows/ci.yml` job `gate` runs exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest` (Java 17, 20-minute job timeout). `gradlew.sh` at the repo root pins `JAVA_HOME`/`ANDROID_HOME`/the Gradle binary under `~/android-toolchain`; run it as `bash gradlew.sh <tasks>` from the repo root.
+- `verify.sh` runs that gate once per attempt (up to 3 attempts, only retried on the hang / build-error / lone-flaky-name signature), with `--no-build-cache` and the old `app/build/test-results/testDebugUnitTest` moved aside first, then reads every named test out of that one run's `TEST-*.xml`.
+- The one name recorded as failing at random on this machine is `doneBodyweightSetStepperShowsBW` (`app/src/test/java/com/liftoff/app/ui/inflight/InFlightScreenTest.kt` l.601) — a closed Room pool that passes on a re-run of the same tree.
+
+## The three test names verify.sh requires (tasks.md is written from these)
+
+All three are new to this branch and live in the class the brief names, `LaunchpadPlannedActionsTest`:
+1. `plannedLiftCardShowsRegenerateBesideScrubAndNoRePlanningLine` — REGENERATE and SCRUB both displayed and enabled, bounds overlapping vertically, neither spanning the row alone, REGENERATE left of SCRUB, and no 'Coach is re-planning…'. Render only.
+2. `tappingRegenerateOnAPlannedCardQueuesOneGenerationAndShowsTheRePlanningLine` — exactly one id handed to `queueGeneration` and that id is a real QUEUED FLIGHT_PLAN row on this sortie; then 'Coach is re-planning…' with `LAUNCH`, `Push + core` and REGENERATE still on screen and the plan still in the table; `cancelledIds` empty. Wait for REGENERATE on screen before the tap.
+3. `plannedRunCardWithRunGenerationOffShowsScrubAndNoRegenerate` — SCRUB displayed and enabled, no REGENERATE, no re-planning line. Render only.
+
+verify.sh also requires these classes to have run with everything in them passing: `LaunchpadPendingStatusTest`, `LaunchpadReFlyTest`, `LaunchpadScrubTest`, `LaunchpadRegenerateTest`, `LaunchpadSortieStatusTest`, `LaunchpadStatesTest`, `LaunchpadCoachStatusTest`, `LaunchpadConfirmTest`, `LaunchpadDraftStatusTest`, `LaunchpadDraftControlsTest`, `LaunchpadDraftGuardsTest`, `LiftoffShellTest`. It checks no method name in any other class, and does not check ARCHITECTURE.md, the class the new tests sit in, button spacing, equal weights, or text colour.
