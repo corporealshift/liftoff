@@ -7823,3 +7823,93 @@ Must not break: the Launchpad tests (including the draft status tests), generati
 
 Done when: these tests pass, ARCHITECTURE.md is updated, and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
 
+**Check:** not met. Almost everything is built and merged: the Space Age theme, fonts and icon, the shell, Mission Control (every §8 setting, equipment, Test connection, export/import), Room, the Mission and sortie domain logic with rollover and tests, the draft with its live coach status, In-Flight for lifts and runs (including reopening after a kill), Landed and its detail view, Re-fly, the whole coach pipeline (template, schemas, checker, validator, prompt builder, copied rho client, GenerationWorker with repairs, resilience, enqueue, cancel/supersede and the app-open sweep), Flight Plans queued as sorties become current, the run-plans toggle (a simple 'Run' plan when off), Regenerate in the view model, and the sortie generation status derived on the Pending and Planned cards. Still missing: the round-19 'Draw generation status, Regenerate and View in rho' run paused at task 2 of 6. Only task 1 is done, as commit e2199c5 on the unmerged branch rho/draw-generation-status-regenerate-and-n766. It adds `MissionManager.generateRunPlans` and `regenerateAvailable` on `LaunchpadState.Planned` and `Pending`. It stalled on task 2, which had to write a PENDING status UI and a five-test Compose class in one step. On the goal branch: (1) The PENDING card still reads 'Flight Plan not ready yet.'. It shows no planning, offline, not-set-up or failed line, no validator errors and no Retry. (2) The PLANNED card has no Regenerate beside Scrub, unlike design/screens/launchpad.html, and no 're-planning' line. (3) There is no 'View in rho' showing the session id. (4) ARCHITECTURE.md is out of date: M3 'in progress' with In-Flight's enqueue 'next', M5 partial, M6 'Not started', M2 says In-Flight is a placeholder, the ui row says Mission Control is a stub, and the work row says 'Partly'. This round splits the failed brief into four runs that each need only one or two files. Each brief gives the API facts and test setup it needs, so the model doesn't have to search for them. The first run brings in e2199c5 by cherry-pick.
+
+## Round 20
+
+### 1. Pending card: coach status lines and Retry
+
+Make the Launchpad's PENDING card say what the coach is doing for this sortie, and offer Retry after a failure. DESIGN.md §9: 'PENDING: generation status ("Coach is planning…", "Mission Control offline — retrying", or a failure with its reason). Retry, Re-fly and Scrub are available.' design/README.md: PENDING puts the status line where the Flight Plan list would be and puts Retry / Re-fly / Scrub where Launch is.
+
+Step 1: bring in the finished derivation. Cherry-pick commit e2199c5 ('launchpad: derive regenerateAvailable for the Planned and Pending cards') from the local branch rho/draw-generation-status-regenerate-and-n766. Bring in only that commit, with its message unchanged, and nothing from that branch's .rho/runs/. It adds `val generateRunPlans: Flow<Boolean>` to MissionManager and `regenerateAvailable: Boolean` to `LaunchpadState.Planned` and `LaunchpadState.Pending`. If the commit can't be reached, make the same change by hand: in `LaunchpadStates.deriveSortieCard`, `regenerateAvailable = coachConfigured && (current.type != SortieType.RUN || generateRunPlans)`, and false in the Idle fallback.
+
+Step 2: change only `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt`. The facts you need:
+- `LaunchpadState.Pending` carries `generationStatus: SortieGenerationStatus` (com.liftoff.app.domain). The variants are `Planning`, `Offline`, `Failed(reason: String, validatorErrors: List<String>)`, `NotConfigured`, `RePlanning` and `Idle`. It also carries `reFlyAvailable`, `rhoSessionId` and, after step 1, `regenerateAvailable`.
+- `PendingContent` currently draws the text 'Flight Plan not ready yet.'. Replace it with the status, built like the draft's `draftStatusLine` in the same file, in `LiftoffType.note()`: Planning → 'Coach is planning…' (Muted); Offline → 'Mission Control offline — retrying' (Muted); NotConfigured → `NOT_CONFIGURED_MESSAGE` from LaunchpadViewModel.kt (Muted); Failed → the reason in `Red`, then each validator error on its own line below it; Idle or RePlanning → keep 'Flight Plan not ready yet.'.
+- `PendingActions` (bottom bar, reached through `ActionButtons`) gets a `PrimaryButton(text = "Retry", ...)` that calls `viewModel.regenerate()`. Show it only when the status is `Failed` and `regenerateAvailable` is true, above the existing Re-fly line and Scrub. Leave Re-fly and Scrub as they are.
+- Use only the theme parts in com.liftoff.app.ui.theme. No stock M3 visuals. `PrimaryButton` and `UnderlinedTextButton` upper-case their labels, so tests look for 'RETRY'.
+
+Tests: write a new Robolectric Compose class `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadPendingStatusTest.kt` with `@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`. Copy the setUp/tearDown harness of LaunchpadDraftStatusTest.kt: in-memory Room, a real SettingsStore, MissionManager on `Clock.fixed(2026-01-12T00:00:00Z, UTC)`, and `LaunchpadContent(viewModel, onOpenInFlight = {})` inside `LiftoffTheme`. Build the view model with no-op lambdas for queueGeneration and cancelGeneration; never touch WorkManager. Every wait is `composeRule.waitUntil(timeoutMillis = 5_000)`. To reach a PENDING lift card: `setDaemonHost("127.0.0.1")` and `setDaemonToken("t")` (skip both for the not-configured case), `setDefaultPattern("LRL")`, `manager.onAppOpen()`, then `manager.continueWithoutOutline(missionId)`. When configured, that leaves exactly one QUEUED FLIGHT_PLAN row for sortie index 0, which you read with `db.generationDao().getOpenFlightPlanForSortie(sortieId)`. For offline, `generationDao().update(row.copy(error = Generation.COACH_OFFLINE))`. For failed, `generationDao().markFailed(row.id, "invalid output: sets must not be empty; reps must be at least 1", <a later millis>)`, which derives `Failed("invalid output", [two errors])`. Cases:
+- planning line shown, no RETRY
+- offline line shown, no RETRY
+- not-set-up line shown, no RETRY
+- failed shows 'invalid output' and both error lines, plus RETRY
+- tapping RETRY moves the card to 'Coach is planning…'
+Don't type into text fields and don't open dialogs.
+
+Must not break: the other Launchpad tests (LaunchpadReFlyTest, LaunchpadDraftStatusTest, LaunchpadRegenerateTest, LaunchpadSortieStatusTest, LaunchpadStatesTest, LaunchpadScrubTest), LiftoffShellTest, or the build gate. If an existing Compose test can no longer see a control because the new lines push it out of its window, give that class the tall-window qualifier and say so in the PR. Do not change ARCHITECTURE.md in this run. Follow CLAUDE.md: commit messages `area: lowercase summary`, stage named files only, §2 vocabulary. When something is unclear, decide, record it in the plan, and carry on; don't stop to ask. The full gate can hang once for about 5 minutes on this machine. Run it detached and re-run it once if it hangs.
+
+Done when: the five tests pass and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 2. Planned card: Regenerate beside Scrub and the re-planning line
+
+Give the Launchpad's PLANNED card the Regenerate action the mockup draws. design/screens/launchpad.html puts two underlined text buttons, Regenerate and Scrub, side by side under the big red Launch button. DESIGN.md §9: 'PLANNED: the plan summary, with Launch, Regenerate and Scrub.'
+
+Builds on work already on this branch: `LaunchpadState.Planned` carries `generationStatus` (`SortieGenerationStatus.RePlanning` while a new FLIGHT_PLAN generation is open for the sortie, otherwise `Idle`) and `regenerateAvailable: Boolean` (false when Mission Control has no host or token, or when the sortie is a RUN and 'Generate run plans' is off). `LaunchpadViewModel.regenerate()` already queues a new generation and leaves the existing plan in place until the new one replaces it. The PENDING card's status lines and Retry were added by the previous run; leave them alone.
+
+Change only `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt`:
+- `PlannedActions`: when `regenerateAvailable` is true, put Regenerate and Scrub as two `UnderlinedTextButton`s in one Row under Launch. UnderlinedTextButton fills its width, so give each equal weight. Regenerate calls `viewModel.regenerate()`. When it's false, show Scrub alone, as today. Thread the state and the new lambda through `ActionButtons`.
+- `PlannedContent`: while `generationStatus` is `RePlanning`, show the line 'Coach is re-planning…' in `LiftoffType.note()` (Muted) above the Flight Plan. Keep the plan and Launch on screen, and keep Regenerate available.
+- Use theme parts only. No stock M3 visuals. Labels are upper-cased, so tests look for 'REGENERATE' and 'SCRUB'.
+
+Tests: write a new Robolectric Compose class `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadPlannedActionsTest.kt` with `@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`. Use the harness from LaunchpadDraftStatusTest.kt (in-memory Room, a real SettingsStore, MissionManager on `Clock.fixed(2026-01-12T00:00:00Z, UTC)`, and `LaunchpadContent(viewModel, onOpenInFlight = {})` in `LiftoffTheme`). The view model gets a recording `queueGeneration` lambda and a `cancelGeneration` that calls `db.generationDao().markCancelled(id, clock.millis())`. Never touch WorkManager, and bound every wait at 5 s.
+
+To reach a PLANNED lift card: set host '127.0.0.1' and a token, `setDefaultPattern("LRL")`, `manager.onAppOpen()`, `manager.continueWithoutOutline(missionId)`, then `manager.storePlan(sortieId, CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT))`, which returns `StoreOutcome.Stored`. LaunchpadRegenerateTest.kt does exactly this. A RUN sortie with run generation off, from pattern "RLL" with the toggle left off, is already PLANNED with a simple 'Run' plan and has `regenerateAvailable` false. Cases:
+- a PLANNED lift shows REGENERATE and SCRUB and no re-planning line
+- tapping REGENERATE records one queued id, and the card then shows 'Coach is re-planning…' while LAUNCH and the plan's title stay on screen
+- the run-off PLANNED card shows SCRUB and no REGENERATE
+
+Must not break: the other Launchpad tests, LiftoffShellTest, or the build gate. If an existing Compose test loses sight of a control, give that class the tall-window qualifier and say so in the PR. Do not change ARCHITECTURE.md in this run. Follow CLAUDE.md conventions. Decide unclear points, record them in the plan, and carry on. The gate can hang once for about 5 minutes: run it detached and re-run it once if it hangs.
+
+Done when: the three tests pass and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 3. View in rho on the Pending card
+
+Let the owner find a pending sortie's coach session in rho's own app. DESIGN.md §9 says the PENDING card offers 'View in rho', which shows the rho session id so the owner can open it in rho's app. The design doc says 'nabu', which is the harness's old name; use 'rho'.
+
+Builds on work already on this branch: `LaunchpadState.Pending.rhoSessionId: String?` is the session id from the sortie's newest non-cancelled FLIGHT_PLAN generation row. It is read from the `Generation.nabuSessionId` column; leave that column name alone. The PENDING card already draws its coach status lines and a Retry, and its bottom bar already holds Retry, Re-fly (or 'No earlier plan to re-fly.') and Scrub. Don't change any of those.
+
+Change only `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt`. When `rhoSessionId` is not null, the PENDING bottom bar gets an `UnderlinedTextButton(text = "View in rho", ...)` above Scrub. Tapping it reveals the id as a `LiftoffType.note()` line under the card's status lines, reading 'rho session <id>'. Use an inline line, not a dialog. The line stays until the sortie changes, and a new sortie starts with it hidden. With no session id there is no button. Use theme parts only. The label is upper-cased, so tests look for 'VIEW IN RHO'.
+
+Tests: add a Robolectric Compose class `app/src/test/java/com/liftoff/app/ui/launchpad/LaunchpadViewInRhoTest.kt` with `@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`. Use the harness from LaunchpadDraftStatusTest.kt (in-memory Room, a real SettingsStore, MissionManager on `Clock.fixed(2026-01-12T00:00:00Z, UTC)`, `LaunchpadContent(viewModel, onOpenInFlight = {})` in `LiftoffTheme`) with no-op generation lambdas, no WorkManager and 5 s bounded waits. To reach PENDING: set host '127.0.0.1' and a token, `setDefaultPattern("LRL")`, `manager.onAppOpen()`, `manager.continueWithoutOutline(missionId)`. That leaves one QUEUED FLIGHT_PLAN row for sortie index 0 (`db.generationDao().getOpenFlightPlanForSortie(sortieId)`). Give it a session id with `generationDao().update(row.copy(nabuSessionId = "sess-7f3a-liftoff"))`. Cases:
+- with the id: VIEW IN RHO is shown, the id isn't on screen until the tap, and after the tap the text containing 'sess-7f3a-liftoff' is displayed
+- with the row but no id: no VIEW IN RHO
+- not configured (no host or token, so no row): no VIEW IN RHO
+
+Must not break: the other Launchpad tests (including LaunchpadPendingStatusTest and LaunchpadPlannedActionsTest if present), LiftoffShellTest, or the build gate. Do not change ARCHITECTURE.md in this run. Follow CLAUDE.md conventions. Decide unclear points, record them in the plan, and carry on. The gate can hang once for about 5 minutes: run it detached and re-run it once if it hangs.
+
+Done when: the three tests pass and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
+### 4. Bring ARCHITECTURE.md up to date with what is built
+
+Documentation only: update ARCHITECTURE.md so its package table and milestone table match the code on this branch. Change no Kotlin, resource or build files. Check each claim against the source tree (`app/src/main/java/com/liftoff/app/...`) before writing it.
+
+Package table ('Exists yet?' and responsibility cells). Every row should read ✅ and name what is really there:
+- `rho`: the copied `net/DaemonClient.kt`, `protocol/Events.kt` and `protocol/RpcCodes.kt`, plus `DaemonConnectionCheck.kt`.
+- `data`: Room entities, the DAOs, LiftoffDatabase, MissionManager, export/import, and the Re-fly copy.
+- `settings`: SettingsStore with every DESIGN.md §8 setting.
+- `domain`: week, pattern, Mission and sortie rules, rollover, sortie planning, Re-fly chooser, and the draft and sortie coach-status derivations.
+- `coach`: unchanged unless it's wrong.
+- `work`: change 'Partly' to ✅. List CoachTurnRunner, GenerationWorker, GenerationEnqueuer, GenerationCanceller and AppOpenSweep in short phrases; cut the current long run-on description down to one or two sentences.
+- `ui`: Mission Control is a real screen in `ui/control` (settings, equipment, Test connection, export/import), not a stub. The Launchpad draws the draft's coach status, and the Pending and Planned cards' generation status, Retry, Regenerate, Re-fly, View in rho and Scrub. The row also covers Mission, In-Flight, Landed, the shell and `ui/theme`.
+
+Milestone table:
+- M1–M6 are Done. Rewrite each status as one short sentence with no 'comes next' or 'placeholder' left over. M2 must no longer say In-Flight is a placeholder. M3 is the worker, queueing, Regenerate and the Launchpad status. M5 is Landed, Re-fly and export/import. M6 says the run-generation toggle is honoured: a simple 'Run' plan when it's off, a generated run Flight Plan when it's on.
+- M0 says the coach/ template, schemas, validator and prompt builder exist and that the live measurement (`LiveCoachTest`) hasn't been run.
+
+If the Launchpad's Pending status lines, Planned Regenerate or View in rho are not on this branch, describe only what is there, and say in the PR which ones are missing. Keep the rest of the document (topology, invariants, data flow) unless a line is plainly wrong. In particular, the data-flow line about queueing is still true.
+
+Must not break: the build gate. Follow CLAUDE.md conventions: commit message `docs: ...`, stage ARCHITECTURE.md by name, LF line endings. Decide unclear points, record them in the plan, and carry on. The gate can hang once for about 5 minutes: run it detached and re-run it once if it hangs.
+
+Done when: ARCHITECTURE.md matches the code as described and `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` passes.
+
