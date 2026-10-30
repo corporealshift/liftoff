@@ -67,7 +67,7 @@ skip or delete a test class, and do not touch any Kotlin, resource or build file
   to a tracked path; each row you touched has 4 pipes; `grep -c $'\r' ARCHITECTURE.md` prints 0.
   Commit `docs: ...`.
 
-- [ ] 2. Package table: the `work` row — ✅ and cut to one or two sentences
+- [x] 2. Package table: the `work` row — ✅ and cut to one or two sentences
   Line 36. Replace `Partly (…)` and its 1782-byte run-on with a ✅ cell that names the five files in short phrases:
   `CoachTurnRunner.kt`, `GenerationWorker.kt`, `GenerationEnqueuer.kt`, `GenerationCanceller.kt`, `AppOpenSweep.kt`.
   One or two sentences in total, the whole row 891 bytes or fewer. The resume, supersede and offline detail being
