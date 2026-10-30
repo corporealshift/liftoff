@@ -114,7 +114,7 @@ skip or delete a test class, and do not touch any Kotlin, resource or build file
   of partial/partly/not started/not yet/in progress; each of the three rows has 4 pipes; the milestone table still
   has 7 rows and its header is unchanged. Commit `docs: ...`.
 
-- [ ] 6. Whole-document sweep, the gate, and the run's last commit
+- [x] 6. Whole-document sweep, the gate, and the run's last commit
   Read `ARCHITECTURE.md` end to end once and fix only what the rewritten tables now contradict: a leftover "stub",
   "placeholder" or "comes next" outside the tables, or a status word that no longer matches its row. Topology,
   resource locations, data flow and the invariants stay as they are — data-flow line 3 (queueing on land) is still
