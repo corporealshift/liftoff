@@ -50,3 +50,14 @@ Under `app/src/main/java/com/liftoff/app/`:
 ## Tests
 
 89 test classes exist across the packages above. A docs-only change touches none of them; the gate is the whole suite (`:app:assembleDebug :app:testDebugUnitTest`), which the previous run's gate measured at 736 tests in 89 reports in about 1m30s warm.
+
+## The check (verify.sh)
+
+`verify.sh` is this run's definition of done, in four sections:
+
+1. **CI gate** — `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`, the one build-and-test step in `.github/workflows/ci.yml`. Run detached with a log under `app/build/`; stale `app/build/test-results` moved aside first (never `rm`, a stranded executor holds `binary/output.bin`) and `--no-build-cache`, so every report below comes from that invocation; retried once on a hang.
+2. **19 named classes**, each of which must have run in that invocation with nothing failed or skipped: `DaemonConnectionCheckTest`; `MissionManagerTest`, `BackupRoundTripTest`, `MissionManagerReFlyTest`; `SettingsStoreTest`; `SortiePlanningTest`, `CoachStatusTest`, `SortieGenerationStatusTest`; `CoachTurnRunnerTest`, `GenerationWorkerTest`, `GenerationEnqueuerTest`, `GenerationCancellerTest`, `AppOpenSweepTest`; `MissionControlScreenTest`; `LaunchpadPendingStatusTest`, `LaunchpadPlannedActionsTest`, `LaunchpadViewInRhoTest`; `InFlightRunTest`, `RunLandingTest`. All 19 exist today, so none of them is what makes the script fail — the plan writes no test, so there is no new name to demand.
+3. **ARCHITECTURE.md's two tables** — rejects the wording the brief says is wrong rather than demanding new wording, measures the `work` and M3 rows against the base version (they must shrink), requires the `data`/`settings`/`domain`/`work`/`ui` rows and the M2/M3/M5/M6 cells to have actually changed, and resolves every backticked file name in the package table to a tracked path. `rho`, `coach` and M0 are exempt from the "must have changed" / "reads as done" checks.
+4. **Scope** — nothing outside `ARCHITECTURE.md` and `.rho/runs/bring-architecture-md-up-to-date-with-0c00/` changed since the run's base commit `8de2795` (`run: brief`), counting committed, worktree and untracked; plus ARCHITECTURE.md keeps LF endings.
+
+Measured on untouched code: gate green (736 tests, 0 failures, 0 skipped, `BUILD SUCCESSFUL`), **55 passed / 15 failed, exit 1**. The 15 are the document checks listed in verify.sh's header comment. Scratch copies used while writing it are under `app/build/` (gitignored): `arch-done*.md`, `arch-bad*.md`, `vd*.sh`, `verify-*.log`.
