@@ -52,7 +52,7 @@ skip or delete a test class, and do not touch any Kotlin, resource or build file
 
 ## The tasks
 
-- [ ] 1. Package table: the `data`, `settings` and `domain` rows, and a check of `rho`
+- [x] 1. Package table: the `data`, `settings` and `domain` rows, and a check of `rho`
   Lines 31–34. `rho` (31): confirm it already names `net/DaemonClient.kt`, `protocol/Events.kt`,
   `protocol/RpcCodes.kt` and `DaemonConnectionCheck.kt`, and keep the rho commit hash `ffce07d3…` — invariant 4
   depends on it. Edit only if a claim is wrong. `data` (32): the responsibility and the ✅ cell must name
