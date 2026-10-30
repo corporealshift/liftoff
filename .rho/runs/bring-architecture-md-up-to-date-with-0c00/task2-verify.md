@@ -67,3 +67,12 @@ generation" (2), `M5` "Partial" (1), `M6` "Not started" (1). No task 2 check is 
 
 The Gradle gate is task 6's, and no task writes a test: the 19 classes `verify.sh` names already exist. Task 2
 changed no Kotlin, resource or build file, so nothing in that gate can move.
+
+## Why `tasks.md` still shows task 2 unchecked
+
+`tasks.md` lists `- [x] 1` and `- [ ] 2` … `- [ ] 6` at HEAD `cbc37e4`. A session is told not to edit `tasks.md` —
+the runner ticks the box when the task finishes — so the unchecked box for task 2 is the runner's to close, not a
+claim that its work is missing: every Done-when condition of task 2 measures true at HEAD, as tabulated above.
+Boxes 3–6 are unchecked because those tasks belong to later sessions; their checks (`ui` "stub", `M3` length and
+"In progress", `M2` "placeholder", `M5` "Partial", `M6` "Not started") are the 9 failures listed above and are
+meant to fail until each task runs.
