@@ -90,7 +90,7 @@ skip or delete a test class, and do not touch any Kotlin, resource or build file
   `grep -m1 'com\.liftoff\.app\.ui' ARCHITECTURE.md | grep -ci stub` prints 0 (grep exits 1 when it finds none);
   every backticked name in the row resolves to a tracked path; the row has 4 pipes. Commit `docs: ...`.
 
-- [ ] 4. Milestones M0–M3
+- [x] 4. Milestones M0–M3
   Lines 79–82. M2 (81): drop "In-Flight is a placeholder until M4" and "Regenerate comes with generation (M3)";
   one short sentence reading Done over what M2 really is — domain state machines, draft/confirm UI, Launchpad, Scrub.
   M3 (82): the longest cell in the document, 3230 bytes with 7 em dashes. Cut it to 1615 bytes or fewer, reading
