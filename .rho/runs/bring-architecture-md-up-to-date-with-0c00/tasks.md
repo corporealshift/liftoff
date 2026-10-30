@@ -79,7 +79,7 @@ skip or delete a test class, and do not touch any Kotlin, resource or build file
   the five names resolve; the `coach` row is unchanged or the commit body says which claim was wrong.
   Commit `docs: ...`.
 
-- [ ] 3. Package table: the `ui` row
+- [x] 3. Package table: the `ui` row
   Line 37. Mission Control is a real screen in `ui/control` — settings, equipment, Test connection, export/import —
   and the word "stub" must not appear anywhere in the row, in either cell; it appears twice today. Name the
   Launchpad's controls: the draft's coach status, the Pending and Planned cards' generation status, Retry,
