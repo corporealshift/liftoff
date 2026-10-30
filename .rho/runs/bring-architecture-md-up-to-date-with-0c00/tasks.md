@@ -105,7 +105,7 @@ skip or delete a test class, and do not touch any Kotlin, resource or build file
   `tr -cd '\r' < ARCHITECTURE.md | wc -c` prints 0 and `grep -c $'\ufffd' ARCHITECTURE.md` prints 0, which is how you
   catch an em dash corrupted into a replacement character; each row has 4 pipes. Commit `docs: ...`.
 
-- [ ] 5. Milestones M4–M6
+- [x] 5. Milestones M4–M6
   Lines 83–85. M5 (84): from "Partial: …" to one short sentence reading Done over Landed history, Re-fly and
   export/import. M6 (85): from "Not started" to one short sentence reading Done that says the run-generation toggle
   is honoured — a simple "Run" plan when it is off, a generated run Flight Plan when it is on. M4 (83) already reads
