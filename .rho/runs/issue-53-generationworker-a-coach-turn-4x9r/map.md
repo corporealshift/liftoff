@@ -44,6 +44,74 @@
 
 **`app/src/test/java/com/liftoff/app/work/CoachTurnRunnerTest.kt`** (751 lines) — turn-level tests: fresh turn, handed session/cursor, a state_change before the prompt, ask/permission answers, `Blocked` :361, `Paused` :407, two ends stop at the first :451, `TimedOut` :549, a dropped connection throws :611, the stop helper :667. **No test scripts an `error` end**, and none exercises `alreadyActedOn` directly (the worker's paused-resume tests do, through `State("paused")`).
 
+## Harness details for the new tests
+
+**`CoachTurnRunnerTest`** — plain JUnit 4 over a real localhost socket, no Robolectric, no virtual time.
+- Limits the class already holds: `turnLimit = 2.seconds` (a turn scripted to finish), `shortLimit = 500.milliseconds`
+  (a turn scripted with no end, so the limit is what ends it), `answerWindow = 15.seconds` (the `withTimeout` wrapped
+  around every call), `droppedTurnLimit = 1.hours` (only for the dropped-connection case). `@Before startDaemon` /
+  `@After stopDaemon` on the class's own `FakeDaemon`; `connectedClient()` :72 builds a `DaemonClient` against
+  `daemon.host()/port()` with token `"sekrit"` and connects.
+- Private helpers at :705-745: `frameFor(method)`, `JsonObject.jsonObject(key)`, `answerTo(requestId)`,
+  `eventId(event)`, `contentOf(id)`, `promptEventId(clientId)`.
+- Shape of a turn call: `runCoachTurn(client, sessionId, options = CoachSessionOptions(workspace = "/repo/coach"),
+  prompt, clientId, cursor, limit, onSessionId = {}, onCursor = {})`. Every test names its own `clientId`
+  (`"turn-1"` … `"turn-11"`), so a new test needs a fresh one.
+- `twoEndingStateChangesAfterThePromptStopAtTheFirst` :451 is the model for a turn whose events are all seeded rather
+  than pushed: it calls `client.callOrThrow("rho.session.send_prompt", {session_id, content, client_id})` itself,
+  reads `promptEventId(clientId)`, then `daemon.logEvent(EventType.MESSAGE, …)` and `daemon.logEvent(EventType.STATE_CHANGE, {to, reason})`,
+  and finally runs the turn with the SAME `clientId` (the re-send is deduped) and the cursor it wants handed in.
+  **That is the shape the stuck-row test needs**: seed the prompt under the client_id, seed the `error`
+  state_change after it, then hand in a cursor past that error event.
+- `aSessionAndCursorHandedInIsUsedWithoutCreatingAnother` :142 is the handed-in-session case to copy for asserting
+  "no second `rho.session.create` frame".
+
+**`GenerationWorkerTest`** — the mid-turn cancel shape to copy is `aGenerationCancelledMidTurnThatEndsBlockedStaysCancelledAndKeepsItsError`
+:997: `insertOutlineGeneration(mission.id)`, then a script of `Assistant` lines, then `DaemonScript.Act { … }` that
+re-reads the row, `update(row.copy(error = carriedError))` and `markCancelled(generationId, now)` while the turn is
+open, then the end state. Cancel goes through the DAO, never `container.generationCanceller()` (it sends its own
+`rho.session.stop` and would prove nothing). Asserts `Result.Success`, CANCELLED, `row.error == carriedError`,
+`finishedAt` non-null, mission still DRAFT, no sorties, `assertSessionGivenUpOnce`.
+- `eventId(event)` and `daemon.log.single { it["data"]?.jsonObject?.get("to")… }` are how a test reads the id of the
+  end event the fake logged (see :1322).
+
+## verify.sh — what this run's check names (written 2026-10-31)
+
+`.rho/runs/issue-53-generationworker-a-coach-turn-4x9r/verify.sh`, copied whole in shape from
+`.rho/runs/the-worker-leaves-a-cancelled-n8q3/verify.sh` (same `index_reports` one-awk-pass index, `t`/`c` helpers,
+gate with up to 3 attempts retried only on the hang / build fault / `doneBodyweightSetStepperShowsBW` flake,
+`--no-build-cache`, results dir moved not deleted, no `gradlew --stop`).
+
+Three named tests, all new to this branch (verified: 0 occurrences under `app/src/test` at HEAD `ad8a4bc`), so the
+script exits 1 today on the three "did not run" while the gate and every class check pass:
+1. `aTurnThatEndsInErrorFailsTheGenerationWithTheDaemonsReason` — worker; `Result.Failure`, FAILED + `finishedAt` +
+   session id kept, `row.error` is the scripted reason string, nothing stored, one `rho.session.stop`, no
+   `rho.session.resume`.
+2. `aGenerationCancelledMidTurnThatEndsInErrorStaysCancelledAndKeepsItsError` — worker; `Result.Success`, still
+   CANCELLED with the error it carried, nothing stored. Fails today too (today this turn is handed back and retried).
+3. `aCursorHandedInPastAnErrorReportsThatErrorInsteadOfTimingOut` — runner; a cursor past this turn's own prompt and
+   past an `error` reports `TurnEnd.Error` carrying the daemon's reason, under a fraction-of-a-second limit.
+   This is plan Decision 1 (rows already stuck are unstuck).
+
+Class checks (must not break): `GenerationWorkerTest`, `CoachTurnRunnerTest`, `GenerationDaoTest`,
+`GenerationEnqueuerTest`, `GenerationCancellerTest`, `AppOpenSweepTest`, `MissionManagerTest`,
+`MissionManagerOutlineTest`, `MissionManagerPlanTest`, `FlightPlanDaoTest`. No Launchpad/UI class is named — the
+plan changes no UI and the gate runs those classes anyway. All ten exist as files under `app/src/test/java/com/liftoff/app/{work,data}/`.
+
+**Ran end to end on the untouched tree (2026-10-31, HEAD `ad8a4bc`)**: gate attempt 1 passed — `BUILD SUCCESSFUL in
+1m 56s`, `:app:testDebugUnitTest` executed (not FROM-CACHE), **736 tests / 0 failures / 0 errors / 0 skipped** — and
+the result was **11 passed, 3 failed, exit 1**: the three failures are exactly the three "did not run". Scratch copy
+`app/build/verify-run.sh`, log `app/build/verify.log` (the script's own `$WORK` dir is removed by its trap). Run it
+from a copy under `app/build`, never in place: editing a script while a detached run of it is going gives a phantom
+"syntax error near unexpected token".
+
+Deliberately NOT checked (stated in the script header): the narrowed retry arm (existing paused-resume, refused-resume,
+two-run-resume, `TimedOut` and dropped-connection tests cover it and already pass, so naming them cannot fail the
+script); the Launchpad's rendering of a FAILED row; `TurnOutcome` carrying `reason` as a field (only that the
+daemon's words land on the row); the daemon possibly refusing `rho.session.stop` on an errored session; DESIGN.md
+and ARCHITECTURE.md wording (this run writes code, so no doc row is grepped); the Room schema (the brief asks for no
+schema change and the change touches no entity).
+
 ## Docs that state the rule
 
 - **`DESIGN.md` §7.3 (lines 285-344), step 5 at :331-332**: "**`paused` or `error`:** a retryable failure, so return `Result.retry()`. Before the retry, if the session is `paused`, call `nabu.session.resume`." The design document currently says `error` is retryable — the issue says rho makes it terminal. The line has to change with the code, or the spec contradicts the app.
