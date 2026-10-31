@@ -1,0 +1,43 @@
+{
+  "type": "lift",
+  "title": "Push + core",
+  "estimated_minutes": 58,
+  "warmup": "3 minutes rowing, then band pull-aparts",
+  "exercises": [
+    {
+      "name": "Bench Press",
+      "equipment": ["barbell", "bench"],
+      "rest_seconds": 120,
+      "sets": [
+        { "reps": 5, "weight": 60 },
+        { "reps": 5, "weight": 62.5 }
+      ]
+    },
+    {
+      "name": "Pendlay Row",
+      "equipment": ["barbell"],
+      "rest_seconds": 90,
+      "sets": [
+        { "reps": 8, "weight": 70 }
+      ]
+    },
+    {
+      "name": "Plank",
+      "equipment": ["bench"],
+      "rest_seconds": 60,
+      "sets": [
+        { "seconds": 45 }
+      ]
+    },
+    {
+      "name": "bench  press",
+      "equipment": ["barbell", "bench"],
+      "rest_seconds": 120,
+      "notes": "Wrote this one out again for the accessory block.",
+      "sets": [
+        { "reps": 8, "weight": 50 }
+      ]
+    }
+  ],
+  "notes": "Add weight only if all three bench sets were hit."
+}

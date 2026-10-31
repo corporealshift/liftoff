@@ -1,0 +1,14 @@
+{
+  "type": "run",
+  "title": "Tempo intervals",
+  "kind": "tempo",
+  "target_distance": 6.5,
+  "target_pace": "8:15/mi",
+  "segments": [
+    { "description": "6 minutes easy to warm up", "distance": 1.0, "minutes": 6 },
+    { "description": "4 x 90 seconds at tempo, 90 seconds float", "distance": 3.5, "minutes": 16 },
+    { "description": "3 minutes at easy effort", "distance": 0.5, "minutes": 3 },
+    { "description": "Warm-down jog", "distance": 1.5, "minutes": 12 }
+  ],
+  "notes": "This is the Tuesday session — tempo work, not the lift."
+}

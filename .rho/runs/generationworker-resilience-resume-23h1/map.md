@@ -1,0 +1,220 @@
+# Map — GenerationWorker resilience: resume, reconnect, offline
+
+Base for the worker/test/FakeDaemon picture: `.rho/runs/generationworker-repairs-and-the-ways-a-621y/map.md`
+(that run's facts are still true except where this file updates them). Everything below was read off HEAD
+`7dbc9c3` (which contains merged PRs #34 repairs-flow, #35 outcomes, #36 enqueuer).
+
+## Files this run touches
+
+**`app/src/main/java/com/liftoff/app/work/GenerationWorker.kt`** (352 lines) — plain `CoroutineWorker`,
+`(context, params)`; everything through `(applicationContext as LiftoffApplication).container`.
+`doWork()` (51-87): row by `GENERATION_ID` (`NO_SUCH_GENERATION = -1L`) → failure if no row → success if
+`row.status in FINISHED_STATUSES` → `markRunning` → mission/sortie existence guards through
+`failGeneration(..., client = null, sessionId = null)` (66, 69) → the connection `when` at **72-86**:
+`Connected -> runGeneration(...)` (73), `ProtocolMismatch -> failGeneration` with `mismatchMessage(...)` (77-83),
+**`else -> Result.retry()` (85)** — that arm is what catches `Unreachable`, `NotConfigured` and
+`AuthenticationRejected` today, with no mark on the row.
+
+- `runGeneration` (90-145): `container.daemonClient()`, then **`client.connect()` at 102 inside the same `try`
+  as the turn**, so a connect that fails and a drop mid-turn both land in `catch (dropped: DaemonException)`
+  (127-141): `isPermanent -> failGeneration(...)`, otherwise `Result.retry()` (140). `finally { client.close() }`.
+  `reportedSessionId` (100) is held so the catch can give the session up.
+- `runCoachTurn` call (110-125): `sessionId = row.nabuSessionId`, `clientId = "${row.id}-${row.attempt}"` (116),
+  `cursor = row.lastEventId` (117), `limit = TURN_LIMIT`, callbacks wrapped so `reportedSessionId` is recorded.
+- `savingProgressTo` (153-...): turn callbacks are non-suspend, so each row write goes on an unlimited
+  `Channel<suspend () -> Unit>` drained in order by one coroutine, joined in a `finally` even when the turn threw.
+- `storeFinishedTurn` (180-263): loops. `Blocked -> failGeneration("coach needed input")` (203-205);
+  **`turn.end != Idle && != Completed -> Result.retry()` (206) — this is the arm `Paused` reaches today, and no
+  `rho.session.resume` is sent**; `Invalid` → `bumpAttempt` (225) then a repair turn on the same session with
+  `clientId = "${row.id}-$attempt"` where `attempt` is read back off the row (216, 228), capped by `MAX_REPAIRS`;
+  `StoreOutcome.Refused -> failGeneration(stored.reason)` (253-255); success → `markSucceeded` +
+  `giveUpSession(client, turn.sessionId)` (257-261).
+- `failGeneration` (279-288) = `markFailed(id, reason, clock.millis())` + optional session stop + `Result.failure()`.
+- `giveUpSession` (292-...) swallows everything, so a refused stop never changes a decided outcome.
+- companion: `labelsFor` (309, invariant 7), `descriptionOf` (315). File-private `TURN_LIMIT = 20.minutes` (334),
+  `mismatchMessage` (347), `majorOf` (352). `MAX_REPAIRS` is in the companion.
+- `runAttemptCount` is available directly on the worker (inherited from `ListenableWorker`/`WorkerParameters`);
+  nothing in this file reads it today.
+
+**`app/src/main/java/com/liftoff/app/work/CoachTurnRunner.kt`** (222 lines) —
+`runCoachTurn(client, sessionId, options, prompt, clientId, cursor, limit, onSessionId, onCursor): TurnOutcome`.
+`TurnEnd { Idle, Completed, Blocked, Paused, Error, TimedOut }` (40; `"paused"` is already mapped, 62).
+`TurnOutcome(sessionId, cursor, end, lastAssistantText)` (50). Flow (153-183): create only when `sessionId == null`
+(155) → `onSessionId` → `subscribe` → `send_prompt` with `client_id` → `promptId` from the answer (165) →
+**one catch-up read `eventsAfter(client, session, lastCursor)` (171)** → drain buffered pushes → `receive()` until
+an end. `handle` (120-140) accepts an assistant message or a state_change only when `event.id > promptId`;
+`moveCursorTo` (111) only moves forward. `stopCoachSession` (195) sends `rho.session.stop`; the runner never calls it.
+`eventsAfter` (211-221) retries once from the start on `CURSOR_UNKNOWN` only.
+
+**The gap this run has to close:** when the row's stored cursor is already past the reply and the end, the single
+catch-up read returns nothing useful, `end` stays null, and the runner sits in `pushed.receive()` until
+`TURN_LIMIT` (20 minutes). The test's 30 s `withTimeout` kills it first. A second read from the prompt's own id is
+what finds a reply the cursor has already walked past.
+
+**`app/src/main/java/com/liftoff/app/data/GenerationDao.kt`** (72 lines) — `insert`, `get`, `getAll`, `insertAll`,
+`countAll`, `update`, `delete`, `markRunning`, `markSucceeded`, `markFailed(id, error, finishedAt)`, `markCancelled`,
+`saveSessionId`, `saveLastEventId`, `bumpAttempt(id)` (`attempt = attempt + 1`), `getNewestNonCancelledForSortie`,
+`getNewestNonCancelledOutlineForMission`. **No query sets or clears `error` on its own** — `markFailed` is the only
+writer of `error` and it also writes status + finishedAt. A new `@Query` is needed; that is not a schema change.
+
+**`app/src/main/java/com/liftoff/app/data/Generation.kt`** (20 lines) — `@Entity(tableName = "generation")`:
+`id`, `kind`, `missionId`, `sortieId?`, `status`, `nabuSessionId?`, `lastEventId?`, `attempt = 0`, `error?`,
+`createdAt`, `finishedAt?`. `GenerationStatus { QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED }` and
+`GenerationKind` are in `data/Enums.kt` (line 9).
+
+**`app/src/test/java/com/liftoff/app/rho/FakeDaemon.kt`** (398 lines) — `MockWebServer` WebSocket fake.
+- `send_prompt` (231-249) dedupes by `client_id` through `private val promptIds` (100): a repeat answers with the
+  earlier `event_id` and **plays no new turn**.
+- `logEvent(type, data)` (189) → `append(...)` only: it does **not** register a `client_id` in `promptIds`, so a
+  seeded user message is not deduped and a re-send of the same client_id would append a second message.
+- `events_after` (251-263): no cursor → whole log; unknown cursor → `CURSOR_UNKNOWN`; otherwise `log.drop(at + 1)`.
+- **No `rho.session.resume` handler**: it falls to the catch-all at 275 (`{ok:true, method:...}`), which is still
+  recorded in `frames`, so a resume frame is observable today but the fake does nothing for it.
+- `append` (281-301) logs and pushes to every subscriber. `play`/`hold`/`nextTurn` (316-372) script **one turn**;
+  `nextTurn()` repeats the last scripted turn when the list runs out.
+- `refuseMethod` is a public `ConcurrentHashMap<String, Pair<Int, String>>` (85) read for any method (146).
+  `refuseProtocolMismatch` (171). `sessionId` is a fixed `"session-1"` (78) answered for every create, so "one
+  session" is proved by counting create frames. `framesFor(method)` (198) is a substring filter on raw frames.
+  `stop()` (201) shuts the server down. `host()`/`port()` (191/193). `nextEventId()` = `"01E" + 23-digit counter`
+  (390) — fixed width, so `>` compares in log order.
+- No script step drops a connection; a drop has to be arranged another way (e.g. `stop()` before `runWorker`, or a
+  new `DaemonScript` step).
+
+**`app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt`** (1049 lines) — the harness to reuse.
+Robolectric `@Config(sdk = [34])`; `@Before seedContainer` starts `FakeDaemon` and writes host/port/token
+(`SECRET_TOKEN`) + `COACH_WORKSPACE` into `container.settingsStore`, plus `equipmentDao().insertAll(...)`;
+`@After tearDown` stops the daemon, closes the DB, deletes `liftoff.db` and the settings file. `turnWait = 30.seconds`
+(69). `runWorker(id)` (876) = `runBlocking { withTimeout(turnWait) { TestListenableWorkerBuilder<GenerationWorker>(
+context).setInputData(workDataOf(GenerationWorker.GENERATION_ID to id)).build().doWork() } }` — **no
+`setRunAttemptCount` anywhere yet**; the builder does have `setRunAttemptCount(int)` (confirmed in
+`work-testing-2.9.1`).
+Helpers: `sortieAt` (885), `insertFlightPlanGeneration` (888), `insertOutlineGeneration` (901),
+`assertAwaitingGeneration` (918), `assertPlannedWithAGeneratedPlan` (927), `assertNothingReachedTheDaemon` (947),
+`assertSessionGivenUpOnce` (957), `assertSessionLeftOpen` (967), `mismatchFailedRow` (979),
+`assertNoSessionWasOpened` (998), **`frameFor(method)` (1009 — asserts exactly one frame and returns its params)**,
+`promptsSent()` (1018), `methodsSent()` (1025), `jsonObject` (1028), `eventId` (1034).
+Existing cases (18) include `aGenerationRowWithASessionIdAlreadyStoredIsResumedWithoutCreatingAnotherSession` (296,
+seeds a cursor with `daemon.logEvent(EventType.MESSAGE, ...)` and inserts a row carrying `nabuSessionId` +
+`lastEventId`), `aPausedTurnRetriesAndLeavesTheRowRunningWithItsSessionAndCursor` (798 — asserts Retry, the create
+frame, `client_id == "$generationId-0"`, RUNNING, session + cursor kept, `error` null, `attempt` 0, `finishedAt`
+null, nothing stored on the mission, and `assertSessionLeftOpen()`; it says nothing about a resume frame either
+way, so the plan's step 4 adds the resume assertion to it without contradicting anything it already says), and
+`aTurnThatEndsInErrorRetries...` (842). **Neither (296) nor (798) can serve as proof of this run's work: both
+already exist and pass on today's code**, so `verify.sh` names only tests that do not exist yet, and the class
+check is what keeps those two green.
+
+**`app/src/test/java/com/liftoff/app/work/CoachTurnRunnerTest.kt`** (751 lines) — `twoEndingStateChangesAfterThePrompt
+StopAtTheFirst` (451) is the shape the brief's re-send case copies: it sends a prompt under `clientId`, seeds the
+reply and two ends with `logEvent`, calls `runCoachTurn` again with `cursor = promptId`, then asserts the log holds
+**one** message for that client_id and that two `send_prompt` frames went out. `promptEventId(clientId)` (746) finds
+the prompt event by its client_id. No existing test anywhere seeds a message that carries a `client_id` through
+`logEvent`, so making the fake register one changes no current case.
+
+**`app/src/test/java/com/liftoff/app/data/GenerationDaoTest.kt`** (237 lines) — in-memory Room, `queueGeneration(...)`
+helper (83), and cases for the mark helpers, `saveSessionId` / `saveLastEventId` / `bumpAttempt`, and the two
+newest-non-cancelled reads. This is where the new `error` query and `isCoachOffline` belong.
+
+## What already exists to build on
+
+- `ConnectionOutcome` (`rho/DaemonConnectionCheck.kt` 26-48): `Connected`, `NotConfigured`, `Unreachable(reason)`,
+  `AuthenticationRejected`, `ProtocolMismatch`. The check uses its own OkHttp client, **connectTimeout 5 s,
+  readTimeout 10 s** (`TIMEOUT_MS`, comment at 71), so a closed port fails fast — well inside `turnWait`.
+- `DaemonException(message, code: Int?)` (`rho/net/DaemonClient.kt`): `isPermanent = code != null && code in
+  RpcCodes.PERMANENT`. `RpcCodes.PERMANENT` excludes `UNAUTHORIZED`, `PROTOCOL_MISMATCH`, `INTERNAL_ERROR`,
+  `CURSOR_UNKNOWN`, `PERMISSION_DENIED`, `ALREADY_RESOLVED`. A socket that dies throws with `code == null`.
+- `AppContainer`: `fun generationEnqueuer() = GenerationEnqueuer(WorkManager.getInstance(appContext))` is asked for
+  per call, so building a container touches nothing WorkManager-related. `daemonConnectionCheck()` and
+  `daemonClient()` read host/token at call time.
+- `GenerationEnqueuer` (37 lines): one unique one-time request per generation, name `gen-<generationId>`, `KEEP`,
+  network constraint, 1-minute exponential backoff.
+
+## What this run's verify.sh requires
+
+`bash .rho/runs/generationworker-resilience-resume-23h1/verify.sh` exits 0 only when the brief is done. Read the
+script itself for what each name must show — its comments are the source, and a later review may rewrite it.
+
+1. The CI gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache`, with stale reports
+   deleted first, retried only on the known flake, a build killed by a daemon or memory error, or a hung suite that
+   wrote no reports. A compile error or a real failed assertion is not retried.
+2. Eight named tests, each looked for by name in `app/build/test-results/testDebugUnitTest/TEST-*.xml`, failing if
+   absent, skipped, or not passing — all eight are new to this run:
+   `aPausedTurnSendsAResumeForTheSessionItStoppedIn`,
+   `aGenerationWhosePromptAlreadyLandedResumesFromTheStoredCursorAndStoresTheReply`,
+   `aCursorAtTheEndOfTheTurnStillFindsTheReplyTheWorkerAlreadyRead`,
+   `aRetriedGenerationSendsItsPromptAgainUnderTheSameClientIdAndTheDaemonDeliversItOnce`,
+   `anUnreachableDaemonMarksTheGenerationOfflineAndRetries`,
+   `aLaterRunThatReachesTheDaemonClearsTheOfflineMark`,
+   `theEighthAttemptThatCannotConnectFailsTheGenerationAsCoachUnreachable`,
+   `isCoachOfflineIsTrueOnlyForARowStillWaitingOnTheCoach`.
+3. Whole classes that must have run with every test passing: `GenerationWorkerTest`, `GenerationEnqueuerTest`,
+   `GenerationDaoTest`, `CoachTurnRunnerTest`, `DaemonConnectionCheckTest`, `MissionManagerOutlineTest`,
+   `MissionManagerPlanTest`, `CoachPromptGoldenFileTest`.
+4. `app/schemas/com.liftoff.app.data.LiftoffDatabase` byte-identical to the tree this run's brief.md was committed
+   on top of, committed and working tree.
+
+Deliberately not checked: the wording of the two `ARCHITECTURE.md` rows; the refused-resume decision;
+`NotConfigured` / `AuthenticationRejected` keeping today's plain retry; the DAO query as a test of its own; and any
+UI test.
+
+## Task split (tasks.md, 2026-10-23)
+
+Seven tasks; each of the eight names `verify.sh` requires is written by exactly one of them.
+
+1. `Generation.isCoachOffline` + the constant + the DAO `@Query` + `GenerationDaoTest` →
+   `isCoachOfflineIsTrueOnlyForARowStillWaitingOnTheCoach`.
+2. `FakeDaemon`: the `rho.session.resume` handler + `client_id` registration for a message seeded through
+   `logEvent`, proved by `aGenerationWhosePromptAlreadyLandedResumesFromTheStoredCursorAndStoresTheReply` and
+   `aRetriedGenerationSendsItsPromptAgainUnderTheSameClientIdAndTheDaemonDeliversItOnce`.
+3. `CoachTurnRunner`'s second catch-up read and the skip of ends already acted on →
+   `aCursorAtTheEndOfTheTurnStillFindsTheReplyTheWorkerAlreadyRead`.
+4. Worker: paused end sends `rho.session.resume` then `retry` (refusal swallowed) →
+   `aPausedTurnSendsAResumeForTheSessionItStoppedIn`.
+5. Worker: the `Unreachable` arm stamps the offline mark, `Connected` clears it, plus the closed-port test helper →
+   `anUnreachableDaemonMarksTheGenerationOfflineAndRetries`, `aLaterRunThatReachesTheDaemonClearsTheOfflineMark`.
+6. Worker: `runAttemptCount >= 7` → FAILED `coach unreachable` + `failure`, and `runWorker`'s optional
+   `setRunAttemptCount` → `theEighthAttemptThatCannotConnectFailsTheGenerationAsCoachUnreachable`.
+7. The two `ARCHITECTURE.md` rows, then the whole gate run detached.
+
+**Why the re-send case (task 2) must seed the whole log.** `send_prompt` answers a repeat with the earlier
+`event_id` and `return`s before `play(nextTurn())` (FakeDaemon.kt 231-249), so a re-sent prompt plays **no new turn**.
+A case that lets the first run send the prompt and end paused leaves the second run's read from the cursor with
+nothing after it and no pushes — it would hang to the test's own timeout unless the runner's second read (task 3)
+already existed. Seeding prompt → `paused` → reply → idle through `logEvent` makes run 1 stop at the paused end
+(`handle` takes the first end after `promptId`, CoachTurnRunner.kt 137) and run 2 find the reply and the idle end from
+the cursor run 1 stored, so the case proves only the dedup and the client_id, which is what it is asked to prove.
+
+**The two existing retry cases are compatible with a new resume frame.** `aPausedTurnRetriesAndLeavesTheRowRunning…`
+(798) and `aTurnThatEndsInErrorRetries…` (842) each call `frameFor` for `rho.session.create` and
+`rho.session.send_prompt` and `assertSessionLeftOpen()` (no `rho.session.stop`); neither enumerates every frame, so
+adding a `rho.session.resume` to the paused arm leaves both green. Renaming 798 to this run's name is allowed —
+`verify.sh` checks the class as a whole, not that old name.
+
+**`ARCHITECTURE.md` line 82 (the M3 row)** ends with "resilience beyond those outcomes (WorkManager's retry policy),
+cancellation, supersede and app wiring still to come". Only the resilience clause is this run's to drop;
+cancellation, supersede and app wiring are still not built, so the row keeps them. Line 36 (the
+`com.liftoff.app.work` row) has no such list — it just describes what `GenerationWorker.kt` does today.
+
+## Facts worth not re-deriving
+
+- **One real `verify.sh` run against the untouched tree (2026-10-23, HEAD `15dc3b8`)**: gate attempt 1 died at the
+  build's own test-task timeout ("Timeout has been exceeded", `BUILD FAILED in 6m 17s`) — the hang the brief warns
+  about — the script's retry path stopped the daemons and re-ran it, attempt 2 passed in 1m 21s, **610 tests, 0
+  failures, 0 errors, 0 skipped**. Result: `10 passed, 8 failed` — the gate, the eight class checks and the schema
+  check green, all eight named tests reported `did not run`, exit 1. That is the script working as intended.
+
+- `doWork` calls `markRunning` (61) **before** the connection check, so a row the worker marks offline is always
+  RUNNING by then, never QUEUED. QUEUED only matters for `isCoachOffline`, which a Launchpad row read can hold.
+- **WorkManager's `runAttemptCount` is 0-based**: the first attempt is 0 and each `Result.retry()` adds one
+  (`WorkerParameters.getRunAttemptCount()` is `@IntRange(from = 0)`). So the brief's "8th attempt" is
+  `runAttemptCount == 7`, and the test builds the worker with `setRunAttemptCount(7)`.
+- The row's `attempt` is **not** WorkManager's attempt count: only `bumpAttempt` (repairs) changes it, so
+  `client_id = "<id>-<row.attempt>"` stays put across WorkManager retries. The two counters must not be merged.
+- `ARCHITECTURE.md` line 36 (the `com.liftoff.app.work` area-map row) and line 82 (the M3 row) both currently end
+  with a claim that resilience beyond the current outcomes is still to come. The plan's Files updates both rows;
+  this run's `verify.sh` does **not** read either row — doc wording is reviewed by the owner in the pull request,
+  and grepping a document fails correct work worded differently.
+- `CLAUDE.md`: gate `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`; commit messages
+  `area: lowercase summary`; stage named files only; §2 vocabulary (`Mission`, `Sortie`, `FlightPlan`,
+  `Generation` — never "session" for a sortie); snake_case JSON; LF; short comments (why, not what).
+- Known suite flake: `InFlightScreenTest` body-weight stepper case; the gate can also hang ~5 min on this machine —
+  run it detached (`mkdir -p app/build` first) and re-run rather than "fix" it.

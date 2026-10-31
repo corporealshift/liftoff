@@ -1,0 +1,347 @@
+package com.liftoff.app.data
+
+import androidx.room.*
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+abstract class FlightPlanDao(private val db: LiftoffDatabase) {
+
+    @Insert
+    abstract suspend fun insertPlan(plan: FlightPlan): Long
+
+    @Insert
+    abstract suspend fun insertExercise(e: PlannedExercise): Long
+
+    @Insert
+    abstract suspend fun insertSet(s: PlannedSet): Long
+
+    @Insert
+    abstract suspend fun insertSegment(s: RunSegment): Long
+
+    @Query("DELETE FROM flightPlan WHERE sortieId = :sortieId")
+    abstract suspend fun deleteForSortie(sortieId: Long)
+
+    // The export's whole-table reads; id order so two exports of the same data read alike.
+    @Query("SELECT * FROM flightPlan ORDER BY id")
+    abstract suspend fun getAllPlans(): List<FlightPlan>
+
+    @Query("SELECT * FROM plannedExercise ORDER BY id")
+    abstract suspend fun getAllPlannedExercises(): List<PlannedExercise>
+
+    @Query("SELECT * FROM plannedSet ORDER BY id")
+    abstract suspend fun getAllPlannedSets(): List<PlannedSet>
+
+    @Query("SELECT * FROM runSegment ORDER BY id")
+    abstract suspend fun getAllRunSegments(): List<RunSegment>
+
+    // Import's bulk inserts and emptiness reads, one pair per table this DAO owns.
+    @Insert
+    abstract suspend fun insertAllPlans(plans: List<FlightPlan>)
+
+    @Insert
+    abstract suspend fun insertAllPlannedExercises(exercises: List<PlannedExercise>)
+
+    @Insert
+    abstract suspend fun insertAllPlannedSets(sets: List<PlannedSet>)
+
+    @Insert
+    abstract suspend fun insertAllRunSegments(segments: List<RunSegment>)
+
+    @Query("SELECT COUNT(*) FROM flightPlan")
+    abstract suspend fun countPlans(): Long
+
+    @Query("SELECT COUNT(*) FROM plannedExercise")
+    abstract suspend fun countPlannedExercises(): Long
+
+    @Query("SELECT COUNT(*) FROM plannedSet")
+    abstract suspend fun countPlannedSets(): Long
+
+    @Query("SELECT COUNT(*) FROM runSegment")
+    abstract suspend fun countRunSegments(): Long
+
+    @Transaction
+    open suspend fun writePlan(sortieId: Long, draft: FlightPlanDraft): Long {
+        deleteForSortie(sortieId)
+        val plan = FlightPlan(
+            sortieId = sortieId,
+            source = draft.source,
+            title = draft.title,
+            estimatedMinutes = draft.estimatedMinutes,
+            warmup = draft.warmup,
+            notes = draft.notes,
+            runKind = draft.runKind,
+            targetDistance = draft.targetDistance,
+            targetPace = draft.targetPace,
+            rawJson = draft.rawJson
+        )
+        val planId = insertPlan(plan)
+
+        for ((i, exerciseDraft) in draft.exercises.withIndex()) {
+            val exercise = db.exerciseDao().resolve(exerciseDraft.name)
+            val pe = PlannedExercise(
+                flightPlanId = planId,
+                `order` = i,
+                exerciseId = exercise.id,
+                equipmentIds = exerciseDraft.equipmentIds,
+                restSeconds = exerciseDraft.restSeconds,
+                notes = exerciseDraft.notes,
+                skipped = false,
+                userNotes = null
+            )
+            val peId = insertExercise(pe)
+            for ((j, setDraft) in exerciseDraft.sets.withIndex()) {
+                insertSet(
+                    PlannedSet(
+                        plannedExerciseId = peId,
+                        `order` = j,
+                        reps = setDraft.reps,
+                        seconds = setDraft.seconds,
+                        weight = setDraft.weight,
+                        actualReps = null,
+                        actualSeconds = null,
+                        actualWeight = null,
+                        status = SetStatus.OPEN,
+                        added = false
+                    )
+                )
+            }
+        }
+
+        for ((i, segmentDraft) in draft.segments.withIndex()) {
+            insertSegment(
+                RunSegment(
+                    flightPlanId = planId,
+                    `order` = i,
+                    description = segmentDraft.description,
+                    distance = segmentDraft.distance,
+                    minutes = segmentDraft.minutes
+                )
+            )
+        }
+
+        return planId
+    }
+
+    @Transaction
+    open suspend fun getPlan(sortieId: Long): FlightPlanDetail? {
+        val plan = getPlanBySortieId(sortieId) ?: return null
+
+        val exerciseRows = getExercisesWithNames(plan.id)
+        if (exerciseRows.isEmpty()) {
+            return FlightPlanDetail(plan, emptyList(), getSegments(plan.id))
+        }
+
+        val setRows = getSetsForPlan(plan.id)
+        val setsByExercise = setRows.groupBy { it.plannedExerciseId }
+
+        val exercises = exerciseRows.map { row ->
+            PlannedExerciseDetail(
+                plannedExercise = row.plannedExercise,
+                displayName = row.displayName,
+                sets = setsByExercise[row.plannedExercise.id].orEmpty()
+            )
+        }
+
+        return FlightPlanDetail(plan, exercises, getSegments(plan.id))
+    }
+
+    // A history row needs only the title, so one read covers the whole list instead of a getPlan each.
+    @Query("SELECT sortieId, title FROM flightPlan WHERE sortieId IN (:ids)")
+    abstract suspend fun getTitlesForSortieIds(ids: List<Long>): List<SortiePlanTitle>
+
+    @Query("SELECT * FROM flightPlan WHERE sortieId = :sortieId")
+    protected abstract fun getPlanBySortieId(sortieId: Long): FlightPlan?
+
+    @Query(
+        """SELECT pe.*, e.displayName AS displayName
+           FROM plannedExercise pe
+           JOIN exercise e ON e.id = pe.exerciseId
+           WHERE pe.flightPlanId = :planId
+           ORDER BY pe.`order`"""
+    )
+    protected abstract fun getExercisesWithNames(planId: Long): List<PlannedExerciseRow>
+
+    @Query(
+        """SELECT ps.* FROM plannedSet ps
+           JOIN plannedExercise pe ON pe.id = ps.plannedExerciseId
+           WHERE pe.flightPlanId = :planId
+           ORDER BY ps.`order`"""
+    )
+    protected abstract fun getSetsForPlan(planId: Long): List<PlannedSet>
+
+    @Query("SELECT * FROM runSegment WHERE flightPlanId = :planId ORDER BY `order`")
+    protected abstract fun getSegments(planId: Long): List<RunSegment>
+
+    @Query(
+        """SELECT (
+               (SELECT COUNT(*) FROM flightPlan) +
+               (SELECT COUNT(*) FROM plannedExercise) +
+               (SELECT COUNT(*) FROM plannedSet) +
+               (SELECT COUNT(*) FROM runSegment)
+           )"""
+    )
+    abstract fun observeChanges(): Flow<Int>
+
+    @Query(
+        """UPDATE plannedSet SET actualReps = :actualReps, actualSeconds = :actualSeconds,
+           actualWeight = :actualWeight, status = :status
+           WHERE id = :setId"""
+    )
+    abstract suspend fun updateSetActuals(
+        setId: Long,
+        actualReps: Int?,
+        actualSeconds: Int?,
+        actualWeight: Double?,
+        status: SetStatus
+    )
+
+    @Transaction
+    open suspend fun addExtraSet(
+        plannedExerciseId: Long,
+        reps: Int?,
+        seconds: Int?,
+        weight: Double?
+    ): Long {
+        val maxOrder = getMaxOrderForExercise(plannedExerciseId)
+        return insertSet(
+            PlannedSet(
+                plannedExerciseId = plannedExerciseId,
+                `order` = maxOrder + 1,
+                reps = reps,
+                seconds = seconds,
+                weight = weight,
+                actualReps = null,
+                actualSeconds = null,
+                actualWeight = null,
+                status = SetStatus.OPEN,
+                added = true
+            )
+        )
+    }
+
+    @Query("SELECT COALESCE(MAX(`order`), -1) FROM plannedSet WHERE plannedExerciseId = :plannedExerciseId")
+    protected abstract fun getMaxOrderForExercise(plannedExerciseId: Long): Int
+
+    @Query(
+        """UPDATE plannedExercise SET skipped = :skipped, userNotes = :userNotes
+           WHERE id = :plannedExerciseId"""
+    )
+    abstract suspend fun updateExercise(
+        plannedExerciseId: Long,
+        skipped: Boolean,
+        userNotes: String?
+    )
+
+    @Query(
+        """UPDATE plannedSet SET status = 'SKIPPED'
+           WHERE status = 'OPEN'
+           AND plannedExerciseId IN (
+               SELECT pe.id FROM plannedExercise pe
+               JOIN flightPlan fp ON fp.id = pe.flightPlanId
+               WHERE fp.sortieId = :sortieId
+           )"""
+    )
+    abstract suspend fun markOpenSetsNotDone(sortieId: Long)
+
+    // --- protected reads ---
+
+    @Query("SELECT * FROM plannedSet WHERE id = :setId")
+    protected abstract fun getSet(setId: Long): PlannedSet?
+
+    @Query("SELECT * FROM plannedExercise WHERE id = :id")
+    protected abstract fun getPlannedExercise(id: Long): PlannedExercise?
+
+    @Query("SELECT * FROM plannedSet WHERE plannedExerciseId = :plannedExerciseId ORDER BY `order` DESC LIMIT 1")
+    protected abstract fun getLastSet(plannedExerciseId: Long): PlannedSet?
+
+    // --- helpers ---
+
+    @Query(
+        """UPDATE plannedSet SET status = 'SKIPPED'
+           WHERE status = 'OPEN' AND plannedExerciseId = :id"""
+    )
+    protected abstract fun skipOpenSets(id: Long)
+
+    @Query(
+        """UPDATE plannedSet SET status = 'OPEN', actualReps = NULL, actualSeconds = NULL, actualWeight = NULL
+           WHERE status = 'SKIPPED' AND plannedExerciseId = :id"""
+    )
+    protected abstract fun reopenSkippedSets(id: Long)
+
+    private suspend fun clearSkip(plannedExerciseId: Long) {
+        val row = getPlannedExercise(plannedExerciseId) ?: return
+        if (row.skipped) {
+            updateExercise(plannedExerciseId, false, row.userNotes)
+        }
+    }
+
+    // --- public action methods ---
+
+    @Transaction
+    open suspend fun checkSet(setId: Long) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, set.reps, set.seconds, set.weight, SetStatus.DONE)
+        clearSkip(set.plannedExerciseId)
+    }
+
+    @Transaction
+    open suspend fun uncheckSet(setId: Long) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, null, null, null, SetStatus.OPEN)
+        clearSkip(set.plannedExerciseId)
+    }
+
+    @Transaction
+    open suspend fun saveSetEdit(setId: Long, reps: Int?, seconds: Int?, weight: Double?) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, reps, seconds, weight, SetStatus.DONE)
+        clearSkip(set.plannedExerciseId)
+    }
+
+    @Transaction
+    open suspend fun skipSet(setId: Long) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, null, null, null, SetStatus.SKIPPED)
+    }
+
+    @Transaction
+    open suspend fun reopenSet(setId: Long) {
+        val set = getSet(setId) ?: return
+        updateSetActuals(setId, null, null, null, SetStatus.OPEN)
+        clearSkip(set.plannedExerciseId)
+    }
+
+    @Transaction
+    open suspend fun skipExercise(id: Long) {
+        val ex = getPlannedExercise(id) ?: return
+        updateExercise(id, true, ex.userNotes)
+        skipOpenSets(id)
+    }
+
+    @Transaction
+    open suspend fun unskipExercise(id: Long) {
+        val ex = getPlannedExercise(id) ?: return
+        updateExercise(id, false, ex.userNotes)
+        reopenSkippedSets(id)
+    }
+
+    // Passing the row's own skipped back is what keeps a note inert.
+    @Transaction
+    open suspend fun saveExerciseNote(plannedExerciseId: Long, note: String?) {
+        val ex = getPlannedExercise(plannedExerciseId) ?: return
+        updateExercise(plannedExerciseId, ex.skipped, note)
+    }
+
+    @Transaction
+    open suspend fun addSet(plannedExerciseId: Long): Long {
+        val last = getLastSet(plannedExerciseId)
+        val (reps, seconds, weight) = when {
+            last == null -> Triple(null, null, null)
+            last.status == SetStatus.DONE -> Triple(last.actualReps, last.actualSeconds, last.actualWeight)
+            else -> Triple(last.reps, last.seconds, last.weight)
+        }
+        val newId = addExtraSet(plannedExerciseId, reps, seconds, weight)
+        clearSkip(plannedExerciseId)
+        return newId
+    }
+}

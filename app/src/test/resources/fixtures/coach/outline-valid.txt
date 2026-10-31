@@ -1,0 +1,15 @@
+{
+  "sorties": [
+    { "index": 0, "type": "run", "focus": "Easy 5k" },
+    {
+      "index": 1,
+      "type": "lift",
+      "focus": "Push + core",
+      "rationale": "Upper body only: it sits between the easy run and Thursday's tempo day."
+    },
+    { "index": 2, "type": "run", "focus": "Tempo intervals" },
+    { "index": 3, "type": "lift", "focus": "Legs + pull" },
+    { "index": 4, "type": "run", "focus": "Long run" }
+  ],
+  "notes": "Thursday's lift follows the tempo day, so hinge volume stays low."
+}

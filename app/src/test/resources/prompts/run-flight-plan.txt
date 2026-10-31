@@ -1,0 +1,87 @@
+## Task
+
+Write the Flight Plan for sortie 2 of this week
+
+## Instructions
+
+Follow COACH.md in this workspace. Your final message must be only a JSON object matching the schema below.
+
+## Athlete profile
+
+objectives: Get stronger at the basics
+constraints: 45 minutes at home, no pull-up bar
+sortie length: 45 minutes
+units: lb, mi
+
+## Equipment
+
+bb — barbell — 20 lb bar, plates to 45 lb
+db — dumbbells — pairs 5–50 lb in 5 lb steps
+kb — kettlebell
+
+Exercises may use only these ids. Bodyweight needs no id.
+
+## This week
+
+pattern: RLRLR
+index 0 — run — landed — focus: Easy 5k
+index 1 — lift — pending — focus: Push + core
+index 2 — run — pending — focus: Tempo intervals
+index 3 — lift — pending
+index 4 — run — pending
+planning: index 2 — run
+
+## History
+
+2026-10-05 LIFT "Legs + pull" — landed
+  Back squat: 3×5 @185 lb ✓
+  Barbell row: 3×8 @135 lb ✓, 1×6 @135 lb (planned 8) — note: "lower back tired"
+  Plank: 3×45 s ✓
+  Push-up: 3×12 bodyweight ✓
+  Kettlebell swing: 2×15 @35 lb skipped
+  notes: "left shoulder twinge on last set"
+
+2026-10-03 RUN "Easy 5k" — scrubbed ("week ended")
+  run: 3.1 mi in 28 min
+  notes: "knee sore"
+
+2026-09-28 LIFT "Full body" — landed
+  Bench press: 3×8 @135 lb ✓, 1×8 @135 lb not done
+
+## Exercises used before
+
+Back squat
+Barbell row
+Bench press
+Kettlebell swing
+Plank
+Push-up
+
+## Output schema
+
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "title", "kind", "segments", "notes"],
+  "properties": {
+    "type": { "const": "run" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "kind": { "enum": ["easy", "tempo", "intervals", "long", "recovery"] },
+    "target_distance": { "type": "number", "minimum": 0.5, "maximum": 50 },
+    "target_pace": { "type": "string", "maxLength": 20 },
+    "segments": {
+      "type": "array", "minItems": 1, "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "distance": { "type": "number", "minimum": 0 },
+          "minutes":  { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "notes": { "type": "string", "maxLength": 1000 }
+  }
+}
