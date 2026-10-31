@@ -384,6 +384,27 @@ class MissionManager(
     }
 
     /**
+     * Start the current week over (DESIGN.md amendment 2026-10-31): delete its Mission, and with it every sortie,
+     * Flight Plan and recorded set, then put a new DRAFT in its place with the same pattern, ready to edit and
+     * Confirm. Landed and scrubbed sorties go too, so they leave history and the coach's prompts.
+     *
+     * Returns the ids of the week's generations still open, read before the delete, for the caller to cancel; a
+     * worker that finishes first finds its Mission or sortie gone and refuses to store. Only the current week, and
+     * only once it has been confirmed: a DRAFT has nothing to reset.
+     */
+    suspend fun resetWeek(missionId: Long): List<Long> = db.withTransaction {
+        val mission = db.missionDao().get(missionId)!!
+        check(mission.weekStart == currentWeekOf(clock, zone)) { "Can only reset the current week" }
+        check(mission.status == MissionStatus.ACTIVE || mission.status == MissionStatus.CLOSED) {
+            "Only a confirmed week can be reset"
+        }
+        val toCancel = db.generationDao().getOpenForMission(missionId).map { it.id }
+        db.missionDao().deleteWeek(missionId)
+        db.missionDao().insert(newDraft(mission.weekStart, mission.pattern))
+        toCancel
+    }
+
+    /**
      * Store a validated coach plan on [sortieId]. `writePlan` replaces whatever plan that sortie already
      * holds — a repair round or a retry is the normal reason a second plan arrives — and the sortie moves to
      * PLANNED only when it was PENDING, so a plan that lands on a PLANNED sortie leaves it PLANNED.

@@ -31,7 +31,12 @@ fun MissionScreen(
 ) {
     val scope = rememberCoroutineScope()
     val viewModel = remember(container) {
-        MissionViewModel(container.database, container.missionManager, scope)
+        MissionViewModel(
+            container.database,
+            container.missionManager,
+            scope,
+            cancelGeneration = { id -> container.generationCanceller().cancel(id) },
+        )
     }
 
     val tabState by viewModel.state.collectAsStateWithLifecycle()
@@ -52,12 +57,29 @@ fun MissionScreen(
             onBack = { selectedSortieId = null },
         )
     } else {
-        MissionTabContent(state = tabState, onSelect = { id -> selectedSortieId = id })
+        MissionTabContent(
+            state = tabState,
+            onSelect = { id -> selectedSortieId = id },
+            onReset = viewModel::requestReset,
+        )
+    }
+
+    val week = tabState as? MissionTabState.Week
+    if (viewModel.resetting && week != null) {
+        ResetWeekDialog(
+            recordedCount = week.rows.count { it.state == SortieState.LANDED || it.state == SortieState.SCRUBBED },
+            onConfirm = { viewModel.confirmReset() },
+            onDismiss = viewModel::cancelReset,
+        )
     }
 }
 
 @Composable
-private fun MissionTabContent(state: MissionTabState, onSelect: (Long) -> Unit = {}) {
+private fun MissionTabContent(
+    state: MissionTabState,
+    onSelect: (Long) -> Unit = {},
+    onReset: () -> Unit = {},
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -68,13 +90,17 @@ private fun MissionTabContent(state: MissionTabState, onSelect: (Long) -> Unit =
         when (state) {
             is MissionTabState.Loading -> Unit
 
-            is MissionTabState.Week -> WeekContent(state, onSelect)
+            is MissionTabState.Week -> WeekContent(state, onSelect, onReset)
         }
     }
 }
 
 @Composable
-private fun WeekContent(state: MissionTabState.Week, onSelect: (Long) -> Unit = {}) {
+private fun WeekContent(
+    state: MissionTabState.Week,
+    onSelect: (Long) -> Unit = {},
+    onReset: () -> Unit = {},
+) {
     // Title block
     val eyebrow = "WEEK OF ${formatWeekDate(state.weekStart)}"
     TitleBlock(eyebrow = eyebrow, title = "Mission")
@@ -110,6 +136,13 @@ private fun WeekContent(state: MissionTabState.Week, onSelect: (Long) -> Unit = 
             detail = row.stateLabel,
             modifier = Modifier.clickable { onSelect(row.id) },
         )
+    }
+
+    // Absent on a draft rather than dimmed, the rule the Launchpad's actions follow.
+    if (state.canReset) {
+        Spacer(Modifier.height(20.dp))
+        UnderlinedTextButton(text = "Reset week", onClick = onReset)
+        Spacer(Modifier.height(20.dp))
     }
 }
 
@@ -225,6 +258,7 @@ private fun MissionTabPreview() {
     if (LocalInspectionMode.current) {
         LiftoffTheme {
             val previewState = MissionTabState.Week(
+                missionId = 1,
                 weekStart = java.time.LocalDate.of(2026, 10, 5),
                 status = MissionStatus.ACTIVE,
                 chips = listOf(
