@@ -38,7 +38,7 @@ is named and no document row is grepped.
     `GenerationWorkerTest`'s report shows 0 failures — its paused-resume and refused-resume cases are what
     prove the `paused` half of `alreadyActedOn` still works. Commit.
 
-- [ ] 2. The worker ends a generation for good when the turn ends `error`
+- [x] 2. The worker ends a generation for good when the turn ends `error`
   - Covers `app/src/main/java/com/liftoff/app/work/GenerationWorker.kt`: in `storeFinishedTurn` (:221) the
     `TurnEnd.Error` end goes to `failGeneration` with the reason the turn reported; when the `state_change`
     named no reason, a fixed sentence naming the coach's failure, in the style of the file's other written
