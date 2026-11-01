@@ -67,7 +67,7 @@ shift once task 1 lands, so re-read the file rather than trusting them.
   re-running the same failing path at every app open — is about this half, and `verify.sh` names it. Commit the
   worker file alone, with the per-class totals and the reason this half carries no test in the body.
 
-- [ ] 3. The store-throw case, and the proof that it bites
+- [x] 3. The store-throw case, and the proof that it bites
   Covers plan step 2. Test only — `app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt`, one new case
   named exactly **`aStoreThatThrowsFailsTheGenerationWithItsOwnMessageAndStoresNothing`** (the name `verify.sh` §2
   looks for).
