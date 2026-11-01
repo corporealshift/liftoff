@@ -104,6 +104,7 @@ class FlightPlanSectionTest {
                         plan = plan,
                         sortieType = SortieType.LIFT,
                         sortieFocus = null,
+                        distanceUnit = com.liftoff.app.settings.DistanceUnit.MI,
                     )
                 }
             }
@@ -146,12 +147,13 @@ class FlightPlanSectionTest {
                         plan = plan,
                         sortieType = SortieType.RUN,
                         sortieFocus = "easy",
+                        distanceUnit = com.liftoff.app.settings.DistanceUnit.MI,
                     )
                 }
             }
 
             // Focus row shows the sortie focus.
-            composeRule.onNodeWithText("00").assertExists()
+            composeRule.onNodeWithText("01").assertExists()
             composeRule.onNodeWithText("Focus").assertExists()
             composeRule.onNodeWithText("easy").assertExists()
 
@@ -188,6 +190,7 @@ class FlightPlanSectionTest {
                         plan = plan,
                         sortieType = SortieType.RUN,
                         sortieFocus = "Tempo",
+                        distanceUnit = com.liftoff.app.settings.DistanceUnit.MI,
                     )
                 }
             }
@@ -201,5 +204,95 @@ class FlightPlanSectionTest {
             composeRule.onNodeWithText("Coach: ").assertExists()
             composeRule.onNodeWithText("Keep cadence at 180.").assertExists()
         }
+    }
+
+    // ── generatedRunShowsTheConfiguredUnit ───────────────────────────
+    // A generated run's numbers are written in the configured unit (DESIGN.md §7.4), so the rows and the
+    // head carry that unit's label. A walk segment the coach gave distance 0 shows only its minutes.
+
+    private fun generatedRun(): FlightPlanDetail {
+        val fp = FlightPlan(
+            id = 1, sortieId = 1, source = FlightPlanSource.GENERATED,
+            title = "Easy 3", estimatedMinutes = 41,
+            warmup = null, notes = null, runKind = "easy",
+            targetDistance = 3.0, targetPace = "10:00-11:00/mi", rawJson = "{}",
+        )
+        val segments = listOf(
+            RunSegment(id = 1, flightPlanId = 1, order = 0, description = "Warm-up walk", distance = 0.0, minutes = 4.0),
+            RunSegment(id = 2, flightPlanId = 1, order = 1, description = "Mile 1 easy", distance = 1.0, minutes = 11.0),
+            RunSegment(id = 3, flightPlanId = 1, order = 2, description = "Strides", distance = 0.25, minutes = null),
+        )
+        return FlightPlanDetail(fp, emptyList(), segments)
+    }
+
+    private fun renderRun(unit: com.liftoff.app.settings.DistanceUnit) {
+        database = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            com.liftoff.app.data.LiftoffDatabase::class.java,
+        ).build()
+        composeRule.setContent {
+            com.liftoff.app.ui.theme.LiftoffTheme {
+                FlightPlanSection(
+                    plan = generatedRun(),
+                    sortieType = SortieType.RUN,
+                    sortieFocus = null,
+                    distanceUnit = unit,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun generatedRunShowsMilesWhenTheUnitIsMiles() {
+        renderRun(com.liftoff.app.settings.DistanceUnit.MI)
+
+        composeRule.onNodeWithText("≈41 min · 3 mi").assertExists()
+        composeRule.onNodeWithText("3 mi").assertExists()
+        composeRule.onNodeWithText("1 mi · 11 min").assertExists()
+        composeRule.onNodeWithText("0.25 mi").assertExists()
+        composeRule.onNodeWithText("4 min").assertExists()
+        composeRule.onNodeWithText("km", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("sets", substring = true).assertDoesNotExist()
+        // Numbered from 01, as lift rows are: target distance, target pace, then three segments.
+        composeRule.onNodeWithText("01").assertExists()
+        composeRule.onNodeWithText("05").assertExists()
+        composeRule.onNodeWithText("00").assertDoesNotExist()
+    }
+
+    @Test
+    fun generatedRunShowsKilometresWhenTheUnitIsKilometres() {
+        renderRun(com.liftoff.app.settings.DistanceUnit.KM)
+
+        composeRule.onNodeWithText("≈41 min · 3 km").assertExists()
+        composeRule.onNodeWithText("1 km · 11 min").assertExists()
+        composeRule.onNodeWithText("3 mi").assertDoesNotExist()
+        composeRule.onNodeWithText("1 mi · 11 min").assertDoesNotExist()
+    }
+
+    @Test
+    fun simpleRunHasNoHeadDetail() {
+        database = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            com.liftoff.app.data.LiftoffDatabase::class.java,
+        ).build()
+        val fp = FlightPlan(
+            id = 1, sortieId = 1, source = FlightPlanSource.SIMPLE_RUN,
+            title = "Run", estimatedMinutes = null,
+            warmup = null, notes = null, runKind = null,
+            targetDistance = null, targetPace = null, rawJson = "{}",
+        )
+        composeRule.setContent {
+            com.liftoff.app.ui.theme.LiftoffTheme {
+                FlightPlanSection(
+                    plan = FlightPlanDetail(fp, emptyList(), emptyList()),
+                    sortieType = SortieType.RUN,
+                    sortieFocus = "easy",
+                    distanceUnit = com.liftoff.app.settings.DistanceUnit.MI,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("FLIGHT PLAN").assertExists()
+        composeRule.onNodeWithText("sets", substring = true).assertDoesNotExist()
     }
 }

@@ -22,6 +22,7 @@ import com.liftoff.app.domain.scrub
 import com.liftoff.app.domain.rollover
 import com.liftoff.app.domain.weekHasEnded
 import com.liftoff.app.domain.weekStartOf
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.settings.Settings
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.flow.Flow
@@ -70,6 +71,11 @@ class MissionManager(
     /** Whether 'Generate run plans' is on. [regenerateFlightPlan] enforces it; this is the same check live. */
     val generateRunPlans: Flow<Boolean> = settingsStore.settings
         .map { it.generateRunPlans }
+        .distinctUntilChanged()
+
+    /** The configured distance unit, which a run plan's numbers are written in (DESIGN.md §7.4). */
+    val distanceUnit: Flow<DistanceUnit> = settingsStore.settings
+        .map { it.distanceUnit }
         .distinctUntilChanged()
 
     suspend fun onAppOpen(): Mission {

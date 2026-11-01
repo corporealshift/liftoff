@@ -2,6 +2,7 @@ package com.liftoff.app.ui.mission
 
 import com.liftoff.app.data.*
 import com.liftoff.app.domain.currentSortie
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatWeekDate
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +61,7 @@ sealed interface SortieDetailState {
         val plan: FlightPlanDetail,
         val sortieType: SortieType,
         val sortieFocus: String?,
+        val distanceUnit: DistanceUnit,
     ) : SortieDetailState
 
     /** PENDING with no flight plan yet. */
@@ -79,6 +81,7 @@ sealed interface SortieDetailState {
         val runDistance: Double?,
         val runMinutes: Double?,
         val notes: String?,
+        val distanceUnit: DistanceUnit,
     ) : SortieDetailState
 
     /** Sortie was scrubbed. */
@@ -112,10 +115,11 @@ class MissionStates(
     fun observeSortie(sortieId: Long): Flow<SortieDetailState> =
         db.sortieDao().observeById(sortieId)
             .combine(db.flightPlanDao().observeChanges()) { sortie, _ -> sortie }
-            .map { sortie -> if (sortie == null) SortieDetailState.Loading else deriveSortieDetail(sortie) }
+            .combine(manager.distanceUnit) { sortie, unit -> sortie to unit }
+            .map { (sortie, unit) -> if (sortie == null) SortieDetailState.Loading else deriveSortieDetail(sortie, unit) }
             .flowOn(Dispatchers.IO)
 
-    private suspend fun deriveSortieDetail(sortie: Sortie): SortieDetailState {
+    private suspend fun deriveSortieDetail(sortie: Sortie, distanceUnit: DistanceUnit): SortieDetailState {
         val plan = db.flightPlanDao().getPlan(sortie.id)
         val eyebrow = sortieEyebrow(sortie)
 
@@ -128,6 +132,7 @@ class MissionStates(
                         plan = plan,
                         sortieType = sortie.type,
                         sortieFocus = sortie.focus,
+                        distanceUnit = distanceUnit,
                     )
                 } else {
                     SortieDetailState.NoPlan(
@@ -145,6 +150,7 @@ class MissionStates(
                         plan = plan,
                         sortieType = sortie.type,
                         sortieFocus = sortie.focus,
+                        distanceUnit = distanceUnit,
                     )
                 } else {
                     SortieDetailState.NoPlan(
@@ -170,6 +176,7 @@ class MissionStates(
                     runDistance = sortie.runDistance,
                     runMinutes = sortie.runMinutes,
                     notes = sortie.notes,
+                    distanceUnit = distanceUnit,
                 )
             }
 
