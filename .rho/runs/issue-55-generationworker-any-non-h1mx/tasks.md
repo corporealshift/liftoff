@@ -96,7 +96,7 @@ shift once task 1 lands, so re-read the file rather than trusting them.
   names in `app/build/` so the green run's reports are the ones read for the totals, and confirm `git diff` shows no
   change to `GenerationWorker.kt` before committing.
 
-- [ ] 4. The whole gate, once, and the classes the change reaches through
+- [x] 4. The whole gate, once, and the classes the change reaches through
   Covers plan step 3. No new behaviour and no new test; this task runs the gate and fixes only what it names, in its
   own commit if anything needs fixing. One cold detached `bash gradlew.sh :app:assembleDebug
   :app:testDebugUnitTest --no-build-cache` from a scratch script under `app/build/`, log plus `EXIT=$?` sentinel
