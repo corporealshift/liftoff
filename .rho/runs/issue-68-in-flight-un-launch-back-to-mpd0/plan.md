@@ -17,9 +17,10 @@ line in the shared `Footer` composable that already draws Land and Scrub for all
 using the same `UnderlinedTextButton` — which has no `enabled` parameter, so "absent when unavailable" is
 the only thing it can do, matching the Launchpad's rule. The ViewModel follows `land`/`scrub` exactly
 (guard, `busy`, message on refusal, `leaveOnce`), and the screen's existing `onBack` already returns to
-the Launchpad tab. The Launchpad needs no change at all: an un-launched sortie is a PLANNED current
-sortie, which `LaunchpadState` already draws with Launch, Regenerate and Scrub, and
-`regenerateFlightPlan` already accepts a PLANNED current sortie.
+the Launchpad tab (`ShellNav.back()` clears `inFlightSortieId` and selects `Tab.Launchpad`). The Launchpad
+needs no change at all: an un-launched sortie is a PLANNED current sortie, which `LaunchpadState` already
+draws with Launch, Regenerate and Scrub, and `regenerateFlightPlan` already accepts a PLANNED current
+sortie.
 
 ## Files
 
@@ -34,7 +35,8 @@ No new files. What each file already holds is in the map.
 - `ui/inflight/InFlightViewModel.kt` — an un-launch action in the `land`/`scrub` shape, so the screen
   leaves once the row is no longer IN_FLIGHT.
 - `ui/inflight/InFlightScreen.kt` — pass the new action through the `when (state)` arms into the shared
-  `Footer`, which draws it as an underlined text button only when available.
+  `Footer`, which draws it as an underlined text button only when available. The Loading state keeps its
+  `BackFooter` unchanged.
 - `ui/inflight/RunContent.kt` — it calls the same `Footer`, so it passes the new argument.
 - `DESIGN.md` — a dated amendment at the top of "Amendments after approval", plus the inline marks in
   §5.1 (the new edge in the state diagram) and §9 (the In-Flight action list).
@@ -69,12 +71,13 @@ No new files. What each file already holds is in the map.
   and the sortie stays IN_FLIGHT with `launchedAt` intact after a refusal.
 - `MissionManagerTest.kt`: refused for a non-current sortie, for a DRAFT or CLOSED Mission, and for a
   sortie in any state other than IN_FLIGHT.
-- `MissionManagerTest.kt`: a run sortie is un-launchable both with a run plan and with no plan at all.
+- `MissionManagerTest.kt`: a run sortie is un-launchable both with a run plan and with no plan at all; a
+  lift with no exercises is un-launchable too.
 - `MissionManagerTest.kt`: after un-launch, `launch` succeeds again on the same sortie and
   `regenerateFlightPlan` accepts it and queues a replacement.
-- `InFlightStatesTest.kt` (derive level): available for an untouched lift and for a run; unavailable
-  after one set is checked; available again after that set is unchecked, since unchecking restores the
-  untouched shape.
+- `InFlightStatesTest.kt` (derive level): available for an untouched lift, for a run, and for the
+  NoChecklist state; unavailable after one set is checked; available again after that set is unchecked,
+  since `uncheckSet` nulls the actuals and restores the untouched shape.
 - `InFlightLandScrubTest.kt` (view model on Room): the refusal path sets a message and does not throw,
   and a double tap writes once.
 - `InFlightScreenTest.kt` (Robolectric Compose): the underlined action is present when available and
@@ -89,15 +92,15 @@ No new files. What each file already holds is in the map.
   would call a sortie with a skipped exercise untouched. The manager reads the whole plan; the UI
   predicate must do the same.
 - An **added** set has `status = OPEN` and null actuals, so it does not block un-launch. That is the
-  brief's rule, not an oversight — adding a set records no result, and Regenerate replaces the plan
-  anyway. The work should not "fix" this by counting `added`.
+  brief's rule, not an oversight (see Decisions). The work should not "fix" this by counting `added`.
 - `markPlanned` already exists and leaves `launchedAt` alone. Reusing it would produce a PLANNED row that
   still carries a launch time. The new transition nulls it, and a test asserts null.
 - The screen already leaves the moment its row is not IN_FLIGHT, so un-launch triggers that leave. The
   ViewModel must use the existing `leaveOnce` gate rather than also calling back itself, or the shell
   navigates twice.
-- `regenerateFlightPlan` additionally requires the Mission to be on the current week. The after-un-launch
-  test must use the current-week fixture the existing generation tests use, or it fails for a reason
+- `regenerateFlightPlan` additionally requires the Mission to be on the current week and the coach to be
+  configured (host and token, plus "Generate run plans" for a run). The after-un-launch test must use the
+  current-week, configured-settings fixture the existing regenerate tests use, or it fails for a reason
   unrelated to this change.
 - `InFlightScreenTest` renders at a fixed `@Config` window height, so a taller footer can break an
   existing `assertIsDisplayed` head assertion. Run the whole In-Flight test package in the same step that
@@ -109,7 +112,11 @@ No new files. What each file already holds is in the map.
 
 Most of the behavior here is settled by the brief: the action is **absent**, not dimmed, when it is unavailable; no confirmation dialog; the Flight Plan, its exercises and its sets are untouched; `launchedAt` is cleared; the app navigates to the Launchpad; only the current sortie of an ACTIVE Mission can be un-launched. The open points:
 
-**Do in-flight notes block un-launch, and do they survive it?** The brief's "nothing recorded" gate is written only about sets, and notes are the user's own writing, not training data. Choice: notes neither block un-launch nor are deleted by it — they stay attached to the sortie and are visible again if the sortie is re-launched. The alternatives were to count a note as "recorded" (hiding the action) or to clear notes on un-launch. Both would surprise: the first means a typed note strands a bad plan with no way out, which is the exact problem in the issue; the second contradicts the brief's own reason for skipping a dialog — "nothing is lost".
+**Added by review — Does an added set block un-launch, and does it survive?** Choice: no, and yes. A set added in flight is OPEN with no actuals, so by the brief's own definition nothing is recorded; it stays in the plan, so the PLANNED card and a re-launch show it. The alternative was to count `added` as recorded, hiding the action. That would strand the user with a plan they want replaced over a tap that recorded no result, and Regenerate replaces the whole plan, added set included, anyway.
+
+**Added by review — Is un-launch offered on a sortie with no checklist?** Choice: yes. A lift whose plan has no exercises, or a run with no plan, shows the NoChecklist state; it has no sets, so nothing is recorded and the action appears there as on the other two states. The alternative was to hide it there. But an empty or missing plan is exactly the case where someone wants Regenerate. Only the Loading state, which has no sortie loaded yet, keeps its plain Back footer.
+
+**Do in-flight notes block un-launch, and do they survive it?** The brief's "nothing recorded" gate is written only about sets, and notes are the user's own writing, not training data. Choice: notes, both the sortie note and exercise notes, neither block un-launch nor are deleted by it. They stay attached and are visible again if the sortie is re-launched. The alternatives were to count a note as "recorded" (hiding the action) or to clear notes on un-launch. Both would surprise: the first means a typed note strands a bad plan with no way out, which is the exact problem in the issue; the second contradicts the brief's own reason for skipping a dialog — "nothing is lost".
 
 **Does un-launch queue anything with the coach?** Choice: no. It is a state change only; the plan already on the row stays, and the user gets a new one through the PLANNED card's existing Regenerate. The alternative — auto-queueing a regeneration on un-launch — would spend a daemon turn the user did not ask for, and the brief says no new generation path is needed.
 
