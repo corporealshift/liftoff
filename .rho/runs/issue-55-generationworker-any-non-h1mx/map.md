@@ -128,6 +128,39 @@ reports. The script's retry ladder caught that signature and the identical tree 
 So a work session should expect a gate run to need a second attempt some of the time, and should not read the first
 red as its own change. `gradlew --stop` is not used anywhere in the script: a stop is machine-wide.
 
+## Notes a work task needs and the map had not recorded
+
+- **`promptFor` (372) is called inside `runGeneration`'s `try`** (line 137), so a `PromptInputLoader` throw and the
+  `requireNotNull(sortie)` at 377 are already inside the try task 1 arms — no separate site for them.
+- **`MissionManager` is `app/src/main/java/com/liftoff/app/data/MissionManager.kt`** (not `domain`). `storePlan`
+  (396) calls `db.flightPlanDao().writePlan(sortieId, draft)` **before** `db.sortieDao().update(markPlanned(sortie))`,
+  so a throw from `writePlan` leaves the sortie PENDING. Room's nested `@Transaction` methods join the active
+  transaction, so `writePlan`'s own `deleteForSortie` (FlightPlanDao 65) rolls back with the outer
+  `withTransaction` — nothing partial is left on the sortie.
+- **The message the test asserts against carries the raw string the test wrote**: `CoachReplyValidator` line 241
+  puts `exercise.text("name")` — the raw name — into the draft, and `FlightPlanDao.writePlan` passes
+  `exerciseDraft.name` to `ExerciseDao.resolve`, which quotes `'$name'` un-normalized. So the row's error is
+  `Exercise name cannot be blank or symbols-only: '<the string in the reply>'`.
+- **The validator accepts one punctuation-only name**: its only name check (167–172) flags a *duplicate by
+  normalized name*, and one such name is not a duplicate of any of the fixture's four. `CoachFixtures.fixture`
+  returns the raw reply **String**, so a name is replaced inline in the test — no new fixture file.
+  `lift-plan-valid.txt` names: `Bench Press` (8), `Pendlay Row` (19), `Front Squat` (28), `Plank` (37); replacing
+  `"Plank"` is unambiguous.
+- **`DaemonConnectionCheck.check()` already converts its own throws to outcomes** — a host written as a URL or a
+  token a header can't carry are caught (99–118), `onFailure` completes `Unreachable`, a `TimeoutCancellationException`
+  is caught at 126. That is why the half of `doWork` after the claim has no reachable trigger today and no test can
+  redden its arm; `verify.sh` records the same.
+- **Class-scoped gate form used in this repo**: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest
+  --no-build-cache --tests com.liftoff.app.work.GenerationWorkerTest` (fully-qualified, one `--tests` per class).
+- **Packages of the classes `verify.sh` §3 names**: `com.liftoff.app.work` — GenerationWorkerTest (32 cases),
+  CoachTurnRunnerTest, GenerationEnqueuerTest, GenerationCancellerTest, AppOpenSweepTest (9, incl.
+  `decidedGenerationsAreLeftAlone` at 370); `com.liftoff.app.data` — GenerationDaoTest (9), PromptInputLoaderTest,
+  MissionManagerPlanTest, MissionManagerOutlineTest, FlightPlanDaoTest, ExerciseResolverTest; `com.liftoff.app.coach`
+  — CoachReplyFixtureTest, CoachReplySemanticTest, SchemaCheckerValidDocumentTest; `com.liftoff.app.domain` —
+  SortieGenerationStatusTest, CoachStatusTest. `grep -c @Test` over `app/src/test` = 736, agreeing with the gate.
+- **`CoachTurnRunner` line 172 is `withTimeoutOrNull(limit)`** (no `TimeoutCancellationException` import in the
+  file), confirming a turn that runs out its limit cannot be handed to the new `catch (e: Exception)`.
+
 ## Related issues
 
 - #55 this one. #56 `CoachReplyValidator accepts an exercise name that normalizes to empty, then the store
