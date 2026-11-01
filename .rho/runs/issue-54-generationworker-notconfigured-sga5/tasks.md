@@ -75,7 +75,7 @@ Shared facts every session needs (they are in `map.md`):
   commit exists.
   Check: `mv app/build/test-results/testDebugUnitTest app/build/t3-old 2>/dev/null; bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.work.GenerationWorkerTest" > app/build/t3.log 2>&1; grep -c 'name="aRefusedTokenFailsTheGenerationAsMissionControlRefusedTheToken"' app/build/test-results/testDebugUnitTest/TEST-com.liftoff.app.work.GenerationWorkerTest.xml`
 
-- [ ] 4. Correct the sweep's KDoc
+- [x] 4. Correct the sweep's KDoc
   Covers the plan's Order step 3, in `app/src/main/java/com/liftoff/app/work/AppOpenSweep.kt` — the KDoc at :29-30
   ("a row asked for while Mission Control was configured is still resumed under the worker's offline handling when
   it isn't") is now wrong for a blank host or a refused token, since those rows are ended rather than resumed. One
