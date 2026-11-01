@@ -166,10 +166,17 @@ object CoachReplyValidator {
 
             val name = (node["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content
             if (name != null) {
-                // §7.7 stores each exercise once by normalized name, so two spellings are one exercise.
-                val first = firstByName.putIfAbsent(ExerciseNames.normalize(name), position to name)
-                if (first != null) {
-                    duplicates += "exercises[$position].name: '$name' duplicates '${first.second}' at exercises[${first.first}]"
+                val normalized = ExerciseNames.normalize(name)
+                // A name with no letter or digit is not an exercise, so it is rejected here rather than
+                // throwing inside ExerciseDao.resolve.
+                if (normalized.none { it.isLetterOrDigit() }) {
+                    errors += "exercises[$position].name: '$name' has no letters or digits"
+                } else {
+                    // §7.7 stores each exercise once by normalized name, so two spellings are one exercise.
+                    val first = firstByName.putIfAbsent(normalized, position to name)
+                    if (first != null) {
+                        duplicates += "exercises[$position].name: '$name' duplicates '${first.second}' at exercises[${first.first}]"
+                    }
                 }
             }
         }
