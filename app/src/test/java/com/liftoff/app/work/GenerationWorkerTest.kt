@@ -1123,6 +1123,60 @@ class GenerationWorkerTest {
     }
 
     /**
+     * a store that throws ends the generation like every other permanent end: the lift-plan fixture with its
+     * `Plank` named in punctuation only, which the schema accepts (`minLength: 1`) and the validator's only name
+     * check (duplicates) accepts, so what throws is [ExerciseDao.resolve] from inside
+     * [FlightPlanDao.writePlan] in the store transaction. `doWork()` returns `Result.failure()` rather than
+     * throwing or retrying, the row is FAILED with resolve's own sentence and its `finishedAt`, and nothing is
+     * stored — the transaction rolled back `writePlan`'s own `deleteForSortie` with it, so the sortie is still
+     * PENDING with no plan, no planned exercises and no planned sets. The session the turn ran on is given up
+     * once and stays on the row.
+     */
+    @Test
+    fun aStoreThatThrowsFailsTheGenerationWithItsOwnMessageAndStoresNothing() {
+        val symbolsOnly = "?!?"
+        val fixture = CoachFixtures.fixture(CoachFixtures.LIFT_PLAN)
+        val reply = fixture.replace("\"Plank\"", "\"$symbolsOnly\"")
+        assertTrue("the fixture has no \"Plank\" name to replace", reply != fixture)
+        daemon.script(
+            DaemonScript.Assistant(reply),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        runBlocking { container.missionManager.continueWithoutOutline(mission.id) }
+        val scrubbed = sortieAt(mission.id, 0)
+        assertEquals(SortieType.RUN, scrubbed.type)
+        runBlocking { container.missionManager.scrub(scrubbed.id) }
+
+        val lift = sortieAt(mission.id, 1)
+        assertEquals("index 1 is a LIFT under RLRLR", SortieType.LIFT, lift.type)
+        assertAwaitingGeneration(lift)
+
+        val generationId = insertFlightPlanGeneration(mission.id, lift.id)
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        // resolve's own sentence, carrying the name as the reply wrote it, not a generic 'generation failed'.
+        assertEquals("Exercise name cannot be blank or symbols-only: '$symbolsOnly'", row.error)
+        assertNotNull(row.finishedAt)
+        assertEquals("the row lost the session its turn ran on", daemon.sessionId, row.nabuSessionId)
+
+        assertNull("a plan survived the rolled-back store", runBlocking { container.database.flightPlanDao().getPlan(lift.id) })
+        assertEquals("planned exercises survived the rolled-back store", 0L, runBlocking { container.database.flightPlanDao().countPlannedExercises() })
+        assertEquals("planned sets survived the rolled-back store", 0L, runBlocking { container.database.flightPlanDao().countPlannedSets() })
+        assertEquals(
+            "the rolled-back store left the sortie something other than PENDING",
+            SortieState.PENDING,
+            runBlocking { container.database.sortieDao().get(lift.id) }!!.state,
+        )
+
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
+    /**
      * a refused hello ends the generation for good: `rho.hello` is refused with PROTOCOL_MISMATCH and the
      * fake's own mismatch message naming daemon 2.0 ([FakeDaemon.refuseProtocolMismatch]), on an OUTLINE row
      * over a mission seeded with onAppOpen() only. `Result.failure()`, and the row FAILED with the sentence a
