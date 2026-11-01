@@ -58,7 +58,7 @@ assert — read it before writing the test.
   reports 0 failures with the counts unchanged (16 / 12 / 10 / 8 / 4). No existing fixture holds a name without letters
   or digits, so no existing assertion may move — if one does, the guard is wider than intended. Commit.
 
-- [ ] 2. The symbols-only fixture, its constant, its test and its `COVERED` entry — in one commit
+- [x] 2. The symbols-only fixture, its constant, its test and its `COVERED` entry — in one commit
   Plan Order step 2, and the brief's "add a fixture under `app/src/test/resources/fixtures/coach/` and a validator
   test that expects that error". Add `app/src/test/resources/fixtures/coach/symbols-only-exercise-name.txt` as the
   15th fixture: a full lift-plan reply in the shape of `duplicate-exercise-names.txt` — same style, everything else
