@@ -100,7 +100,7 @@ assert — read it before writing the test.
   `ExerciseResolverTest` still counts 4 with `blankNameIsRejected` and `duplicateNormalizedNameIsRejected` unchanged
   and green — the DAO's guard stays. Commit.
 
-- [ ] 4. The guard's boundary case, then the brief's gate over the whole suite
+- [x] 4. The guard's boundary case, then the brief's gate over the whole suite
   Plan Order step 3's last case and step 4. Add one more inline case to
   `app/src/test/java/com/liftoff/app/coach/CoachReplySemanticTest.kt`, named exactly
   `aNameWhoseLettersSurviveSurroundingSymbolsIsStillAccepted`: a lift-plan exercise named `"!!! squat !!!"`
