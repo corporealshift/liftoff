@@ -42,7 +42,7 @@ assert — read it before writing the test.
 
 ---
 
-- [ ] 1. Reject an exercise name with no letter and no digit, in `liftErrors`
+- [x] 1. Reject an exercise name with no letter and no digit, in `liftErrors`
   Plan Order step 1. In `app/src/main/java/com/liftoff/app/coach/CoachReplyValidator.kt`, inside `liftErrors`'s
   existing `if (name != null)` block (the one holding
   `firstByName.putIfAbsent(ExerciseNames.normalize(name), position to name)`, ~line 168): when the normalized name
