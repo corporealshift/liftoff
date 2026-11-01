@@ -43,7 +43,7 @@ shift once task 1 lands, so re-read the file rather than trusting them.
   ladder, the paused/resume cases, the mid-turn cancels) and every permanent end still landing its own reason.
   Commit the worker file alone, and say in the body that no test lands here on purpose and why.
 
-- [ ] 2. The same handler for the work `doWork` does after it claims the row
+- [x] 2. The same handler for the work `doWork` does after it claims the row
   Covers plan step 1's second half. Same file, `doWork`: everything after `markRunning` (66) — the Mission read
   (70), the Sortie read (72) and the `ConnectionOutcome` `when` (77–101) — runs under the same handler, so a throw
   from Room or from the connection check ends through `failGeneration` with `client = null, sessionId = null`, the
