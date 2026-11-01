@@ -75,35 +75,42 @@ open, then the end state. Cancel goes through the DAO, never `container.generati
 - `eventId(event)` and `daemon.log.single { it["data"]?.jsonObject?.get("to")… }` are how a test reads the id of the
   end event the fake logged (see :1322).
 
-## verify.sh — what this run's check names (written 2026-10-31)
+## verify.sh — what this run's check names (re-read 2026-10-31, after the rewrite at `e51b66b`)
 
-`.rho/runs/issue-53-generationworker-a-coach-turn-4x9r/verify.sh`, copied whole in shape from
-`.rho/runs/the-worker-leaves-a-cancelled-n8q3/verify.sh` (same `index_reports` one-awk-pass index, `t`/`c` helpers,
-gate with up to 3 attempts retried only on the hang / build fault / `doneBodyweightSetStepperShowsBW` flake,
-`--no-build-cache`, results dir moved not deleted, no `gradlew --stop`).
+`.rho/runs/issue-53-generationworker-a-coach-turn-4x9r/verify.sh`, 218 lines. It was written at `aaaa5b0` and
+**rewritten by claude review at `e51b66b`**: that rewrite cut the other two named tests and all ten class
+checks, so the script now has the CI gate plus **one** named test. Read the script itself, not this note's
+memory, if a later step needs its exact checks.
 
-Three named tests, all new to this branch (verified: 0 occurrences under `app/src/test` at HEAD `ad8a4bc`), so the
-script exits 1 today on the three "did not run" while the gate and every class check pass:
-1. `aTurnThatEndsInErrorFailsTheGenerationWithTheDaemonsReason` — worker; `Result.Failure`, FAILED + `finishedAt` +
-   session id kept, `row.error` is the scripted reason string, nothing stored, one `rho.session.stop`, no
-   `rho.session.resume`.
-2. `aGenerationCancelledMidTurnThatEndsInErrorStaysCancelledAndKeepsItsError` — worker; `Result.Success`, still
-   CANCELLED with the error it carried, nothing stored. Fails today too (today this turn is handed back and retried).
-3. `aCursorHandedInPastAnErrorReportsThatErrorInsteadOfTimingOut` — runner; a cursor past this turn's own prompt and
-   past an `error` reports `TurnEnd.Error` carrying the daemon's reason, under a fraction-of-a-second limit.
-   This is plan Decision 1 (rows already stuck are unstuck).
+Gate (section 1): `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache` — the whole
+unit suite, up to 3 attempts retried only on the hang / build fault / `doneBodyweightSetStepperShowsBW` flake,
+stale reports moved aside not deleted, a `FROM-CACHE`/`UP-TO-DATE` test task is a failure.
 
-Class checks (must not break): `GenerationWorkerTest`, `CoachTurnRunnerTest`, `GenerationDaoTest`,
+Named test (section 2), absent from `app/src/test` today, so the script exits 1 on the untouched tree:
+1. `aTurnThatEndsInErrorFailsTheGenerationWithTheDaemonsReason` — worker; `Result.Failure`, FAILED +
+   `finishedAt` + session id kept, `row.error` is the scripted reason string, nothing stored, one
+   `rho.session.stop`, no `rho.session.resume`.
+
+**No longer named by the script** (they were, before the review rewrite; they are still the plan's own tests
+and tasks 1 and 3 write them, proved by the whole-suite gate):
+`aGenerationCancelledMidTurnThatEndsInErrorStaysCancelledAndKeepsItsError` and
+`aCursorHandedInPastAnErrorReportsThatErrorInsteadOfTimingOut`. There is no `c <ClassName>` helper any more, so
+no class check exists: `GenerationWorkerTest`, `CoachTurnRunnerTest`, `GenerationDaoTest`,
 `GenerationEnqueuerTest`, `GenerationCancellerTest`, `AppOpenSweepTest`, `MissionManagerTest`,
-`MissionManagerOutlineTest`, `MissionManagerPlanTest`, `FlightPlanDaoTest`. No Launchpad/UI class is named — the
-plan changes no UI and the gate runs those classes anyway. All ten exist as files under `app/src/test/java/com/liftoff/app/{work,data}/`.
+`MissionManagerOutlineTest`, `MissionManagerPlanTest`, `FlightPlanDaoTest` are covered only by the gate running
+the whole suite. No UI test is named; no document row is grepped.
 
-**Ran end to end on the untouched tree (2026-10-31, HEAD `ad8a4bc`)**: gate attempt 1 passed — `BUILD SUCCESSFUL in
-1m 56s`, `:app:testDebugUnitTest` executed (not FROM-CACHE), **736 tests / 0 failures / 0 errors / 0 skipped** — and
-the result was **11 passed, 3 failed, exit 1**: the three failures are exactly the three "did not run". Scratch copy
-`app/build/verify-run.sh`, log `app/build/verify.log` (the script's own `$WORK` dir is removed by its trap). Run it
-from a copy under `app/build`, never in place: editing a script while a detached run of it is going gives a phantom
-"syntax error near unexpected token".
+The script's header now states that the plan's Decisions get no test of their own and are reviewed in the PR:
+stuck rows unstuck, a cancelled/superseded generation keeping its outcome, `TimedOut` staying on the retry
+path, the fixed sentence for a reason-less `error`, Retry opening a fresh session, and the DESIGN.md §7.3
+amendment.
+
+**Ran end to end on the untouched tree (2026-10-31, at HEAD `ad8a4bc`, i.e. the pre-rewrite script)**: gate
+attempt 1 passed — `BUILD SUCCESSFUL in 1m 56s`, `:app:testDebugUnitTest` executed (not FROM-CACHE), **736
+tests / 0 failures / 0 errors / 0 skipped**. Scratch copy `app/build/verify-run.sh`, log
+`app/build/verify.log` (the script's own `$WORK` dir is removed by its trap). Run it from a copy under
+`app/build`, never in place: editing a script while a detached run of it is going gives a phantom "syntax
+error near unexpected token".
 
 Deliberately NOT checked (stated in the script header): the narrowed retry arm (existing paused-resume, refused-resume,
 two-run-resume, `TimedOut` and dropped-connection tests cover it and already pass, so naming them cannot fail the
@@ -111,6 +118,30 @@ script); the Launchpad's rendering of a FAILED row; `TurnOutcome` carrying `reas
 daemon's words land on the row); the daemon possibly refusing `rho.session.stop` on an errored session; DESIGN.md
 and ARCHITECTURE.md wording (this run writes code, so no doc row is grepped); the Room schema (the brief asks for no
 schema change and the change touches no entity).
+
+## Extra facts the tasks step checked (2026-10-31)
+
+- `TurnOutcome` is built in exactly one place in the whole tree — `CoachTurnRunner.kt:221` — and no test
+  constructs one (`grep 'TurnOutcome|runCoachTurn' app/src` finds only that construction, the worker's reads at
+  :230/:240-252/:276-288, and `CoachTurnRunnerTest`'s eleven `runCoachTurn` calls). So giving it a `reason`
+  field is a one-file change; the worker only reads what comes back.
+- `CoachTurnRunnerTest`'s client ids are `turn-1` … `turn-11` (:102, :159, :225, :278, :327, :377, :419, :452,
+  :566, :625, :678), so the two new cases need fresh ones.
+- `alreadyActedOn`'s body is `val at = actedOnAtOrBefore ?: return false; return id <= at && (target ==
+  TurnEnd.Paused || target == TurnEnd.Error)` (:125-128). `actedOnAtOrBefore` is non-null only inside the
+  re-read pass at :196-204, whose entry condition is `promptId.isNotEmpty() && handed > promptId && (end ==
+  null || lastAssistantText == null)`. Dropping `TurnEnd.Error` from that comparison is the whole of the
+  unstuck-rows half of the fix.
+- The worker's existing `error` case (:1307-1339) scripts `Assistant("Starting with Monday's lift, then—")`
+  then `State("error", "the coach's turn fell over")`, and reads the end event's id with
+  `daemon.log.single { it["data"]?.jsonObject?.get("to")… == "error" }` + `eventId(errored)` (:1322). Its
+  `runWorker(generationId)` hands in no cursor, so `alreadyActedOn` is not what that test reaches — which is
+  why it stays green through the runner task and only flips in the worker task.
+- `DESIGN.md` "Amendments after approval" (:783-786) states its own rule — "listed here, newest first, and
+  marked inline in the section they affect: what changed, when, and why" — and its bullets are
+  `**YYYY-MM-DD — §N what changed.** prose`. The 2026-10-20 rename bullet explicitly left the approved text
+  under the old `nabu` names, and §7.3 still reads `nabu.session.resume` / `nabu.session.stop` (:332-333), so a
+  rewritten step-5 line should keep those names rather than mixing in `rho.`.
 
 ## Docs that state the rule
 
