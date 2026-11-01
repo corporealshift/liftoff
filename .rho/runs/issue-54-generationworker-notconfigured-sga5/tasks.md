@@ -54,7 +54,7 @@ Shared facts every session needs (they are in `map.md`):
   all pass, and the commit exists.
   Check: `mv app/build/test-results/testDebugUnitTest app/build/t2-old 2>/dev/null; bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.work.GenerationWorkerTest" > app/build/t2.log 2>&1; grep -c 'name="aBlankHostOrTokenFailsTheGenerationAsMissionControlIsntSetUp"' app/build/test-results/testDebugUnitTest/TEST-com.liftoff.app.work.GenerationWorkerTest.xml`
 
-- [ ] 3. The refused token case
+- [x] 3. The refused token case
   Covers the second of the plan's two worker cases, same file, same neighbourhood.
   Test to write, under this exact name (the other name `verify.sh` looks for):
   **`aRefusedTokenFailsTheGenerationAsMissionControlRefusedTheToken`**.
