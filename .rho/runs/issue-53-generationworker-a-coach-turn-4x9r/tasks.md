@@ -16,7 +16,7 @@ rewrite dropped the other two test names and all ten class checks, so those test
 are written by tasks 1 and 3 and are proved by the whole-suite gate, not by a name in the script. No UI test
 is named and no document row is grepped.
 
-- [ ] 1. The turn runner reports the reason a turn ended for, and an `error` behind the cursor is an end
+- [x] 1. The turn runner reports the reason a turn ended for, and an `error` behind the cursor is an end
   - Covers `app/src/main/java/com/liftoff/app/work/CoachTurnRunner.kt` only: `TurnOutcome` (:50) carries the
     ending `state_change`'s `reason` next to the end it already reports (the `STATE_CHANGE` arm of `handle`
     :144-155 is where the reason is read, :221 is the one place a `TurnOutcome` is built); and
