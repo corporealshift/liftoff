@@ -65,39 +65,48 @@ class GenerationWorker(
         // the row, so there is no generation left to open a turn for.
         if (generations.markRunning(generationId) == 0) return Result.success()
 
-        // The prompt and the validator both need the Mission's pattern and the Sortie's type, so a row
-        // that outlived them has nothing left to resume.
-        val mission = container.database.missionDao().get(row.missionId)
-            ?: return failGeneration(generations, generationId, "Mission ${row.missionId} no longer exists", client = null, sessionId = null)
-        val sortie = row.sortieId?.let { container.database.sortieDao().get(it) }
-        if (row.kind == GenerationKind.FLIGHT_PLAN && sortie == null) {
-            return failGeneration(generations, generationId, "Sortie ${row.sortieId} no longer exists", client = null, sessionId = null)
-        }
-
-        return when (val connection = container.daemonConnectionCheck().check()) {
-            // The daemon answered, so whatever the row carried about Mission Control is out of date.
-            is ConnectionOutcome.Connected -> {
-                generations.setCoachOfflineMark(generationId, null)
-                runGeneration(container, generations, row, mission, sortie)
+        // From here the row is claimed, so a throw that isn't the daemon's has to end it: left RUNNING it
+        // reads as a generation still running, with no worker behind it, and the next app open runs it again.
+        return try {
+            // The prompt and the validator both need the Mission's pattern and the Sortie's type, so a row
+            // that outlived them has nothing left to resume.
+            val mission = container.database.missionDao().get(row.missionId)
+                ?: return failGeneration(generations, generationId, "Mission ${row.missionId} no longer exists", client = null, sessionId = null)
+            val sortie = row.sortieId?.let { container.database.sortieDao().get(it) }
+            if (row.kind == GenerationKind.FLIGHT_PLAN && sortie == null) {
+                return failGeneration(generations, generationId, "Sortie ${row.sortieId} no longer exists", client = null, sessionId = null)
             }
 
-            // A major this client doesn't speak answers the same way every time, and the check used its
-            // own socket, so there is no session here to give up.
-            is ConnectionOutcome.ProtocolMismatch -> failGeneration(
-                generations,
-                generationId,
-                mismatchMessage(connection),
-                client = null,
-                sessionId = null,
-            )
+            when (val connection = container.daemonConnectionCheck().check()) {
+                // The daemon answered, so whatever the row carried about Mission Control is out of date.
+                is ConnectionOutcome.Connected -> {
+                    generations.setCoachOfflineMark(generationId, null)
+                    runGeneration(container, generations, row, mission, sortie)
+                }
 
-            // Nothing is listening, which is the one thing the row can say while it waits for a coach — until
-            // the 8th attempt says it for good.
-            is ConnectionOutcome.Unreachable -> coachUnreachable(generations, generationId)
+                // A major this client doesn't speak answers the same way every time, and the check used its
+                // own socket, so there is no session here to give up.
+                is ConnectionOutcome.ProtocolMismatch -> failGeneration(
+                    generations,
+                    generationId,
+                    mismatchMessage(connection),
+                    client = null,
+                    sessionId = null,
+                )
 
-            // A host or a token that isn't set, or a token the daemon won't take, is a setting of Liftoff's
-            // own, not Mission Control being down, so the row carries no claim about the coach.
-            else -> Result.retry()
+                // Nothing is listening, which is the one thing the row can say while it waits for a coach — until
+                // the 8th attempt says it for good.
+                is ConnectionOutcome.Unreachable -> coachUnreachable(generations, generationId)
+
+                // A host or a token that isn't set, or a token the daemon won't take, is a setting of Liftoff's
+                // own, not Mission Control being down, so the row carries no claim about the coach.
+                else -> Result.retry()
+            }
+        } catch (stray: Exception) {
+            // The same end the turn's stray throw gets, except that this half has connected to nothing yet, so
+            // there is no client and no session to give up — as in the two "no longer exists" arms above.
+            if (stray is CancellationException) throw stray
+            failGeneration(generations, generationId, stray.message.orEmpty(), client = null, sessionId = null)
         }
     }
 
