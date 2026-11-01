@@ -34,7 +34,7 @@ Shared facts every session needs (they are in `map.md`):
   commit exists. The compile itself proves the `when` is exhaustive without an `else`.
   Check: `mv app/build/test-results/testDebugUnitTest app/build/t1-old 2>/dev/null; bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache > app/build/t1.log 2>&1; grep -h -o 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' app/build/test-results/testDebugUnitTest/TEST-*.xml | awk -F'"' '{t+=$2; f+=$6; e+=$8} END {print t, "tests", f+e, "failed"; exit (t>=736 && f+e==0 ? 0 : 1)}'`
 
-- [ ] 2. The blank host or token case
+- [x] 2. The blank host or token case
   Covers the first of the plan's two worker cases, in
   `app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt`, beside the existing offline and mismatch cases.
   Test to write, under this exact name (it is one of the two names `verify.sh` looks for):
