@@ -85,7 +85,7 @@ Shared facts every session needs (they are in `map.md`):
   test in it passed, and the commit exists.
   Check: `mv app/build/test-results/testDebugUnitTest app/build/t4-old 2>/dev/null; bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest --no-build-cache --tests "com.liftoff.app.work.AppOpenSweepTest" > app/build/t4.log 2>&1; grep -c 'is still resumed' app/src/main/java/com/liftoff/app/work/AppOpenSweep.kt; echo 'expect the grep to print 0, and no FAILED test in t4.log'`
 
-- [ ] 5. The whole suite, cold, and read its log
+- [x] 5. The whole suite, cold, and read its log
   Covers the plan's Order step 4: one cold whole-suite run of the finished tree, then read the log and the reports
   rather than trusting the class gates. Confirm the classes `verify.sh` requires all ran with nothing failing —
   `GenerationWorkerTest`, `DaemonConnectionCheckTest`, `CoachStatusTest`, `SortieGenerationStatusTest`,
