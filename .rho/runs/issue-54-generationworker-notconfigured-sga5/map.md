@@ -1,7 +1,8 @@
 # Map
 
 Branch here is the merge of #52 (`55dfc6e`), so issue #53's `error`-arm work is **not** in this tree.
-Read the files as they are at HEAD `174093d`.
+Read the files as they are at HEAD `174093d` (the run's own commits since then are `783be7e` plan, `97bf8f1`
+verify, and the tasks commit — none of them touches app code).
 
 ## The code the brief names
 
@@ -152,6 +153,30 @@ Ran against the untouched tree: gate attempt 1 passed (736 tests, 0 failures, 89
 "did not run", `Result: 6 passed, 2 failed`, exit 1. The matcher was separately checked against the same reports
 with two existing worker names, which both resolved to pass, so a test written with one of the two names above will
 be found.
+
+## Tasks (written at the tasks step)
+
+`tasks.md` splits the plan's Order into five committed tasks: 1 the worker's two named arms + the two reason
+constants; 2 `aBlankHostOrTokenFailsTheGenerationAsMissionControlIsntSetUp`; 3
+`aRefusedTokenFailsTheGenerationAsMissionControlRefusedTheToken`; 4 the `AppOpenSweep.kt` KDoc sentence; 5 the cold
+whole-suite run read against the five classes `verify.sh` names. Tasks 1 and 5 run the whole suite, tasks 2-4 a
+class-scoped run. Expected counts: 736 tests at task 1 (no test added), 738 by task 5, 89 reports throughout.
+
+Confirmed by reading, for the sessions that follow:
+
+- `GenerationWorker.kt` :98-100 is the arm to replace, comment included:
+  `// A host or a token that isn't set, or a token the daemon won't take, is a setting of Liftoff's own, not Mission
+  Control being down, so the row carries no claim about the coach.` followed by `else -> Result.retry()`. The other
+  three `Result.retry()`s in the file (:162, :178, :251) are the offline/turn paths and stay.
+- `AppOpenSweep.kt` :29-30 verbatim: "The sweep reads no settings: a row asked for while Mission Control was
+  configured is still resumed under the worker's offline handling when it isn't. And it never queues a generation
+  the app did not already ask for." The old wording to reject is "is still resumed".
+- Neither new test name exists anywhere in `app/src/test` yet. `CoachStatusTest.kt:66` has a similarly-named but
+  different test (`aBlankHostOrTokenWithNoOutlineRowIsNotConfiguredAndOffersContinueWithoutOutlineButNotConfirm`),
+  which is why `verify.sh`'s `t` matcher matches on the whole method name.
+- Gradle's JUnit `testsuite` line attribute order here is
+  `tests="N" skipped="N" failures="N" errors="N"`, so `grep -h -o 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"'`
+  over `TEST-*.xml` is a reliable way to total a run.
 
 ## Docs
 
