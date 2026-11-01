@@ -18,6 +18,11 @@ class MissionViewModel(
     private val scope: CoroutineScope,
     /** Cancels one generation: its work, its row and its rho session. */
     private val cancelGeneration: suspend (Long) -> Unit = {},
+    /**
+     * Where Reset week runs. The shell's scope, not this screen's: the owner leaves the tab right after a reset to
+     * Confirm the new draft, and that must not stop the cancels half-way and leave the old week's turns running.
+     */
+    private val actionScope: CoroutineScope = scope,
 ) {
     val state: StateFlow<MissionTabState> = MissionStates(
         db,
@@ -39,15 +44,16 @@ class MissionViewModel(
 
     /**
      * Start the week over: the Mission and everything recorded in it go, and a new draft takes its place. The
-     * week's open generations are cancelled after the delete, so none of them writes into the new draft.
+     * week's open generations are cancelled after the delete, so none of them writes into the new draft. Each
+     * cancel runs on its own, because stopping a rho session can wait on the daemon and the others shouldn't.
      */
     fun confirmReset(): Job? {
         val s = state.value as? MissionTabState.Week ?: return null
         resetting = false
-        return scope.launch {
+        return actionScope.launch {
             try {
                 for (generationId in manager.resetWeek(s.missionId)) {
-                    cancelGeneration(generationId)
+                    launch { cancelGeneration(generationId) }
                 }
             } catch (_: IllegalStateException) {
                 runCatching { manager.onAppOpen() }

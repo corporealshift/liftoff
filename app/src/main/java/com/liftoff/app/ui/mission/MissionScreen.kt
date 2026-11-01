@@ -23,11 +23,14 @@ import com.liftoff.app.ui.PlaceholderScreen
 import com.liftoff.app.ui.sortie.FlightPlanSection
 import com.liftoff.app.ui.sortie.formatWeekDate
 import com.liftoff.app.ui.theme.*
+import kotlinx.coroutines.CoroutineScope
 import java.time.Instant
 
 @Composable
 fun MissionScreen(
     container: AppContainer,
+    /** The shell's scope, for work that must outlive this tab: Reset week's cancels. */
+    actionScope: CoroutineScope,
 ) {
     val scope = rememberCoroutineScope()
     val viewModel = remember(container) {
@@ -36,6 +39,7 @@ fun MissionScreen(
             container.missionManager,
             scope,
             cancelGeneration = { id -> container.generationCanceller().cancel(id) },
+            actionScope = actionScope,
         )
     }
 
