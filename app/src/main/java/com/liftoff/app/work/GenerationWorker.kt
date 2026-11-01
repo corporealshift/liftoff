@@ -205,10 +205,10 @@ class GenerationWorker(
     }
 
     /**
-     * Validate, store, mark SUCCEEDED, then give up the session. A turn that ends blocked, or a store that
-     * refuses its target, is over for the same reason every time, so it ends through [failGeneration];
-     * anything else hands the session back to the daemon and leaves the row where the turn stopped, for the
-     * next attempt to pick up.
+     * Validate, store, mark SUCCEEDED, then give up the session. A turn that ends blocked or error, or a store
+     * that refuses its target, is over for the same reason every time, so it ends through [failGeneration]; a
+     * turn that stopped part-way hands the session back to the daemon and leaves the row where the turn stopped,
+     * for the next attempt to pick up.
      *
      * A reply that fails validation is handed back to the same session with the validator's own error
      * lines (§7.3 step 5), and the turn that comes back is judged exactly like this one. The cap is the
@@ -244,9 +244,15 @@ class GenerationWorker(
             if (turn.end == TurnEnd.Blocked) {
                 return failGeneration(generations, row.id, "coach needed input", client, turn.sessionId)
             }
+            // rho ends a session in `error` for good — its resume takes only a paused session — so a retry
+            // would be refused the same way every time. The daemon's own reason goes on the row.
+            if (turn.end == TurnEnd.Error) {
+                return failGeneration(generations, row.id, turn.endReason ?: COACH_TURN_FAILED, client, turn.sessionId)
+            }
             // A turn that stopped part-way is handed back to the daemon to carry on: the row keeps its session
-            // id and cursor, and the next attempt reads from where this one stopped (invariant 6).
-            if (turn.end != TurnEnd.Idle && turn.end != TurnEnd.Completed) {
+            // id and cursor, and the next attempt reads from where this one stopped (invariant 6). Only `paused`
+            // and the worker's own limit get that; TURN_LIMIT is Liftoff's clock, not a verdict from the daemon.
+            if (turn.end == TurnEnd.Paused || turn.end == TurnEnd.TimedOut) {
                 handSessionBack(client, turn.sessionId)
                 return Result.retry()
             }
@@ -323,7 +329,8 @@ class GenerationWorker(
                 return failGeneration(generations, row.id, stored.reason, client, turn.sessionId)
             }
 
-            // Only a generation that stored its answer gives up its session; every other end resumes it (invariant 6).
+            // A generation that stored its answer has no further use for its session; a part-way end handed it
+            // back instead (invariant 6).
             // A stop the daemon refuses changes nothing: the outcome was already decided before it was attempted.
             giveUpSession(client, turn.sessionId)
             decision.queuedPlanId?.let { enqueueQueuedPlan(container, it) }
@@ -469,6 +476,9 @@ private const val GIVE_UP_AT_ATTEMPT = 7
 
 /** What a generation that never got a coach says on the row. */
 private const val COACH_UNREACHABLE = "coach unreachable"
+
+/** What the row says when the coach ended its turn in error and named no reason for it. */
+private const val COACH_TURN_FAILED = "coach turn failed"
 
 /** DESIGN 10 compares the major only, so the row names majors: the client's 1.0 reads "1.x". */
 private val liftoffProtocolMajor: String = majorOf(PROTOCOL_VERSION)?.let { "$it.x" } ?: PROTOCOL_VERSION
