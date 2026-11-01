@@ -20,7 +20,7 @@ Shared facts every session needs (they are in `map.md`):
   mutation run, read the failing test's name out of the JUnit XML — `BUILD FAILED` / `EXIT=1` is the expected result
   there, not a problem.
 
-- [ ] 1. End the generation on the two settings faults
+- [x] 1. End the generation on the two settings faults
   Covers the plan's Order step 1, in `app/src/main/java/com/liftoff/app/work/GenerationWorker.kt` only: the
   `else -> Result.retry()` arm at :100 becomes named arms for `ConnectionOutcome.NotConfigured` and
   `ConnectionOutcome.AuthenticationRejected`, each ending through the existing `failGeneration` (map: :389-403)
