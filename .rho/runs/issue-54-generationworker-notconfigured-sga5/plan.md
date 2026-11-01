@@ -4,8 +4,9 @@
 
 The worker already has one permanent end — `failGeneration` — and every failure it can hit before a turn starts
 already goes through it: the protocol mismatch, the Mission that no longer exists, the Sortie that no longer
-exists, each with `client = null, sessionId = null` because none of them has opened a session to give up. The fix is to make the two settings faults join them: replace the `else ->
-Result.retry()` arm at `GenerationWorker.kt:100` with named arms for `NotConfigured` and
+exists, each with `client = null, sessionId = null` because none of them has opened a session to give up.
+
+The fix is to make the two settings faults join them: replace the `else -> Result.retry()` arm at `GenerationWorker.kt:100` with named arms for `NotConfigured` and
 `AuthenticationRejected`, each calling `failGeneration` with the sentence the brief names. Naming both arms
 also makes the `when` exhaustive over the sealed `ConnectionOutcome`, so a future outcome is a compile error
 rather than another silent retry. Nothing else is needed downstream: a FAILED row already carries its reason in
@@ -22,10 +23,9 @@ sortie card's Re-fly rule is unchanged. No new DAO query, no new state, no attem
 - `app/src/main/java/com/liftoff/app/work/AppOpenSweep.kt` — one KDoc sentence ("a row asked for while Mission
   Control was configured is still resumed under the worker's offline handling when it isn't") is now wrong for
   a blank host or token and gets corrected. No behavior change in this file.
-- `DESIGN.md` — §7.3's "Unreachable daemon (the connection is refused or times out)" bullet now describes a
-  rule the code no longer applies to a refused token, so it gets an inline mark and one dated bullet in the
-  newest-first amendment list. `ARCHITECTURE.md` needs nothing: its `com.liftoff.app.work` row already says the
-  worker ends the row FAILED with its reason.
+- `ARCHITECTURE.md` needs nothing: its `com.liftoff.app.work` row already says the worker ends the row FAILED
+  with its reason. `DESIGN.md` is not touched — worker behavior changes here have amended ARCHITECTURE.md rows,
+  not §7.3 (see the map), and the brief asks for code and tests.
 
 ## Order
 
@@ -33,7 +33,7 @@ sortie card's Re-fly rule is unchanged. No new DAO query, no new state, no attem
    nothing in it asserts the old `Result.retry()` for these two outcomes.
 2. The two test cases, each proved to bite by one mutation of the arm it covers (revert that arm to
    `Result.retry()` and read the failing test's name), then the worker file restored.
-3. `AppOpenSweep.kt`'s KDoc sentence and the `DESIGN.md` §7.3 amendment.
+3. `AppOpenSweep.kt`'s stale KDoc sentence.
 4. The whole suite once, cold, and read its log — the offline and mismatch cases are the ones this change could
    disturb.
 
@@ -50,9 +50,8 @@ first attempt (`runAttemptCount = 0`), since the point is that these outcomes ca
   rather than sitting under it.
 - **Refused token.** `FakeDaemon.refuseUpgrade = true` (the 401-at-the-upgrade recipe
   `DaemonConnectionCheckTest` already uses), then `doWork()`: `Result.Failure`; the row FAILED with `error`
-  exactly "Mission Control refused the token", `finishedAt` stamped, nothing stored. Seed the row with an
-  earlier attempt's session id and cursor, as the unreachable case does, so the case also shows what a refused
-  token does with them: no `rho.session.stop` frame at all, and the id still on the row.
+  exactly "Mission Control refused the token", `finishedAt` stamped, nothing stored, and no `rho.session.stop`
+  frame reached the daemon — the upgrade never completed, so there was no session to give up.
 - Both cases reuse the class's existing permanent-end row assertion (the one the mismatch cases use) rather than
   restating it.
 - No new UI or domain test: `CoachStatusTest` and `SortieGenerationStatusTest` already cover what a FAILED row's
@@ -67,17 +66,14 @@ first attempt (`runAttemptCount = 0`), since the point is that these outcomes ca
   whole-suite log.
 - **A row that already carries a rho session.** A token rotated mid-generation leaves the session open on the PC
   and this fix does not stop it — the daemon that refused the token would refuse the stop too, and rho archives
-  untouched sessions on its own (DESIGN §7.3 step 6). The test asserts the absence of the stop rather than
-  treating it as an oversight.
+  untouched sessions on its own (DESIGN §7.3 step 6). The new cases assert nothing at all reached the daemon,
+  because a refused upgrade never opened a session to stop.
 - **Two similar sentences in two places.** The row's "Mission Control isn't set up" and Mission Control's own
   longer "…Add the host and token in Mission Control." are different messages for different screens; the work
   should not harmonise them.
 - **Retry while the settings are still blank.** The card offers Retry, `MissionManager` refuses to queue, and the
   draft says which setting to fix. That is existing behavior with an existing test; the work must not "help" by
   queueing anyway.
-- **Whether `DESIGN.md` is in scope.** The brief asks for code and tests only, but §7.3's bullet says a refused
-  connection retries, which is the rule being changed. The plan amends it; if the owner wants code-only, that
-  one bullet and its inline mark are the whole thing to drop.
 - **The fake's refused upgrade must stay the 401 + `DISCONNECT_AT_END` response** `FakeDaemon` already returns;
   a different refusal mechanism risks the server-shutdown hang that comment exists to avoid.
 

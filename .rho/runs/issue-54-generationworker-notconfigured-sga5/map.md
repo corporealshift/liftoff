@@ -110,3 +110,6 @@ into `container.settingsStore` in `@Before` (:82-90) and the container re-reads 
   section they affect.
 - `ARCHITECTURE.md` :36 already describes `GenerationWorker.kt` as "ending the row FAILED with its reason"; no
   row change needed.
+- Convention check for whether `DESIGN.md` should be amended: the worker's own behavior PRs (#37 resume/reconnect/
+  offline, #44 sweep, #45 cancelled rows) each updated an `ARCHITECTURE.md` row and left `DESIGN.md` alone;
+  `DESIGN.md` was last touched by #30. So this run amends neither doc file.
