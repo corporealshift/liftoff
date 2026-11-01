@@ -83,7 +83,7 @@ is named and no document row is grepped.
     test red. Keep a byte-copy of `GenerationWorker.kt` under `app/build/` before the mutation and the red run's
     log under `app/build/`, then `cp` the file back and commit only the test. Commit.
 
-- [ ] 4. The design document says what the code now does, then the brief's gate
+- [x] 4. The design document says what the code now does, then the brief's gate
   - Covers `DESIGN.md` only: §7.3 step 5 (:331-332) splits the single "**`paused` or `error`:** a retryable
     failure" line into `paused` (retry, resuming the session first) and `error` (the generation FAILED with the
     session's own reason), marked inline in the section the way that section's own convention requires; and a
