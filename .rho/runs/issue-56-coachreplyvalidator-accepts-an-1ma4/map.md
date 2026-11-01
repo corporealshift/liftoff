@@ -1,6 +1,7 @@
 # Map
 
-Run branched from `55dfc6e` (merge of #52); HEAD here is `51441ca run: plan revised by claude review` (commits since the map was first written: `48f7d44 run: plan`, `51441ca run: plan revised by claude review`).
+Run branched from `55dfc6e` (merge of #52); HEAD here is `26c0b21 run: verify` (commits since the map was first
+written: `48f7d44 run: plan`, `51441ca run: plan revised by claude review`, `26c0b21 run: verify`).
 
 ## The code the fix touches
 
@@ -49,3 +50,38 @@ Run branched from `55dfc6e` (merge of #52); HEAD here is `51441ca run: plan revi
 - `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` (brief). Class-scoped runs for the coach classes: `CoachReplyValidator` tests live in `CoachReplyFixtureTest`, `CoachReplySemanticTest`, `CoachReplyExtractionTest`; the data-side neighbour is `ExerciseResolverTest`.
 - Measured on this branch (2026-11-01, untouched code): **736 tests in 89 reports, 0 failures**, whole gate ~2.5 minutes cold. Use this as the baseline in `tasks.md`, not the recalled 737.
 - The gate did not hang on this run's first attempt.
+
+## Exact shapes read at the tasks step (so a work session does not re-read whole files)
+
+- `CoachReplyValidator.kt` `liftErrors`, the branch the guard goes in (`private fun liftErrors` is line 153; the
+  `val name = …` line is 167, `if (name != null) {` is 168 and the block closes at 174):
+  `val name = (node["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content` then `if (name != null) {` — inside
+  it, `val first = firstByName.putIfAbsent(ExerciseNames.normalize(name), position to name)` and, when `first != null`,
+  `duplicates += "exercises[$position].name: '$name' duplicates '${first.second}' at exercises[${first.first}]"`.
+  `duplicates` is a separate list appended after the loop (`errors += duplicates`), so inline exercise lines already
+  come before duplicate lines. The new line goes into `errors` inside that same `if`, and the name must not reach
+  `firstByName`.
+- `CoachReplySemanticTest.kt`: helpers and constants live in a `companion object` — `liftPlan(exercises:
+  List<String>, typeField: String = "\"lift\"", minutesField: String = "45")` builds a lift plan that satisfies its
+  schema and every other semantic check (45 minutes is inside the 75-minute budget); `outline(vararg sorties: String)`;
+  `const val BENCH / ROW / CURL` exercise JSON objects; `S0`–`S4`; `RUN_PLAN`. `LIFT_CONTEXT` etc. are the companion's
+  own copies of the `CoachFixtures` contexts, used unqualified. The class-private `errorsOf(raw, context)` (line 291)
+  asserts the result **is** `CoachReplyResult.Invalid` and returns its `errors` — so the acceptance case
+  (`"!!! squat !!!"`) cannot use it: it must call `CoachReplyValidator.validate(raw, LIFT_CONTEXT)` and assert the
+  `Valid` result and the parsed `CoachLiftPlan`.
+- `CoachReplyFixtureTest.kt`: an invalid-fixture test is `fun <name>FixtureGivesItsError()` asserting
+  `assertEquals(listOf("<exact line>"), CoachFixtures.errorsOf(CoachFixtures.<CONSTANT>, CoachFixtures.LIFT_CONTEXT))`
+  (see `duplicateExerciseNamesFixtureGivesItsError`, line 237). `COVERED` is a `val` in the class's
+  `private companion object` (line 270) listing all 14 `CoachFixtures` constants.
+- `CoachFixtures.kt`: the fixture `const val`s are lines 19-33, invalid ones grouped after the four valid ones.
+- Fixture directory `app/src/test/resources/fixtures/coach/` holds exactly these 14: bad-json,
+  duplicate-exercise-names, inactive-equipment, lift-plan-fenced, lift-plan-valid, outline-pattern-mismatch,
+  outline-valid, over-length-sortie, plan-type-mismatch, prose-around-json, reps-and-seconds, run-plan-valid,
+  schema-violation, unknown-equipment (all `.txt`).
+- Per-class test counts on this branch, untouched (from the 89 reports the verify run wrote):
+  `CoachReplyFixtureTest` 16, `CoachReplySemanticTest` 12, `CoachReplyExtractionTest` 10, `ExerciseNamesTest` 8,
+  `ExerciseResolverTest` 4, `CoachPromptBuilderTest` 15, `GenerationWorkerTest` 32 — 0 failures each. Four new tests
+  with no new class take the suite to 740 in the same 89 reports.
+- None of the four names `verify.sh` looks for exists yet anywhere in `app/src/test` (grep for
+  `noLettersOrDigits|symbolsOnly|SurviveSurrounding|NotReportedAsDuplicates` hits only
+  `ExerciseNamesTest.symbolsOnlyNameNormalizesToEmpty`, a different name).
