@@ -63,7 +63,7 @@ is named and no document row is grepped.
     `aTurnThatEndsInErrorFailsTheGenerationWithTheDaemonsReason`, the old `…RetriesAndLeavesTheRowRunning…`
     name is gone from every report, and both reports show 0 failures. Commit.
 
-- [ ] 3. A generation the user cancelled mid-turn keeps its own outcome when the turn then ends `error`
+- [x] 3. A generation the user cancelled mid-turn keeps its own outcome when the turn then ends `error`
   - Test-only, no main-source change: this is the plan's Decision that only a genuine `error` turn end marks a
     row FAILED, and that a cancelled or superseded generation keeps the outcome it already has.
     `failGeneration` already refuses to write over a CANCELLED row; this proves the new arm reaches that rule
