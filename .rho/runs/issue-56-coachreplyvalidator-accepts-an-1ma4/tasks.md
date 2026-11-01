@@ -79,7 +79,7 @@ assert — read it before writing the test.
   `TEST-com.liftoff.app.coach.CoachReplyFixtureTest.xml`, `CoachReplySemanticTest` still 12 and
   `CoachReplyExtractionTest` still 10, and `everyFixtureFileIsCoveredByATest` passed in that same report. Commit.
 
-- [ ] 3. Two symbols-only names, and a name that is only hyphens or only spaces
+- [x] 3. Two symbols-only names, and a name that is only hyphens or only spaces
   Plan Order step 3's first two cases, and the Decisions "Two symbols-only names each get their own line, not a
   duplicate line" and "What counts as 'no letters or digits'" as changed by review. Add two inline cases to
   `app/src/test/java/com/liftoff/app/coach/CoachReplySemanticTest.kt`, next to
