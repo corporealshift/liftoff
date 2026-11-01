@@ -161,6 +161,17 @@ class GenerationWorker(
             } else {
                 Result.retry()
             }
+        } catch (stray: Exception) {
+            // Liftoff's own data path throwing — the validator, the store transaction, the prompt load,
+            // Room — is a generation that is over, not a turn that dropped, so it is not retried.
+            if (stray is CancellationException) throw stray
+            failGeneration(
+                generations,
+                row.id,
+                stray.message.orEmpty(),
+                client,
+                reportedSessionId ?: row.nabuSessionId,
+            )
         } finally {
             client.close()
         }
