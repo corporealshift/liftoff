@@ -100,6 +100,59 @@ into `container.settingsStore` in `@Before` (:82-90) and the container re-reads 
   flag before running the worker.
 - `helloResult` (:87), `refuseMethod`, `framesFor(method)`, `requests`/`requestCount()`.
 
+## Build / gate facts
+
+- CI (`.github/workflows/ci.yml`) runs exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest` on
+  ubuntu-latest, Java 17, 20-minute job timeout. On this machine the wrapper is `bash gradlew.sh` (pins the JDK,
+  SDK and Gradle under `~/android-toolchain`; none of it is on PATH).
+- `app/build.gradle.kts` kills the test task at 5 minutes, so a hang writes no `TEST-*.xml` at all.
+- Two known timing flakes in tests this run does not touch, both allowed to be retried by `verify.sh`:
+  `doneBodyweightSetStepperShowsBW` (`ui/inflight/InFlightScreenTest.kt:601`, Room pool closed under a concurrent
+  `observe()`) and `aPlannedSortieShowsRePlanningWhenANewRowIsQueuedForIt`
+  (`ui/launchpad/LaunchpadSortieStatusTest.kt:304` — its fix `awaitPlanned(from = before)` landed on
+  `rho/issue-53-…` at `8a10469` and is **not** in this tree, so it can still bite a slow runner).
+- Whole-suite baseline at this HEAD (`174093d`, the merge of #52): **736 tests in 89 reports**, 0 failures
+  (measured by this run's own gate, `app/build/verify-run.log`, 2m46s). The 739-test figure belongs to the
+  issue-53 branch, which adds tests this tree does not have.
+
+## Harness details the two new cases need (read off the file)
+
+- `GenerationWorkerTest` `@Before seedContainer` (:82-90): `FakeDaemon().start()`, then
+  `container.settingsStore.setDaemonHost(daemon.host())` / `setDaemonPort(...)` / `setDaemonToken(SECRET_TOKEN)` /
+  `setCoachWorkspacePath(...)`, and `equipmentDao().insertAll(CoachFixtures.KEYS.map { Equipment(key = it, name = it) })`.
+  `@After` stops the fake, closes `container.database`, deletes the DB and the settings DataStore file.
+- Blank settings for the `NotConfigured` case: `container.settingsStore.setDaemonHost("")` or `setDaemonToken("")`
+  (`SettingsStore.kt:46` has `setDaemonHost`; the container re-reads `settings.first()` per call).
+  `pointSettingsAtNothing()` (:1732) is the *Unreachable* recipe (closed loopback port), not this one.
+- `runWorker(generationId, runAttemptCount = 0)` (:1748) — `TestListenableWorkerBuilder` under a 30 s `withTimeout`.
+- `FakeDaemon.refuseUpgrade` (:94) → the dispatcher answers the upgrade with 401 + `DISCONNECT_AT_END` (:161-168).
+  `DaemonConnectionCheckTest.aRejectedTokenIsReportedAsAuthenticationRejectedNotUnreachable` (:166-171) sets it and
+  asserts `ConnectionOutcome.AuthenticationRejected`.
+- Existing cases the class check must keep green: `anUnreachableDaemonMarksTheGenerationOfflineAndRetries` (:1349),
+  `aLaterRunThatReachesTheDaemonClearsTheOfflineMark` (:1402),
+  `theEighthAttemptThatCannotConnectFailsTheGenerationAsCoachUnreachable` (:1447), and the three mismatch cases
+  (:1133, :1159, :1184) which use `mismatchFailedRow(generationId, missionId, error)` (:1865) — FAILED, `error`
+  exactly the reason, `finishedAt` stamped, `nabuSessionId` null, mission still DRAFT, no sorties.
+- Test classes named by `verify.sh` as must-not-break: `GenerationWorkerTest`, `DaemonConnectionCheckTest`,
+  `CoachStatusTest`, `SortieGenerationStatusTest`, `AppOpenSweepTest` (all exist under `app/src/test/java`).
+
+## verify.sh (committed)
+
+Two names, one per outcome, both new to this run and both absent today — that is what makes the script fail on
+untouched code:
+- `aBlankHostOrTokenFailsTheGenerationAsMissionControlIsntSetUp`
+- `aRefusedTokenFailsTheGenerationAsMissionControlRefusedTheToken`
+
+plus `c` class checks on `GenerationWorkerTest`, `DaemonConnectionCheckTest`, `CoachStatusTest`,
+`SortieGenerationStatusTest`, `AppOpenSweepTest`, and the CI gate as one `bash gradlew.sh :app:assembleDebug
+:app:testDebugUnitTest --no-build-cache` run (results dir cleared first, up to 3 attempts, retrying only the two
+known flakes / a daemon death / a hung suite that wrote no reports).
+
+Ran against the untouched tree: gate attempt 1 passed (736 tests, 0 failures, 89 reports), the two names reported
+"did not run", `Result: 6 passed, 2 failed`, exit 1. The matcher was separately checked against the same reports
+with two existing worker names, which both resolved to pass, so a test written with one of the two names above will
+be found.
+
 ## Docs
 
 - `DESIGN.md` §7.3 (:285-343): step 1 calls a major mismatch a permanent failure; the bullets after step 6 say
