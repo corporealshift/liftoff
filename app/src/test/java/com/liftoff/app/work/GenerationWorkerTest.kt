@@ -1486,6 +1486,60 @@ class GenerationWorkerTest {
     }
 
     /**
+     * the settings are gone: two rows the unreachable path left RUNNING with 'Mission Control offline' in error,
+     * each run again at WorkManager's first attempt with one of the settings the container reads blanked — the
+     * host on one row, the token on the other, with the host back at the live fake so it is the token that
+     * decides. Both must show `Result.Failure`, and the row FAILED with error exactly 'Mission Control isn't set
+     * up' — the new reason in place of the offline text, not under it — finishedAt stamped,
+     * Generation.isCoachOffline false, no session id, its own attempt still 0, and nothing stored. A blank
+     * setting opens no socket at all, so the scripted daemon sees nothing: not even the hello the connection
+     * check would have sent.
+     */
+    @Test
+    fun aBlankHostOrTokenFailsTheGenerationAsMissionControlIsntSetUp() {
+        // A turn is queued up and never asked for: the settings under test name no daemon to run it on.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+
+        // Where this case starts is where an unreachable coach leaves a row: RUNNING, carrying the offline mark.
+        pointSettingsAtNothing()
+        val blankHostRowId = insertOutlineGeneration(mission.id)
+        val blankTokenRowId = insertOutlineGeneration(mission.id)
+        for (id in listOf(blankHostRowId, blankTokenRowId)) {
+            val offline = runWorker(id)
+            assertTrue("the run that left row $id for this test returned $offline", offline is ListenableWorker.Result.Retry)
+            val marked = runBlocking { container.database.generationDao().get(id) }!!
+            assertEquals(GenerationStatus.RUNNING, marked.status)
+            assertTrue("this test's own row $id carries no offline mark to replace: ${marked.error}", marked.isCoachOffline)
+        }
+
+        runBlocking { container.settingsStore.setDaemonHost("") }
+
+        val result = runWorker(blankHostRowId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = mismatchFailedRow(blankHostRowId, mission.id, "Mission Control isn't set up")
+        assertFalse("a row a blank host ended is still waiting on the coach", row.isCoachOffline)
+        assertEquals("a blank host bumped the row's own attempt", 0, row.attempt)
+
+        pointSettingsAtTheLiveFake()
+        runBlocking { container.settingsStore.setDaemonToken("") }
+
+        val tokenResult = runWorker(blankTokenRowId)
+        assertTrue("doWork() on a blank token returned $tokenResult", tokenResult is ListenableWorker.Result.Failure)
+
+        val tokenRow = mismatchFailedRow(blankTokenRowId, mission.id, "Mission Control isn't set up")
+        assertFalse("a row a blank token ended is still waiting on the coach", tokenRow.isCoachOffline)
+        assertEquals("a blank token bumped the row's own attempt", 0, tokenRow.attempt)
+
+        assertNothingReachedTheDaemon()
+    }
+
+    /**
      * cancelled mid-turn: the scripted reply carries no end state, so the fake's turn stays open until the
      * cancel helper's `rho.session.stop` pushes the `completed` state_change that ends it. The worker reaches
      * its store holding a valid outline over a row that is already CANCELLED, and must store nothing, leave
