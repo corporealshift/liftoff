@@ -24,7 +24,7 @@ Only the files each task names change: tasks 1 and 2 both edit `GenerationWorker
 only `GenerationWorkerTest.kt`, task 4 changes no source. Line numbers quoted below are from HEAD `13d34e2`; they
 shift once task 1 lands, so re-read the file rather than trusting them.
 
-- [ ] 1. Catch everything that is not a `DaemonException` in the turn and the store
+- [x] 1. Catch everything that is not a `DaemonException` in the turn and the store
   Covers plan step 1's first half — the half the brief's Test names.
   `app/src/main/java/com/liftoff/app/work/GenerationWorker.kt`, `runGeneration`: one more arm on the existing
   `try` (124–148), **after** the existing `catch (dropped: DaemonException)` (149) and before the
