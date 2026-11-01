@@ -1,6 +1,6 @@
 # Map
 
-Run branched from `55dfc6e` (merge of #52); HEAD here is `fc8bf9c run: plan outline`.
+Run branched from `55dfc6e` (merge of #52); HEAD here is `51441ca run: plan revised by claude review` (commits since the map was first written: `48f7d44 run: plan`, `51441ca run: plan revised by claude review`).
 
 ## The code the fix touches
 
@@ -20,7 +20,25 @@ Run branched from `55dfc6e` (merge of #52); HEAD here is `fc8bf9c run: plan outl
 - `app/src/test/java/com/liftoff/app/coach/CoachReplyExtractionTest.kt` — extraction only; not touched.
 - `app/src/test/java/com/liftoff/app/coach/CoachFixtures.kt` — fixture name constants (`const val DUPLICATE_EXERCISE_NAMES = "duplicate-exercise-names.txt"`, …), `KEYS = barbell, dumbbell, bench, pullup-bar`, `OUTLINE_CONTEXT` / `LIFT_CONTEXT` / `RUN_CONTEXT` (pattern `RLRLR`, 60-minute sortie, lift at position 1, run at position 0), `fixture(name)`, `fixtureDirectory()`, `errorsOf(...)`. Fixtures load from the classpath `fixtures/coach/` with a working-directory fallback.
 - `app/src/test/java/com/liftoff/app/data/ExerciseResolverTest.kt` — `blankNameIsRejected` already asserts `resolve("!!!")` and `resolve("   ")` throw `IllegalArgumentException` and store nothing. That test stays green: the DAO guard is not being removed.
-- Fixture directory `app/src/test/resources/fixtures/coach/` holds 14 `.txt` replies; `duplicate-exercise-names.txt` is the shape to copy (a full lift-plan reply, four exercises, the bad name at index 3).
+- Fixture directory `app/src/test/resources/fixtures/coach/` holds 14 `.txt` replies; `duplicate-exercise-names.txt` is the shape to copy (a full lift-plan reply, four exercises, the bad name at index 3). The plan adds `symbols-only-exercise-name.txt` as the 15th. No existing fixture holds a name without letters or digits (checked across all 14 `"name"` values), so the guard should change no existing assertion.
+
+- `app/src/test/java/com/liftoff/app/coach/CoachPromptBuilderTest.kt` — `repairPromptCarriesEveryValidatorErrorAndAsksForOnlyTheCorrectedJson` runs a real `CoachReplyValidator` over an invalid reply and asserts every error line it produced reaches the repair prompt. Existing proof that a validator error line is what the coach actually sees.
+- `app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt` — already has `anInvalidReplyIsRepairedInTheSameSessionAndThenTheGenerationSucceeds` and `afterTwoFailedRepairsTheGenerationFailsWithTheLastErrorsAndStoresNothing`. No new worker test for this fix.
+- `app/src/test/java/com/liftoff/app/coach/ExerciseNamesTest.kt` — has `symbolsOnlyNameNormalizesToEmpty` and `unicodeLettersAndDigitsAreKept`. Not to be changed.
+
+## CI
+
+- `.github/workflows/ci.yml` runs exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest` (Java 17 temurin, ubuntu-latest) — the same two tasks the brief names. `gradlew.sh` at the repo root pins JDK/SDK/Gradle under `~/android-toolchain` and `exec`s the pinned gradle, so `bash gradlew.sh <tasks>` is the local equivalent.
+
+## verify.sh (this run's definition of done)
+
+`bash .rho/runs/issue-56-coachreplyvalidator-accepts-an-1ma4/verify.sh` from the repo root. Order: the CI gate (`:app:assembleDebug :app:testDebugUnitTest`, `--no-build-cache`, results moved aside first, up to 3 attempts only for a hang/build-transient failure), then four named tests, then whole-class checks. Named tests are looked up across every `TEST-*.xml` report this run wrote, so which class a test sits in is the implementer's call — but the names must be spelled exactly as below, and the comment above each `t <name>` in verify.sh carries what it must assert.
+
+- `t symbolsOnlyExerciseNameFixtureIsRejectedWithItsOwnErrorLine` — the new fixture read through `CoachFixtures.errorsOf` gives exactly `exercises[<position>].name: '!!!' has no letters or digits` and nothing else.
+- `t twoSymbolsOnlyExerciseNamesAreEachRejectedAndNotReportedAsDuplicates` — plan Decision "Two symbols-only names each get their own line, not a duplicate line".
+- `t aNameWithNoLettersOrDigitsIsRejected` — plan Decision "What counts as 'no letters or digits'" as changed by review (`"---"`, spaces-only rejected).
+- `t aNameWhoseLettersSurviveSurroundingSymbolsIsStillAccepted` — the same Decision's other half (`"!!! squat !!!"` validates clean).
+- `c CoachReplyFixtureTest`, `c CoachReplySemanticTest`, `c CoachReplyExtractionTest`, `c ExerciseNamesTest`, `c ExerciseResolverTest`, `c CoachPromptBuilderTest`, `c GenerationWorkerTest` — each must have run with every test in it passing.
 
 ## Docs
 
@@ -29,4 +47,5 @@ Run branched from `55dfc6e` (merge of #52); HEAD here is `fc8bf9c run: plan outl
 ## Gate
 
 - `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` (brief). Class-scoped runs for the coach classes: `CoachReplyValidator` tests live in `CoachReplyFixtureTest`, `CoachReplySemanticTest`, `CoachReplyExtractionTest`; the data-side neighbour is `ExerciseResolverTest`.
-- Suite size recalled from the issue-55 run branched from this same merge (`55dfc6e`): 737 tests in 89 reports. Re-measure on this branch before writing an expected total anywhere — the count is branch-relative.
+- Measured on this branch (2026-11-01, untouched code): **736 tests in 89 reports, 0 failures**, whole gate ~2.5 minutes cold. Use this as the baseline in `tasks.md`, not the recalled 737.
+- The gate did not hang on this run's first attempt.
