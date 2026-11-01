@@ -1,7 +1,10 @@
 # Map — issue #55 (any non-daemon exception after `markRunning` strands the row)
 
-Branch `rho/issue-55-generationworker-any-non-h1mx`, HEAD `e96f763` at plan time. Baseline suite:
-**738 tests in 89 reports** (issue #54's run raised it from 736; `GenerationWorkerTest` is at 34 cases).
+Branch `rho/issue-55-generationworker-any-non-h1mx`, HEAD `e96f763` at plan time. Baseline suite measured on this
+branch by a cold `:app:assembleDebug :app:testDebugUnitTest --no-build-cache` run (3m18s): **736 tests in 89 reports**
+— `grep -c @Test` over `app/src/test` agrees at 736, and `GenerationWorkerTest` has **32** `@Test` cases. (The plan's
+"738 / 34" is not what this branch holds; issue #54's work is not merged into it — the newest merge here is #52,
+`55dfc6e`.) So the run's whole-suite expectation is **737 tests in the same 89 classes**.
 
 ## The code the change touches
 
@@ -57,7 +60,7 @@ uses the rethrow-then-swallow shape.
 
 ## Tests that already exist
 
-**`app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt`** (1959 lines, 34 cases) — `doWork()` over a
+**`app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt`** (1959 lines, 32 cases) — `doWork()` over a
 real socket to a scripted `FakeDaemon`, on the application's own container (`container` from
 `LiftoffApplication`); settings written into `container.settingsStore`; `@Config(sdk = [34])`.
 - Helpers: `runWorker(generationId, runAttemptCount = 0)` (1748, `TestListenableWorkerBuilder` +
@@ -110,6 +113,20 @@ no change needed here.
   "FAILED with its reason" — already what this fix makes true.
 - Gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`. Known timing flakes:
   `doneBodyweightSetStepperShowsBW`, `aPlannedSortieShowsRePlanningWhenANewRowIsQueuedForIt`.
+
+## The gate on this branch (measured, not assumed)
+
+`bash .rho/runs/issue-55-generationworker-any-non-h1mx/verify.sh` was run end to end on the untouched tree. It exits
+**1**, and the only failing check is `aStoreThatThrowsFailsTheGenerationWithItsOwnMessageAndStoresNothing did not run`
+— every other check (the gate, the 16 class checks, `decidedGenerationsAreLeftAlone`) passes. Reports read out of that
+run: **736 tests, 0 failures, 0 errors, 0 skipped, 89 `TEST-*.xml`**.
+
+The known hang is real and frequent here, not hypothetical: the first gate attempt died at
+`Requesting stop of task ':app:testDebugUnitTest' as it has exceeded its configured timeout of 5m` →
+`Execution failed for task ':app:testDebugUnitTest' > Timeout has been exceeded` → `BUILD FAILED in 5m 6s`, writing no
+reports. The script's retry ladder caught that signature and the identical tree passed on the next attempt in 1m 25s.
+So a work session should expect a gate run to need a second attempt some of the time, and should not read the first
+red as its own change. `gradlew --stop` is not used anywhere in the script: a stop is machine-wide.
 
 ## Related issues
 
