@@ -57,6 +57,17 @@ sealed interface InFlightState {
 fun needsLandConfirmation(state: InFlightState): Boolean =
     state is InFlightState.Ready && state.openCount > 0
 
+/** Un-launch is offered only while nothing on the sortie has been recorded. */
+fun unlaunchAvailable(state: InFlightState): Boolean = when (state) {
+    // cards carries every exercise's sets, a skipped exercise's included, so the rule does not stop at
+    // the active card. A run and a no-checklist sortie have no sets, so nothing is recorded on them.
+    is InFlightState.Ready -> state.cards.asSequence().flatMap { it.sets }.all {
+        it.status == SetStatus.OPEN && it.actualReps == null && it.actualSeconds == null && it.actualWeight == null
+    }
+    is InFlightState.Run, is InFlightState.NoChecklist -> true
+    is InFlightState.Loading -> false
+}
+
 enum class CardStatus { SKIPPED, DONE, ACTIVE, UPCOMING }
 
 data class ExerciseCard(
