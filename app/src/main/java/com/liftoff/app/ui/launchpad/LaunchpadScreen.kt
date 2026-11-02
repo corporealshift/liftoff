@@ -199,7 +199,12 @@ private fun PlannedContent(state: LaunchpadState.Planned, viewModel: LaunchpadVi
             style = LiftoffType.note().copy(color = Muted),
         )
     }
-    FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
+    FlightPlanSection(
+        plan = state.plan,
+        sortieType = state.sortieType,
+        sortieFocus = state.sortieFocus,
+        distanceUnit = state.distanceUnit,
+    )
 }
 
 @Composable
@@ -258,7 +263,12 @@ private fun InFlightContent(state: LaunchpadState.InFlight, viewModel: Launchpad
     PatternTrack(chips = state.chips)
     if (state.plan != null) {
         Spacer(Modifier.height(20.dp))
-        FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
+        FlightPlanSection(
+            plan = state.plan,
+            sortieType = state.sortieType,
+            sortieFocus = state.sortieFocus,
+            distanceUnit = state.distanceUnit,
+        )
     }
 }
 

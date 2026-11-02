@@ -21,6 +21,7 @@ import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
 import com.liftoff.app.ui.PlaceholderScreen
 import com.liftoff.app.ui.sortie.FlightPlanSection
+import com.liftoff.app.ui.sortie.formatDistance
 import com.liftoff.app.ui.sortie.formatWeekDate
 import com.liftoff.app.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
@@ -163,7 +164,12 @@ private fun SortieDetailView(state: SortieDetailState, onBack: () -> Unit) {
             is SortieDetailState.WithPlan -> {
                 TitleBlock(eyebrow = state.eyebrow, title = state.title)
                 Spacer(Modifier.height(20.dp))
-                FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
+                FlightPlanSection(
+                    plan = state.plan,
+                    sortieType = state.sortieType,
+                    sortieFocus = state.sortieFocus,
+                    distanceUnit = state.distanceUnit,
+                )
             }
 
             is SortieDetailState.NoPlan -> {
@@ -214,7 +220,7 @@ private fun LandedDetailView(state: SortieDetailState.Landed) {
 
     if (state.sortieType == SortieType.RUN) {
         Spacer(Modifier.height(8.dp))
-        val distStr = state.runDistance?.let { "%.2f km".format(it) } ?: "—"
+        val distStr = state.runDistance?.let { formatDistance(it, state.distanceUnit) } ?: "—"
         val minStr = state.runMinutes?.let { "%.0f min".format(it) } ?: "—"
         Text(
             text = "$distStr · $minStr",
@@ -302,6 +308,7 @@ private fun SortieDetailPlannedPreview() {
                 ),
                 sortieType = SortieType.LIFT,
                 sortieFocus = "Bench",
+                distanceUnit = com.liftoff.app.settings.DistanceUnit.MI,
             )
             SortieDetailView(state = state, onBack = {})
         }
