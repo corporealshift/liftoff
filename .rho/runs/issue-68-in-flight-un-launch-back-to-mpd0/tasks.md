@@ -49,7 +49,7 @@ class under `app/src/test`. Do not touch `verify.sh`.
   Done when: a cold `--tests "com.liftoff.app.data.MissionManagerTest"` run is green and its report lists all
   five names as passing. Commit.
 
-- [ ] 3. After un-launch: Launch and Regenerate still work on the same sortie
+- [x] 3. After un-launch: Launch and Regenerate still work on the same sortie
   Tests only, in `data/MissionManagerTest.kt`, against task 2's action — no production change expected, since
   `regenerateFlightPlan` already accepts a PLANNED current sortie of an ACTIVE Mission.
   `launchWorksAgainAfterUnlaunch`: on the same sortie id `manager.launch` succeeds again and the row is
