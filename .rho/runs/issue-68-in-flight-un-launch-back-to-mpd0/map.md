@@ -138,6 +138,96 @@ Branch HEAD at plan time: `c9f98ad` (branched from main after PR #52). Nothing n
 - ARCHITECTURE.md has no transition table; the two rows that name In-Flight's actions are line 37 (the
   `com.liftoff.app.ui` package row) and line 83 (the M4 milestone row).
 
+## verify.sh — the names this run has to produce
+
+`verify.sh` (this run's definition of done) runs the CI gate (`:app:assembleDebug :app:testDebugUnitTest`,
+the same two tasks `.github/workflows/ci.yml` runs, via `bash gradlew.sh … --no-build-cache`, up to 3
+attempts on a hang/build-only failure), then requires each name below to appear as a **passing** test case
+in this run's `app/build/test-results/testDebugUnitTest/TEST-*.xml`. Names are matched across every report,
+so which class a test sits in is the implementer's call; the class suggested here is where the plan puts it.
+
+| name | suggested class |
+| --- | --- |
+| `unlaunchReturnsAnUntouchedInFlightLiftToPlannedWithLaunchedAtNull` | `MissionManagerTest` |
+| `unlaunchIsRefusedOnceAnySetIsRecorded` | `MissionManagerTest` |
+| `unlaunchIsRefusedForANonCurrentSortieOrANonActiveMission` | `MissionManagerTest` |
+| `unlaunchIsRefusedForASortieThatIsNotInFlight` | `MissionManagerTest` |
+| `anInFlightRunOrASortieWithNoChecklistIsUnLaunchable` | `MissionManagerTest` |
+| `launchWorksAgainAfterUnlaunch` | `MissionManagerTest` |
+| `regenerateFlightPlanIsAcceptedAfterUnlaunch` | `MissionManagerTest` |
+| `unlaunchIsAvailableForAnUntouchedLiftAndForARun` | `InFlightStatesTest` |
+| `unlaunchIsUnavailableOnceAnySetOfThePlanIsRecorded` | `InFlightStatesTest` |
+| `inFlightFooterOffersBackToLaunchpadOnlyWhileNothingIsRecorded` | `InFlightScreenTest` |
+| `unlaunchOnThisScreenLeavesOnlyOnce` | `InFlightLeaveTest` |
+
+It also requires these classes to have run with everything in them passing (they pass today; they are the
+"must not disturb" net): `SortiesTest`, `MissionManagerTest`, `MissionManagerPlanTest`,
+`MissionManagerReFlyTest`, `SortieDaoTest`, `FlightPlanDaoTest`, `InFlightStatesTest`,
+`InFlightViewModelTest`, `InFlightLandScrubTest`, `InFlightScreenTest`, `InFlightLeaveTest`,
+`InFlightRunTest`, `LandScrubDialogTest`, `NoteDialogTest`, `LaunchpadStatesTest`,
+`LaunchpadPlannedActionsTest`, `LaunchpadRegenerateTest`, `LiftoffShellTest`, `ShellNavTest`.
+`LandScrubDialogTest` and `NoteDialogTest` render the whole screen at a fixed `@Config` window height, so
+they are where a taller footer would show up.
+
+**Proven to fail on untouched code** by one real detached run (`app/build/verify-final-i68.log`): gate attempts 1 and 2
+hit this repo's known 5-minute test-task hang (no `TEST-*.xml` written) and the script's retry handled both; attempt 3
+was `BUILD SUCCESSFUL in 1m29s` with 736 tests / 0 failures / 0 errors / 0 skipped in 89 reports. Then all 11 new names
+reported `did not run`, all 19 class checks passed, `Result: 20 passed, 11 failed`, `EXIT=1`. So the script fails today
+for exactly the reason the brief is not yet met, and nothing else.
+
+Deliberately **not** checked, and why, is written in verify.sh's header: DESIGN.md/ARCHITECTURE.md wording,
+the label/colour/position of the new action, the view-model refusal message and busy guard, which file each
+test sits in, and whether the transition goes through `SortieTransitions`.
+
+## Fixture facts a work step needs (read off the existing tests)
+
+- **`MissionManagerTest`**: `Clock.fixed(2026-01-12T00:00:00Z, UTC)`, `zone = { ZoneOffset.UTC }`, and
+  `insertMission(LocalDate.of(2026, 1, 12), "R", ACTIVE)` is the current week. `insertSortie(missionId,
+  index, type, focus, state)` inserts with `launchedAt = null`, so a test that needs an IN_FLIGHT row with a
+  launch time sets it after insert or calls `manager.launch`. `advanceClock(days)` rebuilds the manager on a
+  later instant — that is how `launchRecordsLaunchedAt` proves `launchedAt` is the clock's value.
+  `configureCoach(host, token)` writes the two settings. Refusals are asserted as
+  `try { manager.x(…); throw AssertionError(…) } catch (e: IllegalStateException) { }`.
+- **`regenerateFlightPlan(sortieId, onQueued: (Long) -> Unit = {}): List<Long>`** — `onQueued` gets the **new**
+  QUEUED `FLIGHT_PLAN` Generation id; the **return value is the ids it superseded**, empty when there were
+  none. `LaunchpadRegenerateTest` is the fixture to copy for the after-un-launch case: `activeWeek()` sets
+  host+token+defaultPattern, `manager.onAppOpen()`, `continueWithoutOutline`, and its `queuedRowEnqueued(...)`
+  reads the enqueued row back. A LIFT current sortie (pattern starting `L`) avoids the run toggle.
+- **`InFlightStatesTest`**: `buildFixture()` = DRAFT mission `weekStart 2026-01-05`, one IN_FLIGHT LIFT sortie
+  (index 1), `flightPlanDao.writePlan` with 3 exercises / 7 sets (35.0 LB × 10, BW × 12, 20 LB × 8 and 45 s).
+  Tests call `deriveInFlight(plan, sortie, WeightUnit.LB)` directly — `distanceUnit` has a default.
+- **`InFlightLeaveTest`** / **`InFlightLandScrubTest`**: `manager.onAppOpen()` + `continueWithoutOutline` on
+  the default RLRLR pattern → sortie 0 is a PLANNED run; `landSortie0` launches and lands it; sortie 1 is the
+  PENDING LIFT, given a plan by `flightPlanDao.writePlan(sortie.id, liftPlanDraft())` and pushed to PLANNED
+  with `markPlanned` (which leaves `launchedAt` null), then `manager.launch`. The leave counter is an
+  `AtomicInteger` polled under `withTimeout`.
+- **`InFlightScreenTest`**: `landFooterOffersLandAndScrubAndNoBack` (408) seeds a LIFT (index 1, 2 exercises /
+  5 sets) and a RUN with no plan (index 0), both IN_FLIGHT, and switches between them with
+  `var sortieId by mutableStateOf(...)` + `key(sortieId)` in one `setContent`. Its helper
+  `assertFooterOffersLandAndScrub` (483) asserts `LAND` and `SCRUB` exist **and that no node's text is
+  `BACK` case-insensitively** — so the new action's label cannot be the bare word "Back" on a loaded sortie.
+  `UnderlinedTextButton` upper-cases what it is given, so the node text is the label upper-cased
+  ("BACK TO LAUNCHPAD" is not `BACK`; `onAllNodesWithText` is exact unless `substring = true`).
+  `doneBodyweightSetStepperShowsBW` (601) is the name this repo records as randomly flaky with a closed Room
+  pool; verify.sh retries the gate when it is the only failure.
+- `manager.land(sortieId)` has defaulted `runDistance`/`runMinutes`, so a run can be landed with one argument.
+- `launch`'s third check is `requireNoneInFlight(sortieDao().getInFlight())`. It **cannot be copied into un-launch**:
+  the sortie being un-launched is itself IN_FLIGHT, so `getInFlight()` is non-empty and reusing that guard refuses the
+  only case the action exists for. un-launch's checks are Mission ACTIVE, this sortie is current, and state IN_FLIGHT.
+- A LANDED or SCRUBBED sortie is never `currentSortie` (that function skips both states), so the cases that isolate
+  the state check from the current check are a **PLANNED** and a **PENDING** current sortie of an ACTIVE Mission.
+- `FlightPlanDao.addSet(plannedExerciseId: Long): Long` (336) is the added-set write; `getPlan` (126) is the read that
+  carries every set of every exercise, skipped ones included.
+- The regenerate read-back shape (`LaunchpadRegenerateTest`): `activeWeek()` (122) sets host + token + defaultPattern
+  `"LRL"`, then `manager.onAppOpen()` and `continueWithoutOutline(missionId)`, and the current sortie is the one with
+  `index == 0`; `queuedRowEnqueued(missionId, sortieId)` (199) reads `generationDao.get(queuedIds.single())` and
+  asserts `kind == FLIGHT_PLAN`, `status == QUEUED`, and its `sortieId`.
+- `assertFooterOffersLandAndScrub` (`InFlightScreenTest.kt:483`) rejects any node whose text is `BACK` with
+  `ignoreCase = true` and `substring` left at its default `false`, so it matches the whole label only —
+  `BACK TO LAUNCHPAD` passes it.
+- `InFlightLeaveTest` drives the **view model**, not the Compose screen (`vm.land { count.incrementAndGet() }` after
+  `watching(vm, count)`), so the un-launch leave case is a view-model test on Room, not a Robolectric tap.
+
 ## Tests that already exist (where new cases go)
 
 - **`data/MissionManagerTest.kt`** — the launch/land/scrub cases live here: `launchRecordsLaunchedAt`
@@ -161,5 +251,8 @@ Branch HEAD at plan time: `c9f98ad` (branched from main after PR #52). Nothing n
 - **`ui/inflight/InFlightLeaveTest.kt`** — the once-only leave gate: `landOnThisScreenLeavesOnlyOnce`
   (280), `scrubOnThisScreenLeavesOnlyOnce` (297), `noLeaveWhileTheSortieIsStillInFlight` (318),
   `afterLeavingTheScreenWritesNothing` (344).
-- Gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`. Suite baseline on **this** branch
-  is not yet measured — measure it before writing an expected total anywhere.
+- Gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`. **Measured on this branch at the
+  verify step: 736 tests in 89 reports, 0 failures / 0 errors / 0 skipped, BUILD SUCCESSFUL in 1m29s**
+  (cold, `--no-build-cache`). Any expected total in the tasks has to be 736 plus the new tests.
+- `RunLandingTest` is `parseRunEntry` on its own — no Android, no Compose, no Room — so it does not render
+  the In-Flight footer and is not in verify.sh's must-not-disturb list.
