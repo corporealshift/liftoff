@@ -102,7 +102,7 @@ class under `app/src/test`. Do not touch `verify.sh`.
   lists still passing. This task runs the whole suite rather than one class because a taller footer can break a
   fixed-`@Config`-height assertion in `InFlightScreenTest`, `LandScrubDialogTest` or `NoteDialogTest`. Commit.
 
-- [ ] 6. DESIGN.md amendment and ARCHITECTURE.md
+- [x] 6. DESIGN.md amendment and ARCHITECTURE.md
   `DESIGN.md`: a dated amendment as the **first** entry under "Amendments after approval" (newest first; the
   newest today is 2026-10-20) saying what changed, when and why — un-launch back to PLANNED while nothing on the
   sortie is recorded, `launchedAt` cleared, plan and notes untouched, no confirmation dialog, and the PLANNED
