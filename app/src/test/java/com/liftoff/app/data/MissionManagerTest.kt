@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -1076,5 +1077,88 @@ class MissionManagerTest {
         assertNull(sortieDao.get(emptyId)!!.launchedAt)
 
         assertEquals(0L, db.generationDao().countAll())
+    }
+
+    /** The week a regenerate is asked on, built the way the Launchpad builds it: settings first, because
+     * onAppOpen reads defaultPattern for the new Mission, then the week activated with no outline. The pattern
+     * starts with L so the current sortie is a LIFT, which the run toggle never refuses. */
+    private suspend fun activeWeekForUnLaunch(): Pair<Long, Sortie> {
+        configureCoach()
+        settingsStore.setDefaultPattern("LRL")
+        val mission = manager.onAppOpen()
+        manager.continueWithoutOutline(mission.id)
+        return mission.id to sortieAt(mission.id, 0)
+    }
+
+    /** The coach's plan that moves the PENDING sortie to PLANNED, which is what makes it launchable. */
+    private suspend fun planTheSortie(sortieId: Long) {
+        assertEquals(
+            StoreOutcome.Stored,
+            manager.storePlan(
+                sortieId,
+                CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT)
+            )
+        )
+        assertEquals(SortieState.PLANNED, sortieDao.get(sortieId)!!.state)
+    }
+
+    // Launch on the sortie an un-launch put back: the same row, taken in flight a second time.
+    @Test
+    fun launchWorksAgainAfterUnlaunch() = runBlocking {
+        val (mId, sortie) = activeWeekForUnLaunch()
+        assertEquals(SortieType.LIFT, sortie.type)
+        planTheSortie(sortie.id)
+
+        manager.launch(sortie.id)
+        val first = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.IN_FLIGHT, first.state)
+        assertNotNull(first.launchedAt)
+
+        manager.unlaunch(sortie.id)
+        assertEquals(SortieState.PLANNED, sortieDao.get(sortie.id)!!.state)
+        assertNull(sortieDao.get(sortie.id)!!.launchedAt)
+
+        manager.launch(sortie.id)
+
+        val again = sortieDao.get(sortie.id)!!
+        assertEquals("the same sortie row, not a replacement", sortie.id, again.id)
+        assertEquals(SortieState.IN_FLIGHT, again.state)
+        assertNotNull("a re-launch writes a launch time", again.launchedAt)
+        assertEquals(sortie.id, currentSortie(sortieDao.getForMission(mId))!!.id)
+    }
+
+    // Regenerate on that same sortie: accepted, one QUEUED FLIGHT_PLAN row for it, and the sortie still PLANNED
+    // with the plan it already holds. Activating this week queued a FLIGHT_PLAN row that nothing closed, so the
+    // ids the ask hands back to supersede are exactly that row's.
+    @Test
+    fun regenerateFlightPlanIsAcceptedAfterUnlaunch() = runBlocking {
+        val (mId, sortie) = activeWeekForUnLaunch()
+        assertEquals(SortieType.LIFT, sortie.type)
+        planTheSortie(sortie.id)
+        manager.launch(sortie.id)
+        manager.unlaunch(sortie.id)
+
+        val openBefore = db.generationDao().getOpenFlightPlanForSortie(sortie.id).map { it.id }
+        assertEquals(1, openBefore.size)
+        val planBefore = flightPlanDao.getPlan(sortie.id)!!
+
+        val queued = mutableListOf<Long>()
+        val superseded = manager.regenerateFlightPlan(sortie.id) { queued.add(it) }
+
+        assertEquals(openBefore, superseded)
+        assertEquals(1, queued.size)
+        val id = queued.single()
+        val row = db.generationDao().get(id)
+            ?: throw AssertionError("queued id $id has no generation row")
+        assertEquals(GenerationKind.FLIGHT_PLAN, row.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(mId, row.missionId)
+        assertEquals(sortie.id, row.sortieId)
+        assertFalse("the row this ask queued is not one it superseded", id in superseded)
+
+        val after = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.PLANNED, after.state)
+        assertNull(after.launchedAt)
+        assertEquals(planBefore, flightPlanDao.getPlan(sortie.id)!!)
     }
 }
