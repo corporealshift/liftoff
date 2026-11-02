@@ -11,7 +11,7 @@ must-not-disturb net. Baseline from this run's own gate run on this branch's cod
 0 skipped**, cold with `--no-build-cache`. Scratch files live under `app/build/`; never put a scratch test
 class under `app/src/test`. Do not touch `verify.sh`.
 
-- [ ] 1. The `IN_FLIGHT → PLANNED` transition in the domain
+- [x] 1. The `IN_FLIGHT → PLANNED` transition in the domain
   `domain/Sorties.kt`: add `IN_FLIGHT to PLANNED` to `SortieTransitions.legalTransitions`, and an un-launch
   free function beside `launch` / `markPlanned` returning `copy(state = PLANNED, launchedAt = null)` —
   `markPlanned` leaves `launchedAt` alone, so reusing it is what this task must not do. `domain/SortiesTest.kt`:
