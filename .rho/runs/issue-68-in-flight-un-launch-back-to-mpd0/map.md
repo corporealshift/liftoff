@@ -101,7 +101,11 @@ Branch HEAD at plan time: `c9f98ad` (branched from main after PR #52). Nothing n
   `ReadyContent` (327). All three content composables end with the **shared**
   `internal fun Footer(message, onLand, onScrub)` (986-1014): Divider, Cream block, optional red
   message line, `InkButton("Land", 64.dp)`, `Spacer(8.dp)`, `UnderlinedTextButton("Scrub")`.
-  `BackFooter` (1018) is Loading's. `RunContent.kt:87` calls the same `Footer`.
+  `BackFooter` (1018) is Loading's and draws `UnderlinedTextButton(text = "Back")` (1028). The three
+  `Footer(...)` call sites a new argument has to reach: `InFlightScreen.kt:320` (`NoChecklistContent`, defined
+  285), `InFlightScreen.kt:383` (`ReadyContent`, defined 327) and `RunContent.kt:87`; the `when (state)` arms
+  that build the closures are 80 Loading, 81 NoChecklist, 99 Run, 118 Ready. `RunContent.kt:32` is its own
+  `fun RunContent(...)`.
 - **`ui/theme/Buttons.kt:155` `UnderlinedTextButton(text, onClick, modifier)`** — `fillMaxWidth`,
   `heightIn(min = 44.dp)`, `Role.Button`, and it **uppercases the label** (tests match "SCRUB",
   "LAND", "SORTIE NOTE"). It has **no `enabled` parameter**, which is why an unavailable action is
@@ -129,6 +133,10 @@ Branch HEAD at plan time: `c9f98ad` (branched from main after PR #52). Nothing n
   rule has to decide all three.
 - `Ready.cards` is `List<ExerciseCard>`, and a skipped exercise is `CardStatus.SKIPPED` — so a predicate
   over the cards must not stop at the active card, or a skipped exercise looks like nothing was recorded.
+- `Ready.progress` is `allProgress`, built by `allProgress.addAll(setRows.map { it.status })` over **every**
+  exercise in `plan.exercises` (InFlightState.kt:222, 275) — skipped exercises included — so
+  `progress.all { it == SetStatus.OPEN }` already covers the plan's named risk. `cards` is the only variant
+  that also carries the actuals.
 - **No existing query counts recorded sets** — nothing in `data/` matches `actualReps IS NOT NULL` or
   `status != 'OPEN'`. The read is `getPlan`, which already carries every set.
 - `uncheckSet` (288) and `reopenSet` (308) restore actuals to null and status to OPEN, so a
@@ -139,6 +147,9 @@ Branch HEAD at plan time: `c9f98ad` (branched from main after PR #52). Nothing n
   `com.liftoff.app.ui` package row) and line 83 (the M4 milestone row).
 
 ## verify.sh — the names this run has to produce
+
+`verify.sh` was **rewritten after the verify step** by `df4c96c` "run: verify.sh rewritten by claude
+review", which dropped the Compose footer test name. The table below is the current script: **10 names**.
 
 `verify.sh` (this run's definition of done) runs the CI gate (`:app:assembleDebug :app:testDebugUnitTest`,
 the same two tasks `.github/workflows/ci.yml` runs, via `bash gradlew.sh … --no-build-cache`, up to 3
@@ -157,7 +168,6 @@ so which class a test sits in is the implementer's call; the class suggested her
 | `regenerateFlightPlanIsAcceptedAfterUnlaunch` | `MissionManagerTest` |
 | `unlaunchIsAvailableForAnUntouchedLiftAndForARun` | `InFlightStatesTest` |
 | `unlaunchIsUnavailableOnceAnySetOfThePlanIsRecorded` | `InFlightStatesTest` |
-| `inFlightFooterOffersBackToLaunchpadOnlyWhileNothingIsRecorded` | `InFlightScreenTest` |
 | `unlaunchOnThisScreenLeavesOnlyOnce` | `InFlightLeaveTest` |
 
 It also requires these classes to have run with everything in them passing (they pass today; they are the
@@ -169,15 +179,18 @@ It also requires these classes to have run with everything in them passing (they
 `LandScrubDialogTest` and `NoteDialogTest` render the whole screen at a fixed `@Config` window height, so
 they are where a taller footer would show up.
 
-**Proven to fail on untouched code** by one real detached run (`app/build/verify-final-i68.log`): gate attempts 1 and 2
+**Proven to fail on untouched code** by one real detached run (`app/build/verify-final-i68.log`, against the
+pre-rewrite script with 11 names): gate attempts 1 and 2
 hit this repo's known 5-minute test-task hang (no `TEST-*.xml` written) and the script's retry handled both; attempt 3
-was `BUILD SUCCESSFUL in 1m29s` with 736 tests / 0 failures / 0 errors / 0 skipped in 89 reports. Then all 11 new names
+was `BUILD SUCCESSFUL in 1m29s` with 736 tests / 0 failures / 0 errors / 0 skipped in 89 reports. Then all the new names
 reported `did not run`, all 19 class checks passed, `Result: 20 passed, 11 failed`, `EXIT=1`. So the script fails today
-for exactly the reason the brief is not yet met, and nothing else.
+for exactly the reason the brief is not yet met, and nothing else. The rewrite keeps the same gate machinery and the
+same 19 class checks, so the counts a work step sees are unchanged apart from one fewer named test.
 
 Deliberately **not** checked, and why, is written in verify.sh's header: DESIGN.md/ARCHITECTURE.md wording,
-the label/colour/position of the new action, the view-model refusal message and busy guard, which file each
-test sits in, and whether the transition goes through `SortieTransitions`.
+the label/colour/position of the new action, **a Compose test of the footer** (the availability is tested at the
+state level; the footer itself is read off the diff by Kyle in the pull request), the view-model refusal message
+and busy guard, which file each test sits in, and whether the transition goes through `SortieTransitions`.
 
 ## Fixture facts a work step needs (read off the existing tests)
 
@@ -254,5 +267,8 @@ test sits in, and whether the transition goes through `SortieTransitions`.
 - Gate: `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest`. **Measured on this branch at the
   verify step: 736 tests in 89 reports, 0 failures / 0 errors / 0 skipped, BUILD SUCCESSFUL in 1m29s**
   (cold, `--no-build-cache`). Any expected total in the tasks has to be 736 plus the new tests.
+  Re-counted at the tasks step from the reports that run left in `app/build/test-results/testDebugUnitTest`
+  (89 `TEST-*.xml`, `tests=736 failures=0 errors=0 skipped=0`); the only commits since are `.rho` files and
+  `verify.sh`, so that is still HEAD's baseline.
 - `RunLandingTest` is `parseRunEntry` on its own — no Android, no Compose, no Room — so it does not render
   the In-Flight footer and is not in verify.sh's must-not-disturb list.
