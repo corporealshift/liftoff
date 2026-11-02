@@ -157,6 +157,10 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
 ### 5.1 Sortie states
 
 ```
+                                  ┌────────────────────┐
+                                  │ un-launch          │
+                                  │ (nothing recorded) │
+                                  ▼                    │
 PENDING ──generation stored──► PLANNED ──launch──► IN_FLIGHT ──land──► LANDED
    │                              │                    │
    └──────────────scrub───────────┴────────scrub───────┴──► SCRUBBED
@@ -168,6 +172,8 @@ PENDING ──generation stored──► PLANNED ──launch──► IN_FLIGHT
   regenerate it from here, which replaces the plan.
 - **IN_FLIGHT:** at most one sortie, across all Missions, is in flight at a time.
   Scrubbing a sortie that is in flight keeps the sets already checked as a partial record.
+  Un-launching it returns it to PLANNED with `launchedAt` cleared and its Flight Plan
+  untouched, and is offered only while nothing on the sortie is recorded (amended 2026-11-02).
 - **LANDED:** stores the landed time and the actual sets. It cannot be edited after
   landing, apart from its notes.
 
@@ -214,6 +220,12 @@ actual ones, and the plan is marked `source = REFLY`. Re-fly works fully offline
   twinge".
 - **Land:** finishes the sortie. Sets left unchecked are recorded as not done. If there are
   any, the app asks for confirmation before landing.
+- **Back to Launchpad:** returns the sortie to PLANNED, so the Launchpad's existing Regenerate
+  can write a different plan for the same sortie. Offered only while nothing on the sortie is
+  recorded — no set checked off, edited or skipped, and no actual reps, seconds or weight —
+  and always on a run or a sortie with no checklist, whose distance and minutes are only
+  entered at Land. It clears `launchedAt` and leaves the Flight Plan and the notes as they
+  were. No confirmation, because nothing is lost (amended 2026-11-02).
 - **Every action is written to Room immediately.** If the process is killed, the In-Flight
   screen comes back exactly as it was left.
 - **No network is needed anywhere in this flow.**
@@ -566,7 +578,9 @@ The visual design is direction B, "Space Age": colors, type, components and mock
     plus "View in nabu", which shows the nabu session id so it can be opened in nabu's app.
   - **IN_FLIGHT:** a Resume button.
   - **No Mission this week:** the draft, with editable pattern chips and **Confirm**.
-- **In-Flight.** The checklist described in §6.
+- **In-Flight.** The checklist described in §6, with **Land**, **Back to Launchpad** and
+  **Scrub** in its footer, in that order; Back to Launchpad is drawn only while nothing on the
+  sortie is recorded, absent rather than dimmed (amended 2026-11-02).
 - **Mission.** This week's pattern, the outline and its notes, and each sortie with its
   state. Tapping a sortie shows its plan, or for a landed sortie its record.
 - **Landed.** History, newest first, grouped by week, with a detail view per sortie.
@@ -785,6 +799,18 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
+- **2026-11-02 — un-launch: an in-flight sortie can go back to PLANNED (§5.1, §6, §9).**
+  In-Flight offered only Land and Scrub, so after Launch the only way to a different plan for
+  that sortie was Scrub, which ended it. In-Flight now also offers **Back to Launchpad**: it
+  returns the current sortie of an ACTIVE Mission from IN_FLIGHT to PLANNED and clears
+  `launchedAt`, so the Launchpad's existing Launch, Regenerate and Scrub apply to the same
+  sortie and no new generation path is needed. It is offered only while nothing on the sortie
+  is recorded — no set checked off, edited or skipped, and no actual reps, seconds or weight
+  on any set of the plan — and always for a run or a sortie with no checklist, whose distance
+  and minutes are only entered at Land. The Flight Plan, its exercises, its sets and every note
+  are left exactly as they were, nothing is queued with the coach, and the sortie stays the
+  current one. No confirmation dialog, because nothing is lost; once anything is recorded the
+  action is absent rather than dimmed, matching the Launchpad's rule for unavailable actions.
 - **2026-10-20 — the harness was renamed: `nabu` is now `rho`.** The daemon, its sessions and
   its protocol methods are the same things under the new name, so every `nabu` in §1–§16 reads as
   `rho`. Its methods carry the `rho.` prefix (`rho.hello`, `rho.session.create`,
