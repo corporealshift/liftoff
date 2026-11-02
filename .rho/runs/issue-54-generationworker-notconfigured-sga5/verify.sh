@@ -172,12 +172,15 @@ run_gate() {
 # - a build killed by a daemon or memory error;
 # - a hung suite that wrote no report, which the build kills at five minutes.
 # A compile error, or a real failed assertion in any other test, is not retried.
+# Both log predicates read only the attempt being judged, so an earlier attempt's daemon error cannot colour a
+# later attempt's real failure.
 transient_failure() {
-    if grep -qiE 'daemon disappeared|may have been killed|out of memory|GC overhead|LowMemory|Could not connect to the daemon|Build terminated|could not clear|exceeded.*timeout' "$WORK"/gate-*.log 2>/dev/null; then
+    local log="$WORK/gate-$1.log"
+    if grep -qiE 'daemon disappeared|may have been killed|out of memory|GC overhead|LowMemory|Could not connect to the daemon|Build terminated|could not clear|exceeded.*timeout' "$log" 2>/dev/null; then
         return 0
     fi
     if ! ls "$RESULTS"/TEST-*.xml >/dev/null 2>&1; then
-        if grep -qiE 'compileDebugKotlin FAILED|compileDebugUnitTestKotlin FAILED|compilation error|^e: |unresolved reference' "$WORK"/gate-*.log 2>/dev/null; then
+        if grep -qiE 'compileDebugKotlin FAILED|compileDebugUnitTestKotlin FAILED|compilation error|^e: |unresolved reference' "$log" 2>/dev/null; then
             return 1
         fi
         return 0
@@ -190,14 +193,16 @@ transient_failure() {
 }
 
 gate_ok=0
+last_attempt=0
 for attempt in 1 2 3; do
+    last_attempt="$attempt"
     if run_gate "$attempt"; then
         gate_ok=1
         echo "  … gate attempt $attempt passed"
         break
     fi
     index_reports
-    if transient_failure; then
+    if transient_failure "$attempt"; then
         echo "  … attempt $attempt failed on a known flake or on the build itself; stopping daemons and running the gate again"
         bash gradlew.sh --stop >/dev/null 2>&1 || true
     else
@@ -211,7 +216,7 @@ if [ "$gate_ok" -eq 1 ]; then
 else
     bad "the CI gate: the app does not assemble, the unit tests do not pass, or the suite did not finish within 30 minutes"
 fi
-if grep -Eq ':app:testDebugUnitTest (FROM-CACHE|UP-TO-DATE)' "$WORK"/gate-*.log 2>/dev/null; then
+if grep -Eq ':app:testDebugUnitTest (FROM-CACHE|UP-TO-DATE)' "$WORK/gate-$last_attempt.log" 2>/dev/null; then
     bad "unit tests executed in the gate run (the task came from the build cache or was up to date)"
 fi
 if ! ls "$RESULTS"/TEST-*.xml >/dev/null 2>&1; then
