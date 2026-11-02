@@ -63,7 +63,7 @@ class under `app/src/test`. Do not touch `verify.sh`.
   Done when: a cold MissionManagerTest run is green with both names in its report, and `git show --stat` lists
   only `MissionManagerTest.kt` (or that file plus `MissionManager.kt` if a gap was found). Commit.
 
-- [ ] 4. The derived "can un-launch" flag
+- [x] 4. The derived "can un-launch" flag
   `ui/inflight/InFlightState.kt`: the availability rule beside the free `needsLandConfirmation` (57), deciding
   all three loaded arms — `Ready`, `Run`, and `NoChecklist` (available: no sets, so nothing is recorded).
   Loading is the only arm without it. For `Ready` the rule must see every set of the plan: `Ready.progress` is
