@@ -16,12 +16,16 @@ sealed interface MissionTabState {
 
     /** Week is known — mission with its sorties and outline notes. */
     data class Week(
+        val missionId: Long,
         val weekStart: java.time.LocalDate,
         val status: MissionStatus,
         val chips: List<com.liftoff.app.ui.theme.PatternChip>,
         val outlineNotes: String?,
         val rows: List<SortieRow>,
-    ) : MissionTabState
+    ) : MissionTabState {
+        /** MissionManager.resetWeek's own status rule; a draft has nothing to start over. */
+        val canReset: Boolean = status != MissionStatus.DRAFT
+    }
 }
 
 /** One row in the sortie list. */
@@ -206,6 +210,7 @@ class MissionStates(
 
         return when (mission.status) {
             MissionStatus.DRAFT -> MissionTabState.Week(
+                missionId = mission.id,
                 weekStart = mission.weekStart,
                 status = mission.status,
                 chips = deriveChips(mission.pattern, emptyList()),
@@ -218,6 +223,7 @@ class MissionStates(
                     SortieRow(sortie.id, sortie.index, sortie.type, sortie.focus, sortie.state)
                 }
                 MissionTabState.Week(
+                    missionId = mission.id,
                     weekStart = mission.weekStart,
                     status = mission.status,
                     chips = deriveChips(mission.pattern, sorties),
@@ -231,6 +237,7 @@ class MissionStates(
                     SortieRow(sortie.id, sortie.index, sortie.type, sortie.focus, sortie.state)
                 }
                 MissionTabState.Week(
+                    missionId = mission.id,
                     weekStart = mission.weekStart,
                     status = mission.status,
                     chips = deriveChips(mission.pattern, sorties),
