@@ -78,7 +78,7 @@ class under `app/src/test`. Do not touch `verify.sh`.
   Done when: a cold `--tests "com.liftoff.app.ui.inflight.InFlightStatesTest"` run is green with both names in
   its report. Commit.
 
-- [ ] 5. The action on the In-Flight screen, and the leave to the Launchpad
+- [x] 5. The action on the In-Flight screen, and the leave to the Launchpad
   `ui/inflight/InFlightViewModel.kt`: an un-launch action in the `land` (91) / `scrub` (152) shape — `if
   (left.get()) return; if (busy) return; busy = true; message.value = null;` → `scope.launch { try {
   missionManager.unlaunch(sortieId); leaveOnce(onDone) }` with the `CancellationException` rethrow, a
