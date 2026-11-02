@@ -21,7 +21,7 @@ class under `app/src/test`. Do not touch `verify.sh`.
   is BUILD SUCCESSFUL and that class's `TEST-*.xml` shows the new pair passing with no existing case removed,
   renamed or skipped. Commit.
 
-- [ ] 2. `MissionManager.unlaunch` and its guards
+- [x] 2. `MissionManager.unlaunch` and its guards
   `data/MissionManager.kt`: `suspend fun unlaunch(sortieId: Long)` sitting between `launch` and `land`, in one
   `db.withTransaction`: Mission ACTIVE → this sortie is the current one → its state is IN_FLIGHT → nothing
   recorded on **any** set of `db.flightPlanDao().getPlan(sortieId)` (a set counts as recorded when
