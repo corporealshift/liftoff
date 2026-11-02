@@ -34,6 +34,7 @@ fun RunContent(
     onOpenSortieNote: () -> Unit,
     message: String?,
     onLand: () -> Unit,
+    onUnlaunch: (() -> Unit)?,
     onScrub: () -> Unit,
 ) {
     // Rows are numbered in sequence, and a row only exists when it has a value.
@@ -84,6 +85,6 @@ fun RunContent(
             }
         }
 
-        Footer(message = message, onLand = onLand, onScrub = onScrub)
+        Footer(message = message, onLand = onLand, onUnlaunch = onUnlaunch, onScrub = onScrub)
     }
 }
