@@ -441,6 +441,62 @@ class CoachTurnRunnerTest {
     }
 
     /**
+     * "… and one ending error, report that end" — and report what the daemon said it ended for. The reason is
+     * read back out of the fake's own log, so what comes back is the daemon's words rather than a sentence this
+     * class invented: an error is the one end nobody can resume from, so the reason is all the caller has to
+     * record. The turn is scripted with a reply before the state_change, so the end is found after a message
+     * rather than instead of one.
+     */
+    @Test
+    fun aTurnThatEndsInErrorReportsErrorWithTheReasonTheDaemonNamed(): Unit = runBlocking {
+        val reason = "the coach's turn fell over"
+        val reply = "the reply the daemon gave before it failed"
+        daemon.script(
+            DaemonScript.Assistant(reply),
+            DaemonScript.State("error", reason),
+        )
+
+        val client = connectedClient()
+        val cursors = mutableListOf<String>()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = null,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "what should I do next",
+                    clientId = "turn-12",
+                    cursor = null,
+                    limit = turnLimit,
+                    onCursor = { cursors.add(it) },
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        val end = daemon.log.last()
+        assertEquals(EventType.STATE_CHANGE, end["type"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("error", end["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull)
+        val loggedReason = end["data"]?.jsonObject?.get("reason")?.jsonPrimitive?.contentOrNull
+        assertEquals("the fake logged the reason this test set", reason, loggedReason)
+
+        assertEquals(
+            "the daemon's error is its own end reason, not idle and not a timeout: $end",
+            TurnEnd.Error,
+            outcome.end,
+        )
+        assertEquals(
+            "the reason that comes back is the one the daemon logged with its error, word for word",
+            loggedReason,
+            outcome.endReason,
+        )
+        assertEquals("the reply read before the end is still reported", reply, outcome.lastAssistantText)
+        assertEquals("the cursor this turn left is the error state_change", eventId(end), outcome.cursor)
+        assertEquals("the cursor callback saw that same end", eventId(end), cursors.last())
+    }
+
+    /**
      * The turn ends at the *first* state_change after the prompt that ends it, even when one events_after
      * page holds two of them. Both ends are seeded with [FakeDaemon.logEvent] so they reach the runner
      * through the catch-up read and neither as a push: the pushed path already stopped at the first, so the
@@ -536,6 +592,92 @@ class CoachTurnRunnerTest {
             reply,
             outcome.lastAssistantText,
         )
+    }
+
+    /**
+     * The stuck-row case. An earlier attempt read this turn's prompt, its reply and its `error` state_change,
+     * and stored the cursor at that error; the row was left running, so the next attempt re-sends the prompt
+     * under the same client_id — which the daemon dedupes to the one event it already logged — and hands back
+     * the cursor it already stored. The error sits at that cursor, so the only way this turn can meet it is the
+     * runner's re-read from the prompt's own id. An error is never handed back to the daemon any more, so no
+     * earlier attempt can have acted on one, and re-reading it has to report it rather than skip it as dealt
+     * with. The limit is [shortLimit]: a turn that goes back to waiting for an end that never arrives fails this
+     * test in half a second instead of hanging.
+     */
+    @Test
+    fun aCursorHandedInPastAnErrorReportsThatErrorInsteadOfTimingOut(): Unit = runBlocking {
+        val clientId = "turn-13"
+        val reason = "the coach's turn fell over mid-plan"
+        val client = connectedClient()
+        withTimeout(answerWindow) {
+            client.callOrThrow("rho.session.send_prompt", buildJsonObject {
+                put("session_id", daemon.sessionId)
+                put("content", "carry on")
+                put("client_id", clientId)
+            })
+        }
+        val promptId = promptEventId(clientId)
+
+        val reply = "the reply the daemon gave before it failed"
+        daemon.logEvent(EventType.MESSAGE, buildJsonObject {
+            put("role", "assistant")
+            put("content", reply)
+        })
+        val errorId = daemon.logEvent(EventType.STATE_CHANGE, buildJsonObject {
+            put("to", "error")
+            put("reason", reason)
+        })
+
+        val cursors = mutableListOf<String>()
+        val outcome = try {
+            withTimeout(answerWindow) {
+                runCoachTurn(
+                    client = client,
+                    sessionId = daemon.sessionId,
+                    options = CoachSessionOptions(workspace = "/repo/coach"),
+                    prompt = "carry on",
+                    clientId = clientId,
+                    cursor = errorId,
+                    limit = shortLimit,
+                    onCursor = { cursors.add(it) },
+                )
+            }
+        } finally {
+            client.close()
+        }
+
+        assertTrue("the error sits after the prompt this turn re-sent: $promptId then $errorId", errorId > promptId)
+        assertEquals(
+            "the prompt was logged once, so the re-send answered with the original event_id",
+            1,
+            daemon.log.count {
+                it["type"]?.jsonPrimitive?.contentOrNull == EventType.MESSAGE &&
+                    it["data"]?.jsonObject?.get("client_id")?.jsonPrimitive?.contentOrNull == clientId
+            },
+        )
+        assertEquals(
+            "the runner re-sent the prompt under the same client_id",
+            2,
+            daemon.framesFor("rho.session.send_prompt").size,
+        )
+        val reads = daemon.framesFor("rho.session.events_after").map { frame ->
+            RhoJson.decodeFromString(Rpc.serializer(), frame).params?.jsonObject?.get("last_event_id")?.jsonPrimitive?.contentOrNull
+        }
+        assertEquals(
+            "the catch-up read asked for what came after the stored cursor, and the re-read then asked from this turn's own prompt: $reads",
+            listOf<String?>(errorId, promptId),
+            reads,
+        )
+
+        assertEquals(
+            "an error at the stored cursor is this turn's end, not a limit that ran out looking for one",
+            TurnEnd.Error,
+            outcome.end,
+        )
+        assertEquals("the reason reported is the one the daemon logged with that error", reason, outcome.endReason)
+        assertEquals("the reply read before the error is still reported", reply, outcome.lastAssistantText)
+        assertEquals("the cursor comes back where the earlier attempt left it", errorId, outcome.cursor)
+        assertTrue("nothing moved the cursor past the stored one: $cursors", cursors.isEmpty())
     }
 
     /**

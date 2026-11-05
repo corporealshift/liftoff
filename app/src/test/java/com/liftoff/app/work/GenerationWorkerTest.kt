@@ -1035,6 +1035,63 @@ class GenerationWorkerTest {
     }
 
     /**
+     * cancelled part-way through a turn that then ends error: the blocked case above, on the end this run added.
+     * The row is made CANCELLED by the script's own [DaemonScript.Act] step while the turn is still open, so the
+     * worker's FAILED write is refused and the generation ends as done: the row keeps CANCELLED and the error it
+     * held when it was cancelled, not the reason the daemon gave for its errored turn. The error end decides
+     * before the repair path, so this generation asked the coach once and spent no repairs on a session rho had
+     * already errored. Nothing is stored, and the session is given up once. The cancel goes through the DAO and
+     * not through `container.generationCanceller()`, which sends a `rho.session.stop` of its own and would prove
+     * nothing about the worker.
+     */
+    @Test
+    fun aGenerationCancelledMidTurnThatEndsInErrorStaysCancelledAndKeepsItsError() {
+        val carriedError = "the reason this row carried when it was cancelled"
+        val daemonReason = "the coach's turn fell over"
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        daemon.script(
+            DaemonScript.Assistant("Starting with Monday's lift, then—"),
+            DaemonScript.Act {
+                runBlocking {
+                    val generations = container.database.generationDao()
+                    // The worker blanks whatever a row carried once it reaches a coach, so this is the one
+                    // moment a mid-turn cancel can be caught holding an error.
+                    generations.update(requireNotNull(generations.get(generationId)).copy(error = carriedError))
+                    generations.markCancelled(generationId, System.currentTimeMillis())
+                }
+            },
+            // Not the reason the row already carries: a cancelled row must not be written over with this one.
+            DaemonScript.State("error", daemonReason),
+        )
+
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Success)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.CANCELLED, row.status)
+        assertEquals("the cancelled row was written over with the errored turn's reason", carriedError, row.error)
+        assertNotNull("a generation cancelled mid-turn lost its finishedAt stamp", row.finishedAt)
+
+        val storedMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+        assertEquals("the cancelled generation stored its outline anyway", MissionStatus.DRAFT, storedMission.status)
+        assertEquals(
+            "the cancelled generation wrote sorties anyway",
+            emptyList<Any>(),
+            runBlocking { container.database.sortieDao().getForMission(mission.id) },
+        )
+
+        // The errored turn is over the moment it ends: no second prompt, no repair attempts spent on a row that
+        // had already decided its outcome.
+        assertEquals("the cancelled generation was asked the coach again: ", 1, promptsSent().size)
+        assertEquals("the cancelled generation spent repairs on its errored turn", 0, row.attempt)
+
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
+    /**
      * a permanent refusal at a call ends the generation for good: `Result.failure()` and the row FAILED with
      * the daemon's own words. `rho.session.send_prompt` is refused through [FakeDaemon.refuseMethod] with a code
      * in `RpcCodes.PERMANENT` and a message of the fake's own, on an OUTLINE row over a mission seeded with
@@ -1297,36 +1354,36 @@ class GenerationWorkerTest {
     }
 
     /**
-     * a turn that ends in error is retried the same way: `Result.retry()`, the row still RUNNING with its session
-     * id and cursor kept, `error` still null, its attempt unchanged, and no `rho.session.stop` frame. Scripted as
-     * an assistant line then [DaemonScript.State] "error". The daemon's own failure is not the generation's: the
-     * row is not FAILED and carries no error text, and the two fields a resume reads are left where the turn left
-     * them, so the next run picks the same turn back up.
+     * a turn that ends in error ends the generation for good: `Result.failure()`, the row FAILED carrying the
+     * daemon's own reason word for word, `finishedAt` stamped, and its session id kept. Scripted as an assistant
+     * line then [DaemonScript.State] "error" with a reason this test sets. rho treats `error` as terminal, so the
+     * resume the old rule sent was refused every time and the row retried forever: the session is given up once
+     * and no `rho.session.resume` frame goes out at all. Nothing is stored — the mission is still DRAFT with no
+     * sorties.
      */
     @Test
-    fun aTurnThatEndsInErrorRetriesAndLeavesTheRowRunningWithItsSessionAndCursor() {
+    fun aTurnThatEndsInErrorFailsTheGenerationWithTheDaemonsReason() {
+        val daemonReason = "the coach's turn fell over"
         daemon.script(
             DaemonScript.Assistant("Starting with Monday's lift, then—"),
-            DaemonScript.State("error", "the coach's turn fell over"),
+            DaemonScript.State("error", daemonReason),
         )
 
         val mission = runBlocking { container.missionManager.onAppOpen() }
         val generationId = insertOutlineGeneration(mission.id)
 
         val result = runWorker(generationId)
-        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Retry)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
 
         frameFor("rho.session.create")
         assertEquals("$generationId-0", frameFor("rho.session.send_prompt")["client_id"]?.jsonPrimitive?.contentOrNull)
 
-        val errored = daemon.log.single { it["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull == "error" }
         val row = runBlocking { container.database.generationDao().get(generationId) }!!
-        assertEquals(GenerationStatus.RUNNING, row.status)
-        assertEquals("the row lost the session its errored turn stopped in", daemon.sessionId, row.nabuSessionId)
-        assertEquals("the row's cursor is not where the errored turn stopped", eventId(errored), row.lastEventId)
-        assertNull("the retry wrote the daemon's error onto a row that is still running", row.error)
-        assertEquals("the retry bumped the attempt of a generation that ran one turn", 0, row.attempt)
-        assertNull("the retry stamped a row that has not finished", row.finishedAt)
+        assertEquals(GenerationStatus.FAILED, row.status)
+        // The daemon's own words, not a sentence Liftoff wrote in their place.
+        assertEquals("the row was not given the reason the daemon ended its turn for", daemonReason, row.error)
+        assertNotNull(row.finishedAt)
+        assertEquals("the row lost the session its errored turn ran on", daemon.sessionId, row.nabuSessionId)
 
         assertEquals(
             "an errored turn stored an outline",
@@ -1335,7 +1392,11 @@ class GenerationWorkerTest {
         )
         assertEquals("an errored turn stored sorties: ", emptyList<Any>(), runBlocking { container.database.sortieDao().getForMission(mission.id) })
 
-        assertSessionLeftOpen()
+        assertSessionGivenUpOnce(daemon.sessionId)
+        assertTrue(
+            "an errored turn asked the daemon to carry on: ${daemon.framesFor("rho.session.resume")}",
+            daemon.framesFor("rho.session.resume").isEmpty(),
+        )
     }
 
     /**

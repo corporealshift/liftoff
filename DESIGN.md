@@ -333,8 +333,12 @@ dies.
      daemon sends a `nabu.rpc.ui.ask` or `nabu.rpc.permission.request` to Liftoff while it
      is subscribed, Liftoff answers with `"Decide yourself; there is nobody to ask."` or
      `deny` respectively, and keeps waiting.
-   - **`paused` or `error`:** a retryable failure, so return `Result.retry()`. Before the
-     retry, if the session is `paused`, call `nabu.session.resume`.
+   - **`paused`:** a retryable failure, so return `Result.retry()`. Before the retry, call
+     `nabu.session.resume`. (amended 2026-10-31)
+   - **`error`:** the daemon ended the session for good, so it is not a retryable failure.
+     Mark the generation `FAILED`, reason the `state_change`'s own `reason`, or
+     "coach turn failed" when it named none, and give the session up with
+     `nabu.session.stop`. (amended 2026-10-31)
 6. **Clean up.** On `SUCCEEDED` or permanent `FAILED`, call `nabu.session.stop`. Even if
    that call fails, nabu archives sessions untouched for 3 days on its own.
 
@@ -798,6 +802,16 @@ inline in the section they affect: what changed, when, and why.
   landed sorties, by the owner's choice: sorties live inside their week's Mission and there
   is one Mission per week, so keeping them would mean a second home for history. The
   deleted sorties leave the Landed history and the coach's prompts with it.
+- **2026-10-31 — §7.3 step 5: a turn that ends `error` is no longer retried.** rho treats
+  `error` as terminal: `rho.session.resume` takes only a paused session, so the resume
+  step 5 asked for was refused, the worker swallowed the refusal, and `Result.retry()` put
+  the same generation back in the queue. The next attempt sent its prompt under the same
+  `client_id`, which the daemon dedupes, and its stored cursor already sat past the `error`
+  event, so the turn waited for an ending that never came: the row stayed RUNNING and the
+  Launchpad said "Coach is planning…" forever. Step 5 now splits the two ends. `paused`
+  still retries, resuming the session first; `error` ends the generation FAILED with the
+  `state_change`'s own reason, and the session is stopped. Liftoff's own 20-minute turn
+  limit stays on the retry path: it is Liftoff's clock, not a verdict from the daemon.
 - **2026-10-20 — the harness was renamed: `nabu` is now `rho`.** The daemon, its sessions and
   its protocol methods are the same things under the new name, so every `nabu` in §1–§16 reads as
   `rho`. Its methods carry the `rho.` prefix (`rho.hello`, `rho.session.create`,
