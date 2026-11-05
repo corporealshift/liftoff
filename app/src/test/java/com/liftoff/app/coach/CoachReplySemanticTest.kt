@@ -163,6 +163,82 @@ class CoachReplySemanticTest {
     }
 
     @Test
+    fun twoSymbolsOnlyExerciseNamesAreEachRejectedAndNotReportedAsDuplicates() {
+        // A name the validator has already rejected is named once, so these two earn no `duplicates` line.
+        assertEquals(
+            listOf(
+                "exercises[0].name: '!!!' has no letters or digits",
+                "exercises[2].name: '???' has no letters or digits",
+            ),
+            errorsOf(
+                liftPlan(
+                    listOf(
+                        """{"name":"!!!","equipment":["barbell","bench"],"sets":[{"reps":8,"weight":50}]}""",
+                        ROW,
+                        """{"name":"???","equipment":["dumbbell"],"sets":[{"reps":10}]}""",
+                    ),
+                ),
+                LIFT_CONTEXT,
+            ),
+        )
+    }
+
+    @Test
+    fun aNameWithNoLettersOrDigitsIsRejected() {
+        // `---` normalizes to itself, so the check is "no letter or digit", not "normalize returned empty".
+        assertEquals(
+            listOf("exercises[1].name: '---' has no letters or digits"),
+            errorsOf(
+                liftPlan(
+                    listOf(
+                        BENCH,
+                        """{"name":"---","equipment":["barbell"],"sets":[{"reps":5}]}""",
+                        CURL,
+                    ),
+                ),
+                LIFT_CONTEXT,
+            ),
+        )
+        // Spaces-only normalizes to empty and reads the same way.
+        assertEquals(
+            listOf("exercises[1].name: '   ' has no letters or digits"),
+            errorsOf(
+                liftPlan(
+                    listOf(
+                        BENCH,
+                        """{"name":"   ","equipment":["barbell"],"sets":[{"reps":5}]}""",
+                        CURL,
+                    ),
+                ),
+                LIFT_CONTEXT,
+            ),
+        )
+    }
+
+    @Test
+    fun aNameWhoseLettersSurviveSurroundingSymbolsIsStillAccepted() {
+        // The guard is "no letter or digit in the normalized name", not "the name holds punctuation", so this
+        // case reads the Valid result itself and `errorsOf`, which asserts Invalid, cannot be used.
+        val raw = liftPlan(
+            listOf(
+                BENCH,
+                """{"name":"!!! squat !!!","equipment":["barbell"],"sets":[{"reps":5,"weight":60}]}""",
+                CURL,
+            ),
+        )
+        val result = CoachReplyValidator.validate(raw, LIFT_CONTEXT)
+        assertTrue("expected a valid reply, got $result", result is CoachReplyResult.Valid)
+        val plan = (result as CoachReplyResult.Valid).plan as CoachLiftPlan
+
+        // The name reaches the plan exactly as the coach sent it; only the symbols around its letters are the
+        // reason it looks garbled, and `squat` is what the store keys it on.
+        assertEquals(listOf("Bench Press", "!!! squat !!!", "Bicep Curl"), plan.exercises.map { it.name })
+        assertEquals("squat", ExerciseNames.normalize(plan.exercises[1].name))
+        assertEquals(listOf("barbell"), plan.exercises[1].equipment)
+        assertEquals(listOf(5, null, 60.0), listOf(plan.exercises[1].sets[0].reps, plan.exercises[1].sets[0].seconds, plan.exercises[1].sets[0].weight))
+    }
+
+    @Test
     fun planTypeNotMatchingTheSortieIsRejected() {
         // A complete, valid run plan offered for the lift day: the one decisive mistake, not its five consequences.
         assertEquals(
