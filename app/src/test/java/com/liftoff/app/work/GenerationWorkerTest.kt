@@ -1180,6 +1180,59 @@ class GenerationWorkerTest {
     }
 
     /**
+     * a store that throws ends the generation like every other permanent end: a trigger aborts the first
+     * `plannedSet` insert, so what throws is [FlightPlanDao.writePlan] inside the store transaction, after it
+     * has already written the plan and an exercise. A bad name can't do this any more, as the validator refuses
+     * it first. `doWork()` returns `Result.failure()` rather than throwing or retrying, the row is FAILED with
+     * the exception's own sentence and its `finishedAt`, and nothing is stored — the transaction rolled back
+     * `writePlan`'s own `deleteForSortie` with it, so the sortie is still PENDING with no plan, no planned
+     * exercises and no planned sets. The session the turn ran on is given up once and stays on the row.
+     */
+    @Test
+    fun aStoreThatThrowsFailsTheGenerationWithItsOwnMessageAndStoresNothing() {
+        val refusal = "plannedSet refused by this test"
+        container.database.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER refusePlannedSet BEFORE INSERT ON plannedSet BEGIN SELECT RAISE(ABORT, '$refusal'); END",
+        )
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.LIFT_PLAN)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        runBlocking { container.missionManager.continueWithoutOutline(mission.id) }
+        val scrubbed = sortieAt(mission.id, 0)
+        assertEquals(SortieType.RUN, scrubbed.type)
+        runBlocking { container.missionManager.scrub(scrubbed.id) }
+
+        val lift = sortieAt(mission.id, 1)
+        assertEquals("index 1 is a LIFT under RLRLR", SortieType.LIFT, lift.type)
+        assertAwaitingGeneration(lift)
+
+        val generationId = insertFlightPlanGeneration(mission.id, lift.id)
+        val result = runWorker(generationId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        // The exception's own sentence, not a generic 'generation failed'. SQLite may append its error code.
+        assertTrue("the row said '${row.error}'", row.error.orEmpty().contains(refusal))
+        assertNotNull(row.finishedAt)
+        assertEquals("the row lost the session its turn ran on", daemon.sessionId, row.nabuSessionId)
+
+        assertNull("a plan survived the rolled-back store", runBlocking { container.database.flightPlanDao().getPlan(lift.id) })
+        assertEquals("planned exercises survived the rolled-back store", 0L, runBlocking { container.database.flightPlanDao().countPlannedExercises() })
+        assertEquals("planned sets survived the rolled-back store", 0L, runBlocking { container.database.flightPlanDao().countPlannedSets() })
+        assertEquals(
+            "the rolled-back store left the sortie something other than PENDING",
+            SortieState.PENDING,
+            runBlocking { container.database.sortieDao().get(lift.id) }!!.state,
+        )
+
+        assertSessionGivenUpOnce(daemon.sessionId)
+    }
+
+    /**
      * a refused hello ends the generation for good: `rho.hello` is refused with PROTOCOL_MISMATCH and the
      * fake's own mismatch message naming daemon 2.0 ([FakeDaemon.refuseProtocolMismatch]), on an OUTLINE row
      * over a mission seeded with onAppOpen() only. `Result.failure()`, and the row FAILED with the sentence a
