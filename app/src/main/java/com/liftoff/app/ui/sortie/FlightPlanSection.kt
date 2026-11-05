@@ -12,6 +12,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.liftoff.app.data.FlightPlanDetail
 import com.liftoff.app.data.SortieType
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.ui.theme.*
 
 /** Shared composable: FLIGHT PLAN head over ink rule, exercise/run rows, coach note. */
@@ -20,21 +21,25 @@ fun FlightPlanSection(
     plan: FlightPlanDetail,
     sortieType: SortieType,
     sortieFocus: String?,
+    distanceUnit: DistanceUnit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        // FLIGHT PLAN head with estimated minutes and set count
+        // FLIGHT PLAN head with estimated minutes and set count, or a run's time and distance
+        val head = formatPlanHead(plan, sortieType, distanceUnit)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "FLIGHT PLAN",
                 style = LiftoffType.sectionHead(),
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = formatPlanHead(plan),
-                style = LiftoffType.eyebrow(),
-                color = Muted,
-            )
+            if (head.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = head,
+                    style = LiftoffType.eyebrow(),
+                    color = Muted,
+                )
+            }
         }
 
         // 3 dp ink rule (1 px in the mockup ≈ 1 dp; brief says 3 dp)
@@ -58,8 +63,8 @@ fun FlightPlanSection(
                 )
             }
         } else {
-            // Run summary rows: focus, target distance/pace, segments
-            val rowCounter = MutableInt(0)
+            // Run summary rows: focus, target distance/pace, segments, numbered from 01 as lift rows are
+            val rowCounter = MutableInt(1)
 
             val focus = sortieFocus?.takeIf { it.isNotBlank() }
             if (focus != null) {
@@ -75,7 +80,7 @@ fun FlightPlanSection(
                 InkRuledListRow(
                     index = "%02d".format(rowCounter.value++),
                     title = "Target distance",
-                    detail = "%.2f km".format(targetDist),
+                    detail = formatDistance(targetDist, distanceUnit),
                 )
             }
 
@@ -91,8 +96,9 @@ fun FlightPlanSection(
             // Segment rows
             plan.segments.forEachIndexed { _, segment ->
                 val detailParts = mutableListOf<String>()
-                segment.distance?.let { detailParts.add("%.2f km".format(it)) }
-                segment.minutes?.let { detailParts.add("%.0f min".format(it)) }
+                // A walk-on or walk-off segment comes back as distance 0, which says nothing worth a column.
+                segment.distance?.takeIf { it > 0 }?.let { detailParts.add(formatDistance(it, distanceUnit)) }
+                segment.minutes?.let { detailParts.add(formatMinutes(it)) }
                 val detail = detailParts.joinToString(" · ")
 
                 InkRuledListRow(

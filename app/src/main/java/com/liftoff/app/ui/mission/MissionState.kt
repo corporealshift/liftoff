@@ -2,6 +2,7 @@ package com.liftoff.app.ui.mission
 
 import com.liftoff.app.data.*
 import com.liftoff.app.domain.currentSortie
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatWeekDate
 import kotlinx.coroutines.Dispatchers
@@ -16,12 +17,16 @@ sealed interface MissionTabState {
 
     /** Week is known — mission with its sorties and outline notes. */
     data class Week(
+        val missionId: Long,
         val weekStart: java.time.LocalDate,
         val status: MissionStatus,
         val chips: List<com.liftoff.app.ui.theme.PatternChip>,
         val outlineNotes: String?,
         val rows: List<SortieRow>,
-    ) : MissionTabState
+    ) : MissionTabState {
+        /** MissionManager.resetWeek's own status rule; a draft has nothing to start over. */
+        val canReset: Boolean = status != MissionStatus.DRAFT
+    }
 }
 
 /** One row in the sortie list. */
@@ -60,6 +65,7 @@ sealed interface SortieDetailState {
         val plan: FlightPlanDetail,
         val sortieType: SortieType,
         val sortieFocus: String?,
+        val distanceUnit: DistanceUnit,
     ) : SortieDetailState
 
     /** PENDING with no flight plan yet. */
@@ -79,6 +85,7 @@ sealed interface SortieDetailState {
         val runDistance: Double?,
         val runMinutes: Double?,
         val notes: String?,
+        val distanceUnit: DistanceUnit,
     ) : SortieDetailState
 
     /** Sortie was scrubbed. */
@@ -112,10 +119,11 @@ class MissionStates(
     fun observeSortie(sortieId: Long): Flow<SortieDetailState> =
         db.sortieDao().observeById(sortieId)
             .combine(db.flightPlanDao().observeChanges()) { sortie, _ -> sortie }
-            .map { sortie -> if (sortie == null) SortieDetailState.Loading else deriveSortieDetail(sortie) }
+            .combine(manager.distanceUnit) { sortie, unit -> sortie to unit }
+            .map { (sortie, unit) -> if (sortie == null) SortieDetailState.Loading else deriveSortieDetail(sortie, unit) }
             .flowOn(Dispatchers.IO)
 
-    private suspend fun deriveSortieDetail(sortie: Sortie): SortieDetailState {
+    private suspend fun deriveSortieDetail(sortie: Sortie, distanceUnit: DistanceUnit): SortieDetailState {
         val plan = db.flightPlanDao().getPlan(sortie.id)
         val eyebrow = sortieEyebrow(sortie)
 
@@ -128,6 +136,7 @@ class MissionStates(
                         plan = plan,
                         sortieType = sortie.type,
                         sortieFocus = sortie.focus,
+                        distanceUnit = distanceUnit,
                     )
                 } else {
                     SortieDetailState.NoPlan(
@@ -145,6 +154,7 @@ class MissionStates(
                         plan = plan,
                         sortieType = sortie.type,
                         sortieFocus = sortie.focus,
+                        distanceUnit = distanceUnit,
                     )
                 } else {
                     SortieDetailState.NoPlan(
@@ -170,6 +180,7 @@ class MissionStates(
                     runDistance = sortie.runDistance,
                     runMinutes = sortie.runMinutes,
                     notes = sortie.notes,
+                    distanceUnit = distanceUnit,
                 )
             }
 
@@ -206,6 +217,7 @@ class MissionStates(
 
         return when (mission.status) {
             MissionStatus.DRAFT -> MissionTabState.Week(
+                missionId = mission.id,
                 weekStart = mission.weekStart,
                 status = mission.status,
                 chips = deriveChips(mission.pattern, emptyList()),
@@ -218,6 +230,7 @@ class MissionStates(
                     SortieRow(sortie.id, sortie.index, sortie.type, sortie.focus, sortie.state)
                 }
                 MissionTabState.Week(
+                    missionId = mission.id,
                     weekStart = mission.weekStart,
                     status = mission.status,
                     chips = deriveChips(mission.pattern, sorties),
@@ -231,6 +244,7 @@ class MissionStates(
                     SortieRow(sortie.id, sortie.index, sortie.type, sortie.focus, sortie.state)
                 }
                 MissionTabState.Week(
+                    missionId = mission.id,
                     weekStart = mission.weekStart,
                     status = mission.status,
                     chips = deriveChips(mission.pattern, sorties),

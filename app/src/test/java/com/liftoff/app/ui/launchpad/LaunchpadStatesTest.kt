@@ -158,7 +158,7 @@ class LaunchpadStatesTest {
         assertEquals("1×45 s · BW", formatExerciseLoad(plan.exercises[2]))
 
         // Flight Plan head.
-        assertEquals("≈45 min · 6 sets", formatPlanHead(plan))
+        assertEquals("≈45 min · 6 sets", formatPlanHead(plan, com.liftoff.app.data.SortieType.LIFT, com.liftoff.app.settings.DistanceUnit.MI))
     }
 
     // ── Planned (run) ──────────────────────────────────────────────────

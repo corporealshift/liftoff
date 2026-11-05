@@ -23,6 +23,7 @@ import com.liftoff.app.domain.rollover
 import com.liftoff.app.domain.unlaunch
 import com.liftoff.app.domain.weekHasEnded
 import com.liftoff.app.domain.weekStartOf
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.settings.Settings
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.flow.Flow
@@ -71,6 +72,11 @@ class MissionManager(
     /** Whether 'Generate run plans' is on. [regenerateFlightPlan] enforces it; this is the same check live. */
     val generateRunPlans: Flow<Boolean> = settingsStore.settings
         .map { it.generateRunPlans }
+        .distinctUntilChanged()
+
+    /** The configured distance unit, which a run plan's numbers are written in (DESIGN.md §7.4). */
+    val distanceUnit: Flow<DistanceUnit> = settingsStore.settings
+        .map { it.distanceUnit }
         .distinctUntilChanged()
 
     suspend fun onAppOpen(): Mission {
@@ -409,6 +415,27 @@ class MissionManager(
         }
         queued?.let(onQueued)
         return supersededIds
+    }
+
+    /**
+     * Start the current week over (DESIGN.md amendment 2026-10-31): delete its Mission, and with it every sortie,
+     * Flight Plan and recorded set, then put a new DRAFT in its place with the same pattern, ready to edit and
+     * Confirm. Landed and scrubbed sorties go too, so they leave history and the coach's prompts.
+     *
+     * Returns the ids of the week's generations still open, read before the delete, for the caller to cancel; a
+     * worker that finishes first finds its Mission or sortie gone and refuses to store. Only the current week, and
+     * only once it has been confirmed: a DRAFT has nothing to reset.
+     */
+    suspend fun resetWeek(missionId: Long): List<Long> = db.withTransaction {
+        val mission = db.missionDao().get(missionId)!!
+        check(mission.weekStart == currentWeekOf(clock, zone)) { "Can only reset the current week" }
+        check(mission.status == MissionStatus.ACTIVE || mission.status == MissionStatus.CLOSED) {
+            "Only a confirmed week can be reset"
+        }
+        val toCancel = db.generationDao().getOpenForMission(missionId).map { it.id }
+        db.missionDao().deleteWeek(missionId)
+        db.missionDao().insert(newDraft(mission.weekStart, mission.pattern))
+        toCancel
     }
 
     /**
