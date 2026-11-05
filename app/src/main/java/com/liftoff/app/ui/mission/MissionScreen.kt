@@ -21,17 +21,27 @@ import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
 import com.liftoff.app.ui.PlaceholderScreen
 import com.liftoff.app.ui.sortie.FlightPlanSection
+import com.liftoff.app.ui.sortie.formatDistance
 import com.liftoff.app.ui.sortie.formatWeekDate
 import com.liftoff.app.ui.theme.*
+import kotlinx.coroutines.CoroutineScope
 import java.time.Instant
 
 @Composable
 fun MissionScreen(
     container: AppContainer,
+    /** The shell's scope, for work that must outlive this tab: Reset week's cancels. */
+    actionScope: CoroutineScope,
 ) {
     val scope = rememberCoroutineScope()
     val viewModel = remember(container) {
-        MissionViewModel(container.database, container.missionManager, scope)
+        MissionViewModel(
+            container.database,
+            container.missionManager,
+            scope,
+            cancelGeneration = { id -> container.generationCanceller().cancel(id) },
+            actionScope = actionScope,
+        )
     }
 
     val tabState by viewModel.state.collectAsStateWithLifecycle()
@@ -52,12 +62,29 @@ fun MissionScreen(
             onBack = { selectedSortieId = null },
         )
     } else {
-        MissionTabContent(state = tabState, onSelect = { id -> selectedSortieId = id })
+        MissionTabContent(
+            state = tabState,
+            onSelect = { id -> selectedSortieId = id },
+            onReset = viewModel::requestReset,
+        )
+    }
+
+    val week = tabState as? MissionTabState.Week
+    if (viewModel.resetting && week != null) {
+        ResetWeekDialog(
+            recordedCount = week.rows.count { it.state == SortieState.LANDED || it.state == SortieState.SCRUBBED },
+            onConfirm = { viewModel.confirmReset() },
+            onDismiss = viewModel::cancelReset,
+        )
     }
 }
 
 @Composable
-private fun MissionTabContent(state: MissionTabState, onSelect: (Long) -> Unit = {}) {
+private fun MissionTabContent(
+    state: MissionTabState,
+    onSelect: (Long) -> Unit = {},
+    onReset: () -> Unit = {},
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -68,13 +95,17 @@ private fun MissionTabContent(state: MissionTabState, onSelect: (Long) -> Unit =
         when (state) {
             is MissionTabState.Loading -> Unit
 
-            is MissionTabState.Week -> WeekContent(state, onSelect)
+            is MissionTabState.Week -> WeekContent(state, onSelect, onReset)
         }
     }
 }
 
 @Composable
-private fun WeekContent(state: MissionTabState.Week, onSelect: (Long) -> Unit = {}) {
+private fun WeekContent(
+    state: MissionTabState.Week,
+    onSelect: (Long) -> Unit = {},
+    onReset: () -> Unit = {},
+) {
     // Title block
     val eyebrow = "WEEK OF ${formatWeekDate(state.weekStart)}"
     TitleBlock(eyebrow = eyebrow, title = "Mission")
@@ -111,6 +142,13 @@ private fun WeekContent(state: MissionTabState.Week, onSelect: (Long) -> Unit = 
             modifier = Modifier.clickable { onSelect(row.id) },
         )
     }
+
+    // Absent on a draft rather than dimmed, the rule the Launchpad's actions follow.
+    if (state.canReset) {
+        Spacer(Modifier.height(20.dp))
+        UnderlinedTextButton(text = "Reset week", onClick = onReset)
+        Spacer(Modifier.height(20.dp))
+    }
 }
 
 @Composable
@@ -126,7 +164,12 @@ private fun SortieDetailView(state: SortieDetailState, onBack: () -> Unit) {
             is SortieDetailState.WithPlan -> {
                 TitleBlock(eyebrow = state.eyebrow, title = state.title)
                 Spacer(Modifier.height(20.dp))
-                FlightPlanSection(plan = state.plan, sortieType = state.sortieType, sortieFocus = state.sortieFocus)
+                FlightPlanSection(
+                    plan = state.plan,
+                    sortieType = state.sortieType,
+                    sortieFocus = state.sortieFocus,
+                    distanceUnit = state.distanceUnit,
+                )
             }
 
             is SortieDetailState.NoPlan -> {
@@ -177,7 +220,7 @@ private fun LandedDetailView(state: SortieDetailState.Landed) {
 
     if (state.sortieType == SortieType.RUN) {
         Spacer(Modifier.height(8.dp))
-        val distStr = state.runDistance?.let { "%.2f km".format(it) } ?: "—"
+        val distStr = state.runDistance?.let { formatDistance(it, state.distanceUnit) } ?: "—"
         val minStr = state.runMinutes?.let { "%.0f min".format(it) } ?: "—"
         Text(
             text = "$distStr · $minStr",
@@ -225,6 +268,7 @@ private fun MissionTabPreview() {
     if (LocalInspectionMode.current) {
         LiftoffTheme {
             val previewState = MissionTabState.Week(
+                missionId = 1,
                 weekStart = java.time.LocalDate.of(2026, 10, 5),
                 status = MissionStatus.ACTIVE,
                 chips = listOf(
@@ -264,6 +308,7 @@ private fun SortieDetailPlannedPreview() {
                 ),
                 sortieType = SortieType.LIFT,
                 sortieFocus = "Bench",
+                distanceUnit = com.liftoff.app.settings.DistanceUnit.MI,
             )
             SortieDetailView(state = state, onBack = {})
         }

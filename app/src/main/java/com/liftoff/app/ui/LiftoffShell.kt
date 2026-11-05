@@ -174,7 +174,7 @@ fun LiftoffShell() {
                                 nav = nav.openInFlight(it)
                             },
                         )
-                        Tab.Mission -> MissionScreen(container)
+                        Tab.Mission -> MissionScreen(container, actionScope = shellScope)
                         Tab.Landed -> LandedScreen(container)
                     }
                 }

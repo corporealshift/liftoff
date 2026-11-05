@@ -30,6 +30,7 @@ object CoachFixtures {
     const val REPS_AND_SECONDS = "reps-and-seconds.txt"
     const val OVER_LENGTH_SORTIE = "over-length-sortie.txt"
     const val DUPLICATE_EXERCISE_NAMES = "duplicate-exercise-names.txt"
+    const val SYMBOLS_ONLY_EXERCISE_NAME = "symbols-only-exercise-name.txt"
     const val PLAN_TYPE_MISMATCH = "plan-type-mismatch.txt"
 
     val KEYS = listOf("barbell", "dumbbell", "bench", "pullup-bar")

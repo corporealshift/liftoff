@@ -244,6 +244,17 @@ class CoachReplyFixtureTest {
     }
 
     @Test
+    fun symbolsOnlyExerciseNameFixtureIsRejectedWithItsOwnErrorLine() {
+        // `!!!` clears the schema's minLength: 1, so only a semantic check can name it. The line quotes
+        // the name as the reply sent it, at the same 0-based index every other exercise line uses, and
+        // nothing else in this reply is wrong.
+        assertEquals(
+            listOf("exercises[3].name: '!!!' has no letters or digits"),
+            CoachFixtures.errorsOf(CoachFixtures.SYMBOLS_ONLY_EXERCISE_NAME, CoachFixtures.LIFT_CONTEXT),
+        )
+    }
+
+    @Test
     fun planTypeMismatchFixtureGivesItsError() {
         // A complete, valid run plan offered for the lift sortie: the one decisive mistake, with none of
         // the five schema errors that document would trigger against the lift-plan schema.
@@ -272,7 +283,8 @@ class CoachReplyFixtureTest {
             CoachFixtures.BAD_JSON, CoachFixtures.PROSE_AROUND_JSON, CoachFixtures.SCHEMA_VIOLATION,
             CoachFixtures.UNKNOWN_EQUIPMENT, CoachFixtures.INACTIVE_EQUIPMENT,
             CoachFixtures.OUTLINE_PATTERN_MISMATCH, CoachFixtures.REPS_AND_SECONDS, CoachFixtures.OVER_LENGTH_SORTIE,
-            CoachFixtures.DUPLICATE_EXERCISE_NAMES, CoachFixtures.PLAN_TYPE_MISMATCH,
+            CoachFixtures.DUPLICATE_EXERCISE_NAMES, CoachFixtures.SYMBOLS_ONLY_EXERCISE_NAME,
+            CoachFixtures.PLAN_TYPE_MISMATCH,
         )
     }
 }

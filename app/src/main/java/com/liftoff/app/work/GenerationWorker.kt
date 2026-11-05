@@ -96,8 +96,22 @@ class GenerationWorker(
             is ConnectionOutcome.Unreachable -> coachUnreachable(generations, generationId)
 
             // A host or a token that isn't set, or a token the daemon won't take, is a setting of Liftoff's
-            // own, not Mission Control being down, so the row carries no claim about the coach.
-            else -> Result.retry()
+            // own, not Mission Control being down, so the row names the setting and the generation ends.
+            is ConnectionOutcome.NotConfigured -> failGeneration(
+                generations,
+                generationId,
+                MISSION_CONTROL_NOT_SET_UP,
+                client = null,
+                sessionId = null,
+            )
+
+            is ConnectionOutcome.AuthenticationRejected -> failGeneration(
+                generations,
+                generationId,
+                MISSION_CONTROL_REFUSED_TOKEN,
+                client = null,
+                sessionId = null,
+            )
         }
     }
 
@@ -479,6 +493,12 @@ private const val COACH_UNREACHABLE = "coach unreachable"
 
 /** What the row says when the coach ended its turn in error and named no reason for it. */
 private const val COACH_TURN_FAILED = "coach turn failed"
+
+/** What a generation ended by a host or token that is no longer set says on the row. */
+private const val MISSION_CONTROL_NOT_SET_UP = "Mission Control isn't set up"
+
+/** What a generation ended by a token the daemon won't take says on the row. */
+private const val MISSION_CONTROL_REFUSED_TOKEN = "Mission Control refused the token"
 
 /** DESIGN 10 compares the major only, so the row names majors: the client's 1.0 reads "1.x". */
 private val liftoffProtocolMajor: String = majorOf(PROTOCOL_VERSION)?.let { "$it.x" } ?: PROTOCOL_VERSION
