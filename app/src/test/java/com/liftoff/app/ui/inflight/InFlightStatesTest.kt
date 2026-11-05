@@ -409,4 +409,95 @@ class InFlightStatesTest {
         // Case 3: the state before the sortie has been read.
         assertFalse(needsLandConfirmation(InFlightState.Loading))
     }
+
+    // ── Un-launch is offered while nothing on the sortie is recorded ─
+    // An untouched lift plan, a run plan and a sortie with no checklist all offer it: none of them has a
+    // set that is anything but OPEN with null actuals. Loading is the arm without it.
+
+    @Test
+    fun unlaunchIsAvailableForAnUntouchedLiftAndForARun() = runBlocking {
+        val liftSortieId = buildFixture()
+        val liftSortie = sortieDao.get(liftSortieId)!!
+        assertEquals(7, (deriveNow(liftSortieId) as InFlightState.Ready).setCount)
+        assertTrue(unlaunchAvailable(deriveNow(liftSortieId)))
+
+        // Case 1: a RUN sortie holding a plan. Its distance and minutes are only entered at Land.
+        val runSortieId = sortieDao.insert(Sortie(
+            missionId = liftSortie.missionId, index = 0, type = SortieType.RUN,
+            focus = "easy jog", focusRationale = null, state = SortieState.IN_FLIGHT,
+            launchedAt = System.currentTimeMillis(), landedAt = null,
+            scrubReason = null, notes = null, runDistance = null, runMinutes = null
+        ))
+        flightPlanDao.writePlan(runSortieId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Run Plan", estimatedMinutes = 30,
+            warmup = null, notes = null, runKind = "steady", targetDistance = 5000.0,
+            targetPace = "5:00", rawJson = "{}",
+            exercises = emptyList(),
+            segments = listOf(RunSegmentDraft(description = "Warmup", distance = 800.0, minutes = 4.0))
+        ))
+        assertTrue(deriveNow(runSortieId) is InFlightState.Run)
+        assertTrue(unlaunchAvailable(deriveNow(runSortieId)))
+
+        // Case 2: a sortie with no plan at all — no sets, so nothing recorded.
+        val noPlanSortieId = sortieDao.insert(Sortie(
+            missionId = liftSortie.missionId, index = 2, type = SortieType.LIFT,
+            focus = "Pull", focusRationale = null, state = SortieState.IN_FLIGHT,
+            launchedAt = System.currentTimeMillis(), landedAt = null,
+            scrubReason = null, notes = null, runDistance = null, runMinutes = null
+        ))
+        assertTrue(deriveNow(noPlanSortieId) is InFlightState.NoChecklist)
+        assertTrue(unlaunchAvailable(deriveNow(noPlanSortieId)))
+
+        // Case 3: the state before the sortie has been read has no action to offer.
+        assertFalse(unlaunchAvailable(InFlightState.Loading))
+    }
+
+    // ── A recorded set anywhere in the plan takes it away ────────────
+    // Checked off, edited or skipped — on the active card or on a later exercise while the first card is
+    // still all OPEN. Restoring a set to OPEN with null actuals puts the action back.
+
+    @Test
+    fun unlaunchIsUnavailableOnceAnySetOfThePlanIsRecorded() = runBlocking {
+        val sortieId = buildFixture()
+        val cards = (deriveNow(sortieId) as InFlightState.Ready).cards
+        val bench = cards[0]
+        val pushUp = cards[1]
+        val kettlebell = cards[2]
+        assertTrue(unlaunchAvailable(deriveNow(sortieId)))
+
+        // Checked off: the actuals become the planned values and the set is DONE.
+        flightPlanDao.checkSet(bench.sets[0].setId)
+        assertFalse(unlaunchAvailable(deriveNow(sortieId)))
+        flightPlanDao.uncheckSet(bench.sets[0].setId)
+        assertTrue(unlaunchAvailable(deriveNow(sortieId)))
+
+        // Edited: saving an edit also marks the set done.
+        flightPlanDao.saveSetEdit(bench.sets[1].setId, reps = 8, seconds = null, weight = 45.0)
+        assertFalse(unlaunchAvailable(deriveNow(sortieId)))
+        flightPlanDao.uncheckSet(bench.sets[1].setId)
+        assertTrue(unlaunchAvailable(deriveNow(sortieId)))
+
+        // Skipped: null actuals, but the status is no longer OPEN.
+        flightPlanDao.skipSet(bench.sets[2].setId)
+        assertFalse(unlaunchAvailable(deriveNow(sortieId)))
+        flightPlanDao.reopenSet(bench.sets[2].setId)
+        assertTrue(unlaunchAvailable(deriveNow(sortieId)))
+
+        // A set recorded on the last exercise, with the active card still all OPEN.
+        assertTrue((deriveNow(sortieId) as InFlightState.Ready).cards[0].sets.all { it.status == SetStatus.OPEN })
+        flightPlanDao.skipSet(kettlebell.sets[1].setId)
+        assertFalse(unlaunchAvailable(deriveNow(sortieId)))
+        flightPlanDao.reopenSet(kettlebell.sets[1].setId)
+        assertTrue(unlaunchAvailable(deriveNow(sortieId)))
+
+        // A whole later exercise skipped, first card untouched.
+        flightPlanDao.skipExercise(pushUp.plannedExerciseId)
+        assertFalse(unlaunchAvailable(deriveNow(sortieId)))
+        flightPlanDao.unskipExercise(pushUp.plannedExerciseId)
+        assertTrue(unlaunchAvailable(deriveNow(sortieId)))
+    }
+
+    /** The state as it reads right now, so a test can re-derive after each set write. */
+    private suspend fun deriveNow(sortieId: Long): InFlightState =
+        deriveInFlight(flightPlanDao.getPlan(sortieId), sortieDao.get(sortieId)!!, WeightUnit.LB)
 }

@@ -27,20 +27,26 @@ class SortiesTest {
         // PLANNED → SCRUBBED
         assertEquals(SortieState.SCRUBBED, scrub(planned, null).state)
 
-        val inFlight = planned.copy(state = SortieState.IN_FLIGHT)
+        val inFlight = launch(planned, 150L)
 
         // IN_FLIGHT → LANDED
         assertEquals(SortieState.LANDED, land(inFlight, 200L).state)
 
         // IN_FLIGHT → SCRUBBED
         assertEquals(SortieState.SCRUBBED, scrub(inFlight, null).state)
+
+        // IN_FLIGHT → PLANNED
+        val unlaunched = unlaunch(inFlight)
+        assertEquals(SortieState.PLANNED, unlaunched.state)
+        assertNull(unlaunched.launchedAt)
+        assertEquals(150L, markPlanned(inFlight).launchedAt)
     }
 
     @Test
     fun illegalTransitionsAreRejected() {
         var caught = 0
 
-        // All 25 from/to pairs: 6 legal are tested above; verify the remaining 19 throw.
+        // All 25 from/to pairs: 7 legal are tested above; verify the remaining 18 throw.
         val allStates = SortieState.values()
         val illegalPairs = listOf(
             // Same-state (5)
@@ -55,9 +61,8 @@ class SortiesTest {
             // PLANNED → (PENDING, LANDED, SCRUBBED) — IN_FLIGHT is legal; SCRUBBED is legal
             SortieState.PLANNED to SortieState.PENDING,
             SortieState.PLANNED to SortieState.LANDED,
-            // IN_FLIGHT → (PENDING, PLANNED) — LANDED and SCRUBBED are legal
+            // IN_FLIGHT → PENDING — PLANNED, LANDED and SCRUBBED are legal
             SortieState.IN_FLIGHT to SortieState.PENDING,
-            SortieState.IN_FLIGHT to SortieState.PLANNED,
             // LANDED → (PENDING, PLANNED, IN_FLIGHT, SCRUBBED) — nothing is legal from LANDED
             SortieState.LANDED to SortieState.PENDING,
             SortieState.LANDED to SortieState.PLANNED,
@@ -70,7 +75,7 @@ class SortiesTest {
             SortieState.SCRUBBED to SortieState.LANDED,
         )
 
-        assertEquals(19, illegalPairs.size)
+        assertEquals(18, illegalPairs.size)
 
         for ((from, to) in illegalPairs) {
             try {
@@ -82,7 +87,7 @@ class SortiesTest {
             throw AssertionError("Should have thrown for $from → $to")
         }
 
-        assertEquals(19, caught)
+        assertEquals(18, caught)
     }
 
     @Test

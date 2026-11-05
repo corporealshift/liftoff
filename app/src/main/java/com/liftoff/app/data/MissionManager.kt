@@ -20,6 +20,7 @@ import com.liftoff.app.domain.prepareCurrent
 import com.liftoff.app.domain.requireNoneInFlight
 import com.liftoff.app.domain.scrub
 import com.liftoff.app.domain.rollover
+import com.liftoff.app.domain.unlaunch
 import com.liftoff.app.domain.weekHasEnded
 import com.liftoff.app.domain.weekStartOf
 import com.liftoff.app.settings.DistanceUnit
@@ -286,6 +287,33 @@ class MissionManager(
             requireNoneInFlight(db.sortieDao().getInFlight())
             val launched = launch(sortie, clock.millis())
             db.sortieDao().update(launched)
+        }
+    }
+
+    /**
+     * Put an in-flight sortie back to PLANNED with its launch time cleared, so the Launchpad's existing
+     * Launch / Regenerate / Scrub are offered again on the same sortie. Refused once anything on the plan has
+     * been recorded — a set checked off, edited or skipped — because that is training data a re-plan would
+     * strand. Queues nothing, and the sortie stays the current one.
+     */
+    suspend fun unlaunch(sortieId: Long) {
+        db.withTransaction {
+            val sortie = db.sortieDao().get(sortieId)!!
+            val mission = db.missionDao().get(sortie.missionId)!!
+            check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
+            val sorties = db.sortieDao().getForMission(mission.id)
+            val current = currentSortie(sorties)
+            check(current != null && current.id == sortieId) { "Sortie must be current" }
+            check(sortie.state == SortieState.IN_FLIGHT) { "Sortie must be IN_FLIGHT" }
+            // launch's requireNoneInFlight is deliberately not here: this sortie is itself the one in flight.
+            // getPlan carries every set of every exercise, a skipped exercise's included, so a set recorded
+            // past the card In-Flight is showing still refuses. An added set is OPEN with no actuals, so it
+            // does not refuse either.
+            val sets = db.flightPlanDao().getPlan(sortieId)?.exercises.orEmpty().flatMap { it.sets }
+            check(sets.none {
+                it.status != SetStatus.OPEN || it.actualReps != null || it.actualSeconds != null || it.actualWeight != null
+            }) { "Sortie has recorded sets" }
+            db.sortieDao().update(unlaunch(sortie))
         }
     }
 

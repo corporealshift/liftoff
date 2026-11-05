@@ -682,4 +682,87 @@ class InFlightLandScrubTest {
         assertEquals(GenerationStatus.QUEUED, row.status)
         assertEquals(sortieDao.getForMission(missionId)[2].id, row.sortieId)
     }
+
+    // ── An un-launch the manager refuses is a message, not a crash ───
+    // One set is checked off through the DAO before the un-launch, so MissionManager.unlaunch refuses the
+    // sortie: a recorded set is training data a re-plan would strand. The refusal is a short line, the
+    // completion callback does not run, and the sortie is still IN_FLIGHT with its launch time intact.
+
+    @Test
+    fun unlaunchAfterASetIsRecordedIsRejectedWithoutCrash() = runBlocking {
+        val (vm, ready) = launchSortie1()
+        val sortieId = ready.sortieId
+        val setId = ready.currentSetId ?: allSetIds(ready).first()
+
+        flightPlanDao.checkSet(setId)
+        val recorded = flightPlanDao.getPlan(sortieId)?.exercises.orEmpty()
+            .flatMap { it.sets }.firstOrNull { it.id == setId }
+        assertEquals(SetStatus.DONE, recorded?.status)
+
+        val done = CompletableDeferred<Unit>()
+        vm.unlaunch { done.complete(Unit) }
+
+        val shown = withTimeout(5_000) { vm.message.first { it != null } }!!
+        assertTrue("message should be a short line, was: $shown", shown.isNotBlank() && shown.length <= 60)
+        assertNull(withTimeoutOrNull(1_000) { done.await() })
+        assertTrue("a rejected un-launch threw out of the view model: $escaped", escaped.isEmpty())
+
+        val after = sortieDao.get(sortieId)!!
+        assertEquals("a refused un-launch must not move the sortie out of the week", SortieState.IN_FLIGHT, after.state)
+        assertNotNull("a refused un-launch must not clear the launch time", after.launchedAt)
+    }
+
+    // ── A double tap un-launches once ────────────────────────────────
+    // Two un-launch calls back to back. The view model's busy guard is what takes the second one, so the
+    // worker that runs the write is held until both taps have arrived: the first un-launch is still in
+    // progress when the second call comes, and the manager is never asked to put the sortie back twice.
+    // Un-launch queues nothing, so no generation row appears either.
+
+    @Test
+    fun doubleTapUnlaunchRunsOnce() = runBlocking {
+        val mission = seedMission()
+        landSortie0(mission.id)
+        val sortie = seedSortie1LiftPlan(mission.id)
+        manager.launch(sortie.id)
+
+        val worker = Executors.newSingleThreadExecutor()
+        val held = CountDownLatch(1)
+        val workerJob = Job()
+        val heldScope = CoroutineScope(
+            worker.asCoroutineDispatcher() + workerJob +
+                CoroutineExceptionHandler { _, e -> escaped += e }
+        )
+        worker.submit { held.await(5, TimeUnit.SECONDS) }
+        try {
+            val vm = InFlightViewModel(db, settingsStore, sortie.id, heldScope, manager)
+
+            val done = CompletableDeferred<Unit>()
+            var onDoneRuns = 0
+            vm.unlaunch { onDoneRuns++; done.complete(Unit) }
+            vm.unlaunch { onDoneRuns++; done.complete(Unit) }
+            assertEquals("no un-launch should have run while its thread was held", 0, onDoneRuns)
+
+            held.countDown()
+            awaitDone(done)
+            assertEquals(1, onDoneRuns)
+            val row = sortieDao.get(sortie.id)!!
+            assertEquals(SortieState.PLANNED, row.state)
+            assertNull(row.launchedAt)
+            // A second un-launch that got past the guard would be rejected by the manager and show a
+            // message inside this window. The guard means there is nothing to show.
+            assertNull(withTimeoutOrNull(1_000) { vm.message.first { it != null } })
+            assertTrue("an un-launch threw out of the view model: $escaped", escaped.isEmpty())
+
+            // The sortie is still the current one and nothing else moved: no other sortie landed, and the
+            // run that follows it is still PENDING rather than planned or in flight.
+            val sorties = sortieDao.getForMission(mission.id)
+            assertEquals(SortieState.PLANNED, sorties[1].state)
+            assertEquals(0, sorties.count { it.state == SortieState.LANDED && it.index >= 1 })
+            assertEquals(SortieState.PENDING, sorties[2].state)
+        } finally {
+            held.countDown()
+            workerJob.cancel()
+            worker.shutdownNow()
+        }
+    }
 }

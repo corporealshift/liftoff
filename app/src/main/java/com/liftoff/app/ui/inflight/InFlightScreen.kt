@@ -90,6 +90,9 @@ fun InFlightScreen(
                         // A sortie with no checklist has no open sets, so it lands without asking.
                         if (needsLandConfirmation(noCheck)) confirmingLand = true else vm.land(onBack)
                     },
+                    onUnlaunch = if (unlaunchAvailable(noCheck)) {
+                        { vm.clearMessage(); vm.unlaunch(onBack) }
+                    } else null,
                     onScrub = {
                         vm.clearMessage()
                         scrubbing = true
@@ -109,6 +112,9 @@ fun InFlightScreen(
                         vm.clearRunErrors()
                         landingRun = true
                     },
+                    onUnlaunch = if (unlaunchAvailable(run)) {
+                        { vm.clearMessage(); vm.unlaunch(onBack) }
+                    } else null,
                     onScrub = {
                         vm.clearMessage()
                         scrubbing = true
@@ -131,6 +137,9 @@ fun InFlightScreen(
                         vm.clearMessage()
                         if (needsLandConfirmation(state)) confirmingLand = true else vm.land(onBack)
                     },
+                    onUnlaunch = if (unlaunchAvailable(ready)) {
+                        { vm.clearMessage(); vm.unlaunch(onBack) }
+                    } else null,
                     onScrub = {
                         vm.clearMessage()
                         scrubbing = true
@@ -288,6 +297,7 @@ private fun NoChecklistContent(
     onOpenSortieNote: () -> Unit,
     message: String?,
     onLand: () -> Unit,
+    onUnlaunch: (() -> Unit)?,
     onScrub: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
@@ -317,7 +327,7 @@ private fun NoChecklistContent(
                 style = LiftoffType.note().copy(color = Muted),
             )
         }
-        Footer(message = message, onLand = onLand, onScrub = onScrub)
+        Footer(message = message, onLand = onLand, onUnlaunch = onUnlaunch, onScrub = onScrub)
     }
 }
 
@@ -335,6 +345,7 @@ private fun ReadyContent(
     onOpenSortieNote: () -> Unit,
     message: String?,
     onLand: () -> Unit,
+    onUnlaunch: (() -> Unit)?,
     onScrub: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().background(Cream)) {
@@ -380,7 +391,7 @@ private fun ReadyContent(
             }
         }
 
-        Footer(message = message, onLand = onLand, onScrub = onScrub)
+        Footer(message = message, onLand = onLand, onUnlaunch = onUnlaunch, onScrub = onScrub)
     }
 }
 
@@ -983,9 +994,18 @@ private fun StepperButton(label: String, onClick: () -> Unit) {
 
 // ── Footer ─────────────────────────────────────────────────────────
 
-/** The footer while a sortie is being finished: the rejection line, then Land, then Scrub. */
+/**
+ * The footer while a sortie is being finished: the rejection line, then Land, then Scrub.
+ * Un-launch is offered only while nothing on the sortie is recorded, so a null closure leaves it out
+ * rather than dimming it.
+ */
 @Composable
-internal fun Footer(message: String?, onLand: () -> Unit, onScrub: () -> Unit) {
+internal fun Footer(
+    message: String?,
+    onLand: () -> Unit,
+    onUnlaunch: (() -> Unit)?,
+    onScrub: () -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = Ink, thickness = 3.dp)
         Column(
@@ -1008,6 +1028,10 @@ internal fun Footer(message: String?, onLand: () -> Unit, onScrub: () -> Unit) {
                 onClick = onLand,
             )
             Spacer(Modifier.height(8.dp))
+            if (onUnlaunch != null) {
+                UnderlinedTextButton(text = "Back to Launchpad", onClick = onUnlaunch)
+                Spacer(Modifier.height(8.dp))
+            }
             UnderlinedTextButton(text = "Scrub", onClick = onScrub)
         }
     }
