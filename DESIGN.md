@@ -140,6 +140,11 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
   each week starts clean.
 - A Mission is never created ahead of its week. Planning next week early is out of scope
   for v1.
+- **Reset week.** The current week, once confirmed (`ACTIVE` or `CLOSED`), can be started
+  over from the Mission screen. Its Mission is deleted with every sortie, Flight Plan and
+  recorded set in it, landed and scrubbed ones included, and its open generations are
+  cancelled. A new `DRAFT` with the same pattern takes its place, to edit and Confirm
+  again. (amended 2026-10-31)
 
 ### 4.3 Rolling order
 
@@ -568,7 +573,9 @@ The visual design is direction B, "Space Age": colors, type, components and mock
   - **No Mission this week:** the draft, with editable pattern chips and **Confirm**.
 - **In-Flight.** The checklist described in §6.
 - **Mission.** This week's pattern, the outline and its notes, and each sortie with its
-  state. Tapping a sortie shows its plan, or for a landed sortie its record.
+  state. Tapping a sortie shows its plan, or for a landed sortie its record. A confirmed
+  week offers **Reset week** (§4.2), behind a confirmation that says how many landed or
+  scrubbed sorties it deletes. (amended 2026-10-31)
 - **Landed.** History, newest first, grouped by week, with a detail view per sortie.
 - **Mission Control.** Every setting in §8, plus:
   - equipment management (add, edit, deactivate)
@@ -785,6 +792,12 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
+- **2026-10-31 — §4.2 and §9 add Reset week.** The owner set up equipment and objectives
+  after the first week was confirmed, and wanted the whole week redone with them; nothing
+  short of that redoes the outline. Resetting deletes the week rather than keeping its
+  landed sorties, by the owner's choice: sorties live inside their week's Mission and there
+  is one Mission per week, so keeping them would mean a second home for history. The
+  deleted sorties leave the Landed history and the coach's prompts with it.
 - **2026-10-20 — the harness was renamed: `nabu` is now `rho`.** The daemon, its sessions and
   its protocol methods are the same things under the new name, so every `nabu` in §1–§16 reads as
   `rho`. Its methods carry the `rho.` prefix (`rho.hello`, `rho.session.create`,

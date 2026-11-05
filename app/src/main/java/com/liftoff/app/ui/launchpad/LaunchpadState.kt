@@ -8,6 +8,7 @@ import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.domain.deriveCoachStatus
 import com.liftoff.app.domain.derivePendingSortieGenerationStatus
 import com.liftoff.app.domain.derivePlannedSortieGenerationStatus
+import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatEyebrow
 import com.liftoff.app.ui.sortie.formatWeekDate
@@ -45,6 +46,7 @@ sealed interface LaunchpadState {
         val rhoSessionId: String?,
         /** Whether asking Mission Control again for this sortie would be accepted; see MissionManager.regenerateFlightPlan. */
         val regenerateAvailable: Boolean,
+        val distanceUnit: DistanceUnit,
     ) : LaunchpadState
 
     /** Current sortie is PENDING — no flight plan yet. */
@@ -74,6 +76,7 @@ sealed interface LaunchpadState {
         val sortieIndex: Int,
         val sortieType: SortieType,
         val sortieFocus: String?,
+        val distanceUnit: DistanceUnit,
     ) : LaunchpadState
 
     /** Mission is CLOSED or ACTIVE with no current sortie. */
@@ -144,13 +147,14 @@ class LaunchpadStates(
                         db.generationDao().observeNewestNonCancelledForSortie(current.id),
                         manager.coachConfigured,
                         manager.generateRunPlans,
-                    ) { _, row, configured, runPlans ->
-                        deriveSortieCard(sorties, mission, current, row, configured, runPlans)
+                        manager.distanceUnit,
+                    ) { _, row, configured, runPlans, unit ->
+                        deriveSortieCard(sorties, mission, current, row, configured, runPlans, unit)
                     }.distinctUntilChanged()
                 } else {
-                    planChanges.map {
+                    planChanges.combine(manager.distanceUnit) { _, unit ->
                         if (current == null) deriveClosed(mission, sorties)
-                        else deriveActive(sorties, mission.pattern, mission.weekStart, current)
+                        else deriveActive(sorties, mission.pattern, mission.weekStart, current, unit)
                     }
                 }
             }
@@ -182,6 +186,7 @@ class LaunchpadStates(
         row: Generation?,
         coachConfigured: Boolean,
         generateRunPlans: Boolean,
+        distanceUnit: DistanceUnit,
     ): LaunchpadState {
         val chips = deriveChips(mission.pattern, sorties)
         val eyebrow = formatEyebrow(mission.weekStart, current.index, mission.pattern.length, current.type)
@@ -211,6 +216,7 @@ class LaunchpadStates(
                     generationStatus = planned.status,
                     rhoSessionId = planned.rhoSessionId,
                     regenerateAvailable = regenerateAvailable,
+                    distanceUnit = distanceUnit,
                 )
             }
             // The plan row is gone, so the card is the PENDING one and answers what a PENDING card would.
@@ -270,6 +276,7 @@ class LaunchpadStates(
         pattern: String,
         weekStart: java.time.LocalDate,
         current: Sortie,
+        distanceUnit: DistanceUnit,
     ): LaunchpadState {
         val chips = deriveChips(pattern, sorties)
         val eyebrow = formatEyebrow(weekStart, current.index, pattern.length, current.type)
@@ -290,6 +297,7 @@ class LaunchpadStates(
                     sortieIndex = current.index,
                     sortieType = current.type,
                     sortieFocus = current.focus,
+                    distanceUnit = distanceUnit,
                 )
             }
 

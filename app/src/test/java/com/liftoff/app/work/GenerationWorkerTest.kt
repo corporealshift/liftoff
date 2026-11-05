@@ -1123,23 +1123,22 @@ class GenerationWorkerTest {
     }
 
     /**
-     * a store that throws ends the generation like every other permanent end: the lift-plan fixture with its
-     * `Plank` named in punctuation only, which the schema accepts (`minLength: 1`) and the validator's only name
-     * check (duplicates) accepts, so what throws is [ExerciseDao.resolve] from inside
-     * [FlightPlanDao.writePlan] in the store transaction. `doWork()` returns `Result.failure()` rather than
-     * throwing or retrying, the row is FAILED with resolve's own sentence and its `finishedAt`, and nothing is
-     * stored — the transaction rolled back `writePlan`'s own `deleteForSortie` with it, so the sortie is still
-     * PENDING with no plan, no planned exercises and no planned sets. The session the turn ran on is given up
-     * once and stays on the row.
+     * a store that throws ends the generation like every other permanent end: a trigger aborts the first
+     * `plannedSet` insert, so what throws is [FlightPlanDao.writePlan] inside the store transaction, after it
+     * has already written the plan and an exercise. A bad name can't do this any more, as the validator refuses
+     * it first. `doWork()` returns `Result.failure()` rather than throwing or retrying, the row is FAILED with
+     * the exception's own sentence and its `finishedAt`, and nothing is stored — the transaction rolled back
+     * `writePlan`'s own `deleteForSortie` with it, so the sortie is still PENDING with no plan, no planned
+     * exercises and no planned sets. The session the turn ran on is given up once and stays on the row.
      */
     @Test
     fun aStoreThatThrowsFailsTheGenerationWithItsOwnMessageAndStoresNothing() {
-        val symbolsOnly = "?!?"
-        val fixture = CoachFixtures.fixture(CoachFixtures.LIFT_PLAN)
-        val reply = fixture.replace("\"Plank\"", "\"$symbolsOnly\"")
-        assertTrue("the fixture has no \"Plank\" name to replace", reply != fixture)
+        val refusal = "plannedSet refused by this test"
+        container.database.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER refusePlannedSet BEFORE INSERT ON plannedSet BEGIN SELECT RAISE(ABORT, '$refusal'); END",
+        )
         daemon.script(
-            DaemonScript.Assistant(reply),
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.LIFT_PLAN)),
             DaemonScript.State("idle"),
         )
 
@@ -1159,8 +1158,8 @@ class GenerationWorkerTest {
 
         val row = runBlocking { container.database.generationDao().get(generationId) }!!
         assertEquals(GenerationStatus.FAILED, row.status)
-        // resolve's own sentence, carrying the name as the reply wrote it, not a generic 'generation failed'.
-        assertEquals("Exercise name cannot be blank or symbols-only: '$symbolsOnly'", row.error)
+        // The exception's own sentence, not a generic 'generation failed'. SQLite may append its error code.
+        assertTrue("the row said '${row.error}'", row.error.orEmpty().contains(refusal))
         assertNotNull(row.finishedAt)
         assertEquals("the row lost the session its turn ran on", daemon.sessionId, row.nabuSessionId)
 
@@ -1537,6 +1536,100 @@ class GenerationWorkerTest {
         assertEquals(Generation.COACH_OFFLINE, waiting.error)
         assertTrue("the 7th attempt is not offline", waiting.isCoachOffline)
         assertNull("the 7th attempt stamped a row that is still waiting", waiting.finishedAt)
+    }
+
+    /**
+     * the settings are gone: two rows the unreachable path left RUNNING with 'Mission Control offline' in error,
+     * each run again at WorkManager's first attempt with one of the settings the container reads blanked — the
+     * host on one row, the token on the other, with the host back at the live fake so it is the token that
+     * decides. Both must show `Result.Failure`, and the row FAILED with error exactly 'Mission Control isn't set
+     * up' — the new reason in place of the offline text, not under it — finishedAt stamped,
+     * Generation.isCoachOffline false, no session id, its own attempt still 0, and nothing stored. A blank
+     * setting opens no socket at all, so the scripted daemon sees nothing: not even the hello the connection
+     * check would have sent.
+     */
+    @Test
+    fun aBlankHostOrTokenFailsTheGenerationAsMissionControlIsntSetUp() {
+        // A turn is queued up and never asked for: the settings under test name no daemon to run it on.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+
+        // Where this case starts is where an unreachable coach leaves a row: RUNNING, carrying the offline mark.
+        pointSettingsAtNothing()
+        val blankHostRowId = insertOutlineGeneration(mission.id)
+        val blankTokenRowId = insertOutlineGeneration(mission.id)
+        for (id in listOf(blankHostRowId, blankTokenRowId)) {
+            val offline = runWorker(id)
+            assertTrue("the run that left row $id for this test returned $offline", offline is ListenableWorker.Result.Retry)
+            val marked = runBlocking { container.database.generationDao().get(id) }!!
+            assertEquals(GenerationStatus.RUNNING, marked.status)
+            assertTrue("this test's own row $id carries no offline mark to replace: ${marked.error}", marked.isCoachOffline)
+        }
+
+        runBlocking { container.settingsStore.setDaemonHost("") }
+
+        val result = runWorker(blankHostRowId)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = mismatchFailedRow(blankHostRowId, mission.id, "Mission Control isn't set up")
+        assertFalse("a row a blank host ended is still waiting on the coach", row.isCoachOffline)
+        assertEquals("a blank host bumped the row's own attempt", 0, row.attempt)
+
+        pointSettingsAtTheLiveFake()
+        runBlocking { container.settingsStore.setDaemonToken("") }
+
+        val tokenResult = runWorker(blankTokenRowId)
+        assertTrue("doWork() on a blank token returned $tokenResult", tokenResult is ListenableWorker.Result.Failure)
+
+        val tokenRow = mismatchFailedRow(blankTokenRowId, mission.id, "Mission Control isn't set up")
+        assertFalse("a row a blank token ended is still waiting on the coach", tokenRow.isCoachOffline)
+        assertEquals("a blank token bumped the row's own attempt", 0, tokenRow.attempt)
+
+        assertNothingReachedTheDaemon()
+    }
+
+    /**
+     * a token the daemon won't take: the fake answers the WebSocket upgrade with the 401 it already returns when
+     * [FakeDaemon.refuseUpgrade] is set — the recipe
+     * `DaemonConnectionCheckTest.aRejectedTokenIsReportedAsAuthenticationRejectedNotUnreachable` uses to get
+     * `AuthenticationRejected` — while the settings still carry the token that used to work. It must show
+     * `Result.failure()`, and the row FAILED with error exactly 'Mission Control refused the token', finishedAt
+     * stamped, Generation.isCoachOffline false, its own attempt still 0, and nothing stored. The refusal is at
+     * the upgrade, so no session was ever opened and none is given up: the fake took the request and no JSON-RPC
+     * frame at all — no hello, no session, and no `rho.session.stop`. A row that still carried a session id from
+     * an earlier attempt would be failed the same way, with no stop attempted.
+     */
+    @Test
+    fun aRefusedTokenFailsTheGenerationAsMissionControlRefusedTheToken() {
+        // A turn is queued up and never asked for: the daemon refuses before a session exists to run it in.
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+
+        // Nothing about the settings changes; only the daemon's answer to the token does.
+        daemon.refuseUpgrade = true
+
+        val result = runWorker(generationId, runAttemptCount = 0)
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val row = mismatchFailedRow(generationId, mission.id, "Mission Control refused the token")
+        assertFalse("a row a refused token ended is still waiting on the coach", row.isCoachOffline)
+        assertEquals("a refused token bumped the row's own attempt", 0, row.attempt)
+
+        assertTrue(
+            "the worker never reached the daemon its settings name: ${daemon.requestCount()} requests",
+            daemon.requestCount() > 0,
+        )
+        assertNothingReachedTheDaemon()
+        assertSessionLeftOpen()
     }
 
     /**

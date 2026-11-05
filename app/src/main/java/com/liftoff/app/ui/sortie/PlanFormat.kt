@@ -85,12 +85,18 @@ fun formatExerciseLoad(exercise: PlannedExerciseDetail): String {
     }
 }
 
-/** Format the Flight Plan head: `≈55 min · 14 sets`. */
-fun formatPlanHead(plan: FlightPlanDetail): String {
+/** Format the Flight Plan head: `≈55 min · 14 sets` for a lift, `≈40 min · 3 mi` for a run. */
+fun formatPlanHead(plan: FlightPlanDetail, sortieType: SortieType, distanceUnit: DistanceUnit): String {
     val minutes = plan.plan.estimatedMinutes
-    val totalSets = plan.exercises.sumOf { it.sets.size }
-
     val minuteStr = if (minutes != null) "≈$minutes min" else null
+
+    // A run has no sets, so its head is its time and distance; empty when it has neither (a simple run).
+    if (sortieType == SortieType.RUN) {
+        val distance = plan.plan.targetDistance?.let { formatDistance(it, distanceUnit) }
+        return listOfNotNull(minuteStr, distance).joinToString(" · ")
+    }
+
+    val totalSets = plan.exercises.sumOf { it.sets.size }
     val setLabel = if (totalSets == 1) "1 set" else "$totalSets sets"
 
     return if (minuteStr != null) "$minuteStr · $setLabel" else setLabel

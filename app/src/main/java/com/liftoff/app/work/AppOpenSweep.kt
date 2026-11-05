@@ -26,8 +26,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * The rows and their Missions and sorties are read in one Room transaction so every decision is made against one
  * snapshot; the helpers are called after it commits, never inside it. Nothing is handed to either lambda when the
  * table holds no open row, which is what keeps WorkManager out of an app open that has nothing to repair. The
- * sweep reads no settings: a row asked for while Mission Control was configured is still resumed under the
- * worker's offline handling when it isn't. And it never queues a generation the app did not already ask for.
+ * sweep reads no settings: a row asked for while Mission Control was configured is resumed under the worker's
+ * offline handling only while Mission Control is unreachable, and is ended when the host or token has gone blank
+ * or the daemon refuses the token. And it never queues a generation the app did not already ask for.
  */
 class AppOpenSweep(
     private val db: LiftoffDatabase,

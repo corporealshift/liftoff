@@ -234,14 +234,14 @@ class PlanFormatTest {
     @Test
     fun formatPlanHeadNormal() {
         val plan = makePlan(estimatedMinutes = 55)
-        assertEquals("≈55 min · 0 sets", formatPlanHead(plan))
+        assertEquals("≈55 min · 0 sets", formatPlanHead(plan, com.liftoff.app.data.SortieType.LIFT, com.liftoff.app.settings.DistanceUnit.MI))
     }
 
     // Null estimate → no minutes, just sets
     @Test
     fun formatPlanHeadNullEstimate() {
         val plan = makePlan(estimatedMinutes = null)
-        assertEquals("0 sets", formatPlanHead(plan))
+        assertEquals("0 sets", formatPlanHead(plan, com.liftoff.app.data.SortieType.LIFT, com.liftoff.app.settings.DistanceUnit.MI))
     }
 
     // Singular "1 set"
@@ -251,7 +251,7 @@ class PlanFormatTest {
             makeSet(reps = 8, weight = 135.0),
         ))
         val plan = makePlan(estimatedMinutes = 20, exercises = listOf(exercise))
-        assertEquals("≈20 min · 1 set", formatPlanHead(plan))
+        assertEquals("≈20 min · 1 set", formatPlanHead(plan, com.liftoff.app.data.SortieType.LIFT, com.liftoff.app.settings.DistanceUnit.MI))
     }
 
     // Multiple exercises: total sets summed
@@ -267,7 +267,7 @@ class PlanFormatTest {
             makeSet(reps = 5, weight = 135.0),
         ))
         val plan = makePlan(estimatedMinutes = 45, exercises = listOf(ex1, ex2))
-        assertEquals("≈45 min · 5 sets", formatPlanHead(plan))
+        assertEquals("≈45 min · 5 sets", formatPlanHead(plan, com.liftoff.app.data.SortieType.LIFT, com.liftoff.app.settings.DistanceUnit.MI))
     }
 
     // ── deriveChips ───────────────────────────────────────────────────
@@ -334,5 +334,21 @@ class PlanFormatTest {
         assertEquals(ChipState.Landed, chips[0].state)
         assertEquals(ChipState.Upcoming, chips[1].state)
         assertEquals(ChipState.Upcoming, chips[2].state)
+    }
+    // A run's head is its time and distance in the configured unit, never a set count.
+    @Test
+    fun formatPlanHeadRun() {
+        val fp = FlightPlan(
+            id = 1, sortieId = 1, source = FlightPlanSource.GENERATED,
+            title = "Easy", estimatedMinutes = 40,
+            warmup = null, notes = null, runKind = "easy",
+            targetDistance = 3.5, targetPace = null, rawJson = "{}"
+        )
+        val plan = FlightPlanDetail(fp, emptyList(), emptyList())
+        val run = com.liftoff.app.data.SortieType.RUN
+        assertEquals("≈40 min · 3.5 mi", formatPlanHead(plan, run, com.liftoff.app.settings.DistanceUnit.MI))
+        assertEquals("≈40 min · 3.5 km", formatPlanHead(plan, run, com.liftoff.app.settings.DistanceUnit.KM))
+        val bare = FlightPlanDetail(fp.copy(estimatedMinutes = null, targetDistance = null), emptyList(), emptyList())
+        assertEquals("", formatPlanHead(bare, run, com.liftoff.app.settings.DistanceUnit.MI))
     }
 }

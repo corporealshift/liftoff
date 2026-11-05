@@ -37,10 +37,14 @@ abstract class MissionDao {
     @Query("SELECT COUNT(*) FROM mission")
     abstract suspend fun countAll(): Long
 
-    // The one Mission delete there is, and the only row it can remove is the DRAFT onAppOpen() makes on a
-    // cold start. The status guard is what stops it wiping a week's sortie history through the cascade.
+    // Import's delete: the only row it can remove is the DRAFT onAppOpen() makes on a cold start. The status
+    // guard is what stops it wiping a week's sortie history through the cascade.
     @Query("DELETE FROM mission WHERE id = :id AND status = 'DRAFT'")
     abstract suspend fun deleteDraft(id: Long)
+
+    // Reset week's delete, which does mean to take the week's sorties and plans with it through the cascade.
+    @Query("DELETE FROM mission WHERE id = :id")
+    abstract suspend fun deleteWeek(id: Long)
 
     @Query("SELECT * FROM mission WHERE weekStart = :weekStart")
     protected abstract fun observeRaw(weekStart: java.time.LocalDate): Flow<MissionWithSorties?>
