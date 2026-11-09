@@ -138,8 +138,10 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
   week ends. Any sortie not landed by the end of the week is marked `SCRUBBED`
   automatically, with the reason "week ended". **Unfinished sorties do not carry over** —
   each week starts clean.
-- A Mission is never created ahead of its week. Planning next week early is out of scope
-  for v1.
+- **Start next week.** A Mission is not created ahead of its week, with one exception. Once the current week's Mission is `CLOSED`, next week's
+  Mission can be started early from the Launchpad: a `DRAFT` with next Monday's `weekStart`
+  and the default pattern, which becomes the current week at once and is fully live
+  (Confirm, Flight Plans, Launch). Never more than one week ahead. (amended 2026-11-08)
 - **Reset week.** The current week, once confirmed (`ACTIVE` or `CLOSED`), can be started
   over from the Mission screen. Its Mission is deleted with every sortie, Flight Plan and
   recorded set in it, landed and scrubbed ones included, and its open generations are
@@ -570,6 +572,8 @@ The visual design is direction B, "Space Age": colors, type, components and mock
     retrying", or a failure with its reason). Retry, **Re-fly** and Scrub are available,
     plus "View in nabu", which shows the nabu session id so it can be opened in nabu's app.
   - **IN_FLIGHT:** a Resume button.
+  - **Mission closed:** the week's track and how many sorties landed, with **Start next
+    week** (§4.2) while the closed week is the calendar week. (amended 2026-11-08)
   - **No Mission this week:** the draft, with editable pattern chips and **Confirm**.
 - **In-Flight.** The checklist described in §6.
 - **Mission.** This week's pattern, the outline and its notes, and each sortie with its
@@ -792,6 +796,16 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
+- **2026-11-08 — §4.2 and §9: next week can be started early.** §4.2 said a Mission is never
+  created ahead of its week. The owner finished a week early and wanted to plan the next one
+  on the Sunday, but a closed week left the Launchpad with nothing to do until Monday. Once the current week is `CLOSED`, the
+  Launchpad's closed card offers **Start next week**: it makes next week's `DRAFT` (next
+  Monday's `weekStart`, the default pattern), and the app treats that week as current from
+  then on — the current week is the calendar week, unless a Mission already exists for the
+  week after it. Nothing else is stored, so Monday changes nothing, and rollover still goes by
+  the calendar. A sortie flown on the Sunday counts toward the new week, by the owner's
+  choice over holding Launch until Monday. Never more than one week ahead, and there is no
+  undo: the early draft is the one Monday would have made, and Reset week works on it.
 - **2026-10-31 — §4.2 and §9 add Reset week.** The owner set up equipment and objectives
   after the first week was confirmed, and wanted the whole week redone with them; nothing
   short of that redoes the outline. Resetting deletes the week rather than keeping its

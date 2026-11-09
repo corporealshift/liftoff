@@ -14,3 +14,7 @@ fun currentWeekStart(clock: Clock, zone: ZoneId): LocalDate =
 
 fun weekHasEnded(weekStart: LocalDate, today: LocalDate): Boolean =
     today >= weekStart.plusDays(7)
+
+/** The week the app works in: the calendar week, or the one after it once that has been started early. */
+fun effectiveWeekStart(calendarWeek: LocalDate, nextWeekStarted: Boolean): LocalDate =
+    if (nextWeekStarted) calendarWeek.plusWeeks(1) else calendarWeek

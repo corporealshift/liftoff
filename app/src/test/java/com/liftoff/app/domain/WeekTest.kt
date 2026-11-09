@@ -67,4 +67,11 @@ class WeekTest {
             currentWeekStart(nyClock, ZoneId.of("America/New_York")),
         )
     }
+
+    @Test
+    fun theWorkingWeekRunsOneAheadOnlyOnceNextWeekIsStarted() {
+        val calendarWeek = LocalDate.of(2026, 1, 12)
+        assertEquals(calendarWeek, effectiveWeekStart(calendarWeek, nextWeekStarted = false))
+        assertEquals(LocalDate.of(2026, 1, 19), effectiveWeekStart(calendarWeek, nextWeekStarted = true))
+    }
 }
