@@ -105,6 +105,7 @@ internal fun LaunchpadContent(
                 onRequestScrub = { viewModel.requestScrub() },
                 onRefly = { viewModel.refly() },
                 onRegenerate = { viewModel.regenerate() },
+                onStartNextWeek = { viewModel.startNextWeek() },
                 rhoSessionRevealed = rhoSessionRevealed,
                 onRevealRhoSession = { rhoSessionRevealed = true },
             )
@@ -300,6 +301,7 @@ private fun ActionButtons(
     onRequestScrub: () -> Unit,
     onRefly: () -> Unit,
     onRegenerate: () -> Unit,
+    onStartNextWeek: () -> Unit = {},
     rhoSessionRevealed: Boolean = false,
     onRevealRhoSession: () -> Unit = {},
 ) {
@@ -324,7 +326,7 @@ private fun ActionButtons(
                 state, onRequestScrub, onRefly, onRegenerate, rhoSessionRevealed, onRevealRhoSession,
             )
             is LaunchpadState.InFlight -> InFlightActions(onLaunch)
-            is LaunchpadState.Closed -> Unit
+            is LaunchpadState.Closed -> ClosedActions(state, onStartNextWeek)
             is LaunchpadState.Loading -> Unit
         }
     }
@@ -416,6 +418,19 @@ private fun DraftStepButton(
         ) {
             Text(text, style = LiftoffType.landLabel().copy(color = if (enabled) Cream else Sand))
         }
+    }
+}
+
+@Composable
+private fun ClosedActions(closed: LaunchpadState.Closed, onStartNextWeek: () -> Unit) {
+    // Absent rather than dimmed once a week has already been started early.
+    if (closed.canStartNextWeek) {
+        PrimaryButton(
+            text = "Start next week",
+            onClick = onStartNextWeek,
+            icon = LiftoffIcons.rocket(),
+            iconAtEnd = true,
+        )
     }
 }
 

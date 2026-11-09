@@ -138,6 +138,19 @@ class LaunchpadViewModel(
         }
     }
 
+    /** Start next week's Mission early. The manager moves the current week, so the screen follows to its draft. */
+    fun startNextWeek(): Job? {
+        val s = state.value
+        if (s !is LaunchpadState.Closed || !s.canStartNextWeek) return null
+        return scope.launch {
+            try {
+                manager.startNextWeek()
+            } catch (_: IllegalStateException) {
+                runCatching { manager.onAppOpen() }
+            }
+        }
+    }
+
     /** Queued names the row to schedule; CoachNotConfigured is the draft being told nothing was queued. */
     private fun queueOrReport(outcome: ConfirmOutcome) {
         when (outcome) {
