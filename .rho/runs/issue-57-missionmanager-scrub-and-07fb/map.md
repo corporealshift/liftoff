@@ -121,6 +121,69 @@ toolchain is `~/android-toolchain/{jdk,sdk,gradle}`; verified working:
 `JAVA_HOME=~/android-toolchain/jdk ANDROID_HOME=~/android-toolchain/sdk ~/android-toolchain/gradle/bin/gradle --version`
 → Gradle 8.11.1, JVM 17.
 
+Ran the whole gate here: `:app:assembleDebug :app:testDebugUnitTest` → BUILD SUCCESSFUL, 775 unit tests, 0
+failures, ≈2m cold / ≈1s warm. `app/build` is gitignored, so running the gate leaves the tree clean.
+
+## Verify script (.rho/runs/issue-57-.../verify.sh) — how it reads the gate
+
+- Gradle resolution order: `$LIFTOFF_GATE_GRADLE` → `bash gradlew.sh` if it actually runs (Git Bash on Windows)
+  → `$HOME/android-toolchain/gradle/bin/gradle` with JAVA_HOME/ANDROID_HOME exported → `./gradlew` (CI's POSIX
+  wrapper; `~/.gradle/wrapper/dists` is empty here, so it would download Gradle 8.11.1 — kept as the last resort)
+  → else fail.
+- Deletes `app/build/test-results/testDebugUnitTest` before the gate so the suite is proved to have run now;
+  Gradle restores it (FROM-CACHE) because its declared outputs are missing.
+- Reads `app/build/test-results/testDebugUnitTest/TEST-<fully.qualified.ClassName>.xml` — one file per class,
+  93 of them, 775 testcases today. Shape: `<testcase name="X" classname="com.liftoff…" time="0.1"/>`, or
+  `<testcase …><failure message="…" type="…">trace</failure></testcase>`; `<error …>` and `<skipped/>` also
+  appear. The script splits records on `<testcase` with awk, folds each name (drop backticks/underscores/
+  spaces, lowercase) and requires every named test to be present and PASS.
+- Both paths simulated: injecting the named testcases into copies of the XML → exit 0; a `<failure>` child on
+  one of them → exit 1. Untouched code → exit 1, 8 named tests missing.
+
+## Signatures today (checked)
+
+- `MissionManager.kt`: `scrub(sortieId, reason: String? = null): Long?` (264), `launch(sortieId): Unit` (279),
+  `unlaunch` (299), `land` (321), `refly: List<Long>` (345), `regenerateFlightPlan(sortieId, onQueued): List<Long>`
+  (379), `resetWeek: List<Long>` (429), `storePlan` (451), `private advance(missionId, settings): Long?` (498).
+- `LaunchpadViewModel.launch(onLaunched: (Long) -> Unit)` (151) returns Unit — a launch test cannot `joinAction`,
+  it must await the sortie becoming IN_FLIGHT. `confirmScrub(reason)` (180). `InFlightViewModel.scrub(reason, onDone)` (152).
+- There is **no `MissionShell.kt`**. The action scope is threaded as `LiftoffShell.kt:177`
+  `MissionScreen(container, actionScope = shellScope)` → `MissionScreen.kt:34,43` →
+  `MissionViewModel(..., private val actionScope: CoroutineScope = scope, ...)` (`MissionViewModel.kt:25`, used at
+  :53 `actionScope.launch { … }`). That is where a scrub/launch cancel scope has to be added.
+
+## Test names and fixtures that already exist (the verify script requires some of the names)
+
+- `MissionManagerTest` (40 tests): `scrubbingTheCurrentSortieQueuesTheNextSortiesFlightPlanAndReportsItsId`,
+  `aSortieWithAnOpenFlightPlanGenerationIsNotQueuedTwiceAndThatRowsIdIsReported`,
+  `aCurrentSortieQueuesNothingWhenMissionControlHasNoHostOrToken`, `scrubInFlightKeepsCheckedSets`,
+  `scrubbingLastSortieClosesMission`, `launchRecordsLaunchedAt`, `launchWorksAgainAfterUnlaunch`,
+  `landingTheCurrentSortieQueuesTheNextSortiesFlightPlanAndReportsItsId` (land stays `Long?` — out of scope),
+  `continueWithoutOutlineHandsBackEveryOpenOutlineGeneration`, `storeOutlineQueuesSortieOnesFlightPlanAndReportsItsId`.
+- `LaunchpadScrubTest` (4): `scrubFromTheLaunchpadQueuesTheNextSortiesFlightPlanGenerationForEnqueuing`,
+  `launchpadScrubStoresBlankReasonAsNull`, `launchpadScrubTrimsTheReason`, `launchpadScrubKeepsInteriorLineBreaks`.
+  Records `queuedIds` / `cancelledIds` (CopyOnWriteArrayList) and `escaped` throwables; `scope` is
+  `Dispatchers.Unconfined + job + CoroutineExceptionHandler`. Helpers: `plannedLaunchpad()` (102, a two-sortie
+  R-L week with the current sortie PLANNED, returns `Pair<LaunchpadViewModel, LaunchpadState.Planned>`),
+  `awaitScrubbed(vm, sortieId)` (122, polls the SortieDao until SCRUBBED and `vm.scrubbing` is clear),
+  `queuedPlanFor(sortieId)` (145, the one QUEUED FLIGHT_PLAN row read back from Room).
+- `LaunchpadRegenerateTest`: `activeWeek(pattern = "LRL")` (122), `newViewModel()` (134),
+  `joinAction(launched: Job?, vm)` (147), `awaitPending` / `awaitPlanned` / `awaitClosed`,
+  `openPlanRowFor(sortieId)` (189), `queuedRowEnqueued(missionId, sortieId)` (199), `assertManagerRefuses`,
+  `snapshot()` / `assertWroteNothing` / `insertSortieOf`, and the same `queuedIds` / `cancelledIds` recording.
+- `InFlightLandScrubTest` (18): `scrubFromInFlightQueuesTheNextSortiesQueuedFlightPlanIdOnce`,
+  `scrubFromInFlightKeepsCheckedSetsAndStoresReason`, `scrubWithAFailingEnqueueStillScrubbsAndShowsNoMessage`,
+  `scrubbingASortieThatIsNoLongerCurrentIsRejectedWithoutCrash`,
+  `landFromInFlightEnqueuesTheNextSortiesQueuedFlightPlanIdOnce`. Fixtures: `seedMission()` (96),
+  `landSortie0` (103), `seedSortie1LiftPlan` (110), `liftPlanDraft()` (118), `launchSortie1()` (141, drives
+  PENDING→PLANNED→IN_FLIGHT and returns `Pair<InFlightViewModel, InFlightState.Ready>`),
+  `launchSortie1WithEnqueue(...)` (159), `private class EnqueueRecording` (182), `awaitReady` / `awaitRun` /
+  `awaitDone`. `heldScope` is a **local** val in two tests (454, 731) that keeps a scope alive past the
+  view model's own — the nearest existing model for the action-scope split.
+- `MissionViewModelResetTest`: `screenScope` and `actionScope` are separate `CoroutineScope(Dispatchers.Default
+  + Job())` fields (42-43); the test cancels the screen scope and keeps the action scope alive, then cancels
+  both in tearDown.
+
 ## Facts worth remembering
 
 - `scrub`'s existing return value is a *queued* id, not a cancel list — the change has to keep that channel
