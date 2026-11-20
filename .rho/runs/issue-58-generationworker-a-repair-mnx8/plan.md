@@ -18,7 +18,9 @@ both say "same session"/"in-session" outright, so both are amended alongside the
 
 - `app/src/main/java/com/liftoff/app/work/GenerationWorker.kt` — the Invalid arm chooses the session from
   `refused.end`; the original prompt is carried into `storeFinishedTurn` so a fresh-session repair can send it; a
-  fresh session is started without the refused turn's cursor.
+  fresh session is started without the refused turn's cursor. The class KDoc and `storeFinishedTurn`'s KDoc ("handed
+  back to the same session") and the "Held here because a repair turn runs on the same session" comment are updated
+  to match.
 - `app/src/main/java/com/liftoff/app/coach/CoachPromptBuilder.kt` — the second repair shape (original prompt +
   refused reply + error lines), next to `repairPrompt`. Prompt text lives in `coach/`, which keeps the worker's loop
   the same size and gives the shape its own test. The alternative is building it inline in the worker; the brief names
@@ -26,8 +28,9 @@ both say "same session"/"in-session" outright, so both are amended alongside the
 - `app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt` — the new case, beside the two existing repair cases.
 - `app/src/test/java/com/liftoff/app/coach/CoachPromptBuilderTest.kt` — the new prompt shape on its own. Not a golden
   file: `CoachPromptGoldenFileTest` covers the three §7.4 prompts only.
-- `DESIGN.md` — §7.3 step 5 amended inline for the `completed` split, §10's "in-session repairs" row (611), and one
-  entry at the top of "Amendments after approval" (808), dated 2026-11-20.
+- `DESIGN.md` — §7.3 step 5 (line 339) amended inline for the `completed` split, §10's "in-session repairs" row (611),
+  the §10 comparison table's Validation row "with in-session repair (≤2)" (785), and one entry at the top of
+  "Amendments after approval" (808, newest first), dated 2026-11-20.
 - `ARCHITECTURE.md` — invariant 8's "up to 2 in-session repairs" wording.
 
 ## Order
@@ -66,9 +69,9 @@ repair cases already there.
 ## Risks
 
 - **The fake daemon has one session id and one shared log.** Give the new case a second, distinct id by setting
-  `daemon.sessionId` from a `DaemonScript.Act` at the end of the first turn rather than by reworking `FakeDaemon`'s
-  session model. If that turns out not to work, the smallest per-session knob is acceptable — but no existing test's
-  expectations may change.
+  `daemon.sessionId` (a `@Volatile var` on `FakeDaemon`) from a `DaemonScript.Act` at the end of the first turn rather
+  than by reworking `FakeDaemon`'s session model. If that turns out not to work, the smallest per-session knob is
+  acceptable — but no existing test's expectations may change.
 - **The fake never refuses a prompt on an ended session**, so the new case proves which session the worker chose, not
   the daemon's refusal. That is enough: before the fix there is one create frame and the repair names the old id.
 - **The cursor is the trap the fake will not show.** Handing the refused turn's cursor to a brand-new session makes the
@@ -77,6 +80,11 @@ repair cases already there.
 - **`storeFinishedTurn` does not receive the original prompt today.** Carrying it in is a private-signature change.
   Rebuilding it there with `promptFor` would produce identical text but re-reads Room and could drift if the row moved
   under the worker; carry it in.
+- **A repair turn that throws gives up the wrong session.** `runGeneration`'s catch gives up
+  `reportedSessionId ?: row.nabuSessionId`, and repair turns do not update `reportedSessionId`. Before this change that
+  was always the same session; after it, a permanent refusal during a fresh-session repair would stop the ended
+  session and leave the new one running. Have the repair turn's `onSessionId` update the id the catch uses too (or
+  read the row's id there); one line, no new test required beyond the existing permanent-refusal case.
 - **A `completed` turn with no assistant text at all** yields an empty refused reply in the fresh prompt. Not
   special-cased: the validator's error lines are what the coach is told, as today.
 - **Out of scope, and worth naming in the PR:** the same refusal still exists on the *resume* path — a row whose stored
