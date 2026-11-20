@@ -44,7 +44,7 @@ fixes. Never edit `.rho/runs/issue-57-missionmanager-scrub-and-07fb/verify.sh`; 
   Done when: that test ran and passed and the gate is green, with `LaunchpadPlannedActionsTest` and the other
   Launchpad tests untouched.
 
-- [ ] 3. `MissionManager.scrub` gains `onQueued` and hands back the scrubbed sortie's open ids
+- [x] 3. `MissionManager.scrub` gains `onQueued` and hands back the scrubbed sortie's open ids
   Covers: `scrub` takes `onQueued: (Long) -> Unit = {}` and returns the scrubbed sortie's open FLIGHT_PLAN ids
   instead of the id `advance` queued. Read the open rows before the SCRUBBED write (`regenerateFlightPlan`'s
   ordering comment is the warning); hand `advance`'s id to `onQueued` only after the transaction commits. This
