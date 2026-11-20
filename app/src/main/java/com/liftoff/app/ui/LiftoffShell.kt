@@ -127,6 +127,7 @@ fun LiftoffShell() {
             InFlightScreen(
                 sortieId = nav.inFlightSortieId!!,
                 container = container,
+                actionScope = shellScope,
                 onBack = {
                     navigated = true
                     nav = nav.back() ?: nav

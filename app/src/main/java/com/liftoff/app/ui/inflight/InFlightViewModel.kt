@@ -28,6 +28,14 @@ class InFlightViewModel(
     // Defaulted so the screen and every existing call site keep compiling; a test that wants a
     // fixed clock passes its own manager.
     private val missionManager: MissionManager = MissionManager(db, settings),
+    /** Cancels one generation: its work, its row and its rho session. */
+    private val cancelGeneration: suspend (Long) -> Unit = {},
+    /**
+     * Where a scrub's cancels run. The shell's scope, not this screen's: the screen leaves the moment the sortie
+     * stops being in flight, and a cancel riding on the scope that goes away with it would be cut off half-way
+     * and leave the coach turn running.
+     */
+    private val actionScope: CoroutineScope = scope,
     /** Hands one generation id to the enqueue helper. Asked for at action time, never at construction. */
     private val queueGeneration: (Long) -> Unit = {},
 ) {
@@ -148,25 +156,35 @@ class InFlightViewModel(
         }
     }
 
-    /** Scrub keeps the sets already logged; the reason is optional and normalised like a note. */
+    /**
+     * Scrub keeps the sets already logged; the reason is optional and normalised like a note. The Flight Plan
+     * generations still open on the sortie being scrubbed are the coach turn this scrub supersedes, so each is
+     * cancelled after the scrub has committed — each on its own, on the action scope, and outside the try below,
+     * so a cancel that fails there cannot turn a scrub already written into "Couldn't scrub this sortie.".
+     */
     fun scrub(reason: String?, onDone: () -> Unit) {
         if (left.get()) return
         if (busy) return
         busy = true
         message.value = null
         scope.launch {
-            try {
-                // The scrubbed sortie's own open rows are not cancelled here: storePlan refuses a SCRUBBED
-                // sortie, so an uncancelled row on one can never land a plan.
+            // null is the refusal, not an empty list: an empty list is a scrub that committed with nothing
+            // open on the sortie, and it still calls onDone.
+            val supersededIds = try {
                 missionManager.scrub(sortieId, normalizeNote(reason)) { enqueueQuietly(it) }
-                leaveOnce(onDone)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 message.value = "Couldn't scrub this sortie."
+                null
             } finally {
                 busy = false
             }
+            if (supersededIds == null) return@launch
+            for (generationId in supersededIds) {
+                actionScope.launch { cancelGeneration(generationId) }
+            }
+            leaveOnce(onDone)
         }
     }
 
