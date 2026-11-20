@@ -18,7 +18,7 @@ and the four existing ones all pass. The gate on this machine is
 Scratch files live under `app/build/`; never put a scratch test class under `app/src/test`. Do not touch
 `verify.sh`.
 
-- [ ] 1. The fresh-session repair prompt shape, in `coach/`
+- [x] 1. The fresh-session repair prompt shape, in `coach/`
   `app/src/main/java/com/liftoff/app/coach/CoachPromptBuilder.kt`: a second repair shape beside
   `repairPrompt` (48), built from the original prompt text, the refused reply and the validator's error
   list — a session with no history cannot be pointed at the two-line "Your reply was not valid:" prompt,
