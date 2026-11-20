@@ -83,7 +83,7 @@ fixes. Never edit `.rho/runs/issue-57-missionmanager-scrub-and-07fb/verify.sh`; 
   Done when: that test ran and passed and the gate is green, with the class's four existing scrub tests and its
   fixtures unchanged.
 
-- [ ] 5. In-Flight scrub cancels on the shell's action scope
+- [x] 5. In-Flight scrub cancels on the shell's action scope
   Covers: `InFlightViewModel` gains `cancelGeneration: suspend (Long) -> Unit = {}` and `actionScope` defaulting
   to its own `scope`; `InFlightScreen` passes `cancelGeneration = { id -> container.generationCanceller().cancel(id) }`
   the way `LaunchpadScreen` does, plus the `actionScope` it is now given; `LiftoffShell` passes `shellScope` to
