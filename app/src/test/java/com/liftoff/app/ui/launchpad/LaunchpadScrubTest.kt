@@ -278,7 +278,6 @@ class LaunchpadScrubTest {
         vm.confirmScrub("knee gave out")
 
         val scrubbed = awaitScrubbed(vm, sortieId)
-        assertEquals(listOf(seededId), cancelledIds.toList())
 
         val next = sortieDao.getForMission(scrubbed.missionId).first { it.index == planned.sortieIndex + 1 }
         val queuedRow = generationDao.getAll().single {
@@ -286,7 +285,9 @@ class LaunchpadScrubTest {
         }
         assertEquals(listOf(queuedRow.id), queuedIds.toList())
 
-        // The cancel is a Room write on the action scope, so it lands after the card does.
+        // The cancel is a Room write on the action scope, so it lands after the card does. The id it was handed is
+        // read once it has landed: an Unconfined action scope defers a launch nested inside another one, so the
+        // cancel can begin a moment after the card changed rather than before it.
         var row = generationDao.get(seededId)
         withTimeout(5_000L) {
             while (row == null || row.status != GenerationStatus.CANCELLED) {
@@ -295,6 +296,7 @@ class LaunchpadScrubTest {
             }
         }
         assertEquals(GenerationStatus.CANCELLED, row!!.status)
+        assertEquals(listOf(seededId), cancelledIds.toList())
         assertEquals(GenerationStatus.QUEUED, generationDao.get(queuedRow.id)!!.status)
         assertTrue(queuedRow.id !in cancelledIds)
         assertTrue(escaped.isEmpty())

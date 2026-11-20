@@ -236,6 +236,22 @@ class InFlightLandScrubTest {
         return Cancelling(vm, awaitReady(vm), rows.single(), ids, cancelledIds)
     }
 
+    /**
+     * The cancel had begun. Asked for rather than asserted straight after the completion callback: the action scope
+     * is Unconfined, and a nested unconfined loop defers a launch it is asked to start, so a cancel can begin a
+     * moment after onDone rather than before it. Asked for while the gate is still shut, so what it proves is still
+     * that a cancel is parked there and not skipped.
+     */
+    private suspend fun awaitCancelStarted(id: Long, cancelledIds: List<Long>) {
+        try {
+            withTimeout(5_000L) {
+                while (id !in cancelledIds) delay(25)
+            }
+        } catch (_: TimeoutCancellationException) {
+            throw AssertionError("no cancel was started for generation $id; cancelled=$cancelledIds escaped=$escaped")
+        }
+    }
+
     /** The generation row once its cancel has marked it CANCELLED. */
     private suspend fun awaitCancelledGeneration(id: Long, cancelledIds: List<Long>): Generation {
         var current: Generation? = null
@@ -774,7 +790,7 @@ class InFlightLandScrubTest {
         awaitDone(done)
         assertEquals(1, onDoneRuns)
 
-        assertEquals(listOf(f.openRow.id), f.cancelledIds.toList())
+        awaitCancelStarted(f.openRow.id, f.cancelledIds)
         assertEquals(
             "the scrub completed while its cancel was still parked on the gate, so it cannot have waited for one",
             GenerationStatus.QUEUED,
@@ -829,7 +845,7 @@ class InFlightLandScrubTest {
             done.complete(Unit)
         }
         awaitDone(done)
-        assertEquals(listOf(openRowId), f.cancelledIds.toList())
+        awaitCancelStarted(openRowId, f.cancelledIds)
         assertEquals(
             "the cancel was still in flight when the screen's scope went away",
             GenerationStatus.QUEUED,

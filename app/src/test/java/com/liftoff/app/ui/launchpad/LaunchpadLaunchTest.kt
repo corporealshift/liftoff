@@ -200,6 +200,22 @@ class LaunchpadLaunchTest {
         return row!!
     }
 
+    /**
+     * The cancel had begun. Asked for rather than asserted straight after the completion callback: the action scope
+     * is Unconfined, and a nested unconfined loop defers a launch it is asked to start, so a cancel can begin a
+     * moment after the callback rather than before it. Asked for while the gate is still shut, so what it proves is
+     * still that a cancel is parked there and not skipped.
+     */
+    private suspend fun awaitCancelStarted(id: Long, cancelledIds: List<Long>) {
+        try {
+            withTimeout(5_000L) {
+                while (id !in cancelledIds) delay(25)
+            }
+        } catch (_: TimeoutCancellationException) {
+            throw AssertionError("no cancel was started for generation $id; cancelled=$cancelledIds escaped=$escaped")
+        }
+    }
+
     /** The generation row once its cancel has marked it CANCELLED. */
     private suspend fun awaitCancelledPlan(vm: LaunchpadViewModel, row: Generation): Generation {
         var current: Generation? = null
@@ -237,7 +253,7 @@ class LaunchpadLaunchTest {
         assertEquals(listOf(fixture.sortie.id), launchedIds.toList())
 
         // The cancel has started on the action scope, and it is still parked there while Launch has navigated.
-        assertEquals(listOf(fixture.openRow.id), cancelledIds.toList())
+        awaitCancelStarted(fixture.openRow.id, cancelledIds)
         assertEquals(GenerationStatus.QUEUED, generationDao.get(fixture.openRow.id)!!.status)
 
         cancelGate.complete(Unit)
