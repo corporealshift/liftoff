@@ -276,18 +276,25 @@ class MissionManager(
         }
     }
 
-    suspend fun launch(sortieId: Long) {
-        db.withTransaction {
-            val sortie = db.sortieDao().get(sortieId)!!
-            val mission = db.missionDao().get(sortie.missionId)!!
-            check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
-            val sorties = db.sortieDao().getForMission(mission.id)
-            val current = currentSortie(sorties)
-            check(current != null && current.id == sortieId) { "Sortie must be current" }
-            requireNoneInFlight(db.sortieDao().getInFlight())
-            val launched = launch(sortie, clock.millis())
-            db.sortieDao().update(launched)
-        }
+    /**
+     * Take the current PLANNED sortie in flight. Returns the ids of this sortie's Flight Plan generations still
+     * open, for the caller to cancel: the plan the sortie already holds is the one it is now flying, so pressing
+     * Launch supersedes a Regenerate still queued or running on it (DESIGN.md §7.3's supersede rule).
+     */
+    suspend fun launch(sortieId: Long): List<Long> = db.withTransaction {
+        val sortie = db.sortieDao().get(sortieId)!!
+        val mission = db.missionDao().get(sortie.missionId)!!
+        check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
+        val sorties = db.sortieDao().getForMission(mission.id)
+        val current = currentSortie(sorties)
+        check(current != null && current.id == sortieId) { "Sortie must be current" }
+        requireNoneInFlight(db.sortieDao().getInFlight())
+        // Read the open rows before the write, as regenerateFlightPlan does: these are the rows the launch
+        // supersedes, and nothing this transaction writes belongs among them.
+        val superseded = db.generationDao().getOpenFlightPlanForSortie(sortieId).map { it.id }
+        val launched = launch(sortie, clock.millis())
+        db.sortieDao().update(launched)
+        superseded
     }
 
     /**

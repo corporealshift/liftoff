@@ -442,6 +442,33 @@ class MissionManagerTest {
         }
     }
 
+    // Launch on a PLANNED sortie a Regenerate is still working on: the plan the sortie already holds is the one it
+    // flies, so launch hands back that sortie's own open rows — the QUEUED and the RUNNING one alike, newest
+    // first — for the caller to cancel (DESIGN.md §7.3). Another sortie's open row is not among them, and launch
+    // leaves it open: the manager only names the ids, cancelling is the caller's.
+    @Test
+    fun launchingAPlannedSortieWithAnOpenFlightPlanGenerationReturnsThatRowsId() = runBlocking {
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.ACTIVE)
+        val s0 = insertSortie(mId, 0, SortieType.LIFT, "push", SortieState.PLANNED)
+        val s1 = insertSortie(mId, 1, SortieType.LIFT, "pull", SortieState.PENDING)
+
+        val queuedRow = seedFlightPlan(mId, s0, GenerationStatus.QUEUED, at = 1000L)
+        val runningRow = seedFlightPlan(mId, s0, GenerationStatus.RUNNING, at = 2000L)
+        val otherSortiesRow = seedFlightPlan(mId, s1, GenerationStatus.QUEUED, at = 1500L)
+
+        val superseded = manager.launch(s0)
+
+        assertEquals(SortieState.IN_FLIGHT, sortieDao.get(s0)!!.state)
+        assertEquals(listOf(runningRow.id, queuedRow.id), superseded)
+        assertFalse(
+            "the next sortie's open generation is not this launch's to cancel",
+            otherSortiesRow.id in superseded
+        )
+        assertEquals(listOf(otherSortiesRow), flightPlanRowsFor(s1))
+        assertEquals(GenerationStatus.QUEUED, db.generationDao().get(queuedRow.id)!!.status)
+        assertEquals(GenerationStatus.RUNNING, db.generationDao().get(runningRow.id)!!.status)
+    }
+
     // ── land ─────────────────────────────────────────────────────────────
 
     @Test
