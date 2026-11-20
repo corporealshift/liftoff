@@ -22,7 +22,7 @@ fixes. Never edit `.rho/runs/issue-57-missionmanager-scrub-and-07fb/verify.sh`; 
   Done when: that test ran and passed, and the gate is green — `manager.launch(...)` is a statement in ~10 other
   tests and in `LaunchpadViewModel`, all of which keep compiling unchanged.
 
-- [ ] 2. Launchpad: the shell's action scope, and Launch cancels what `launch` handed back
+- [x] 2. Launchpad: the shell's action scope, and Launch cancels what `launch` handed back
   Covers: `LaunchpadViewModel` gains `actionScope` defaulting to its own `scope`, documented the way
   `MissionViewModel`'s is; `LaunchpadScreen` and `launchpadViewModel` take it and pass it on; `LiftoffShell`
   passes `shellScope` to `LaunchpadScreen` as it already does for `MissionScreen`. The Planned branch of
