@@ -104,7 +104,7 @@ fixes. Never edit `.rho/runs/issue-57-missionmanager-scrub-and-07fb/verify.sh`; 
   Done when: both ran and passed and the gate is green, with the class's existing land/scrub/enqueue tests and
   `InFlightLeaveTest`/`InFlightRunTest` untouched.
 
-- [ ] 6. Read the change against the docs and run the whole gate
+- [x] 6. Read the change against the docs and run the whole gate
   Covers: re-read `MissionManager.launch`/`scrub`, `LaunchpadViewModel` and `InFlightViewModel` once against
   DESIGN.md §7.3 and ARCHITECTURE.md invariants 2, 5 and 6; confirm nothing else moved — the
   `refly`/`regenerateFlightPlan`/`continueWithoutOutline` cancel lists, the app-open sweep in `MainActivity`,
