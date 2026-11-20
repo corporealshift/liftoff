@@ -6,8 +6,10 @@ import com.liftoff.app.data.SortieState
 import com.liftoff.app.data.SortieType
 import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.settings.WeightUnit
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -509,6 +511,81 @@ class CoachPromptBuilderTest {
         for (error in errors) {
             assertTrue("$error is not in the repair prompt:\n$prompt", prompt.contains(error))
         }
+    }
+
+    /**
+     * The other repair shape (§7.3 step 5): the one a turn that ended `completed` is repaired under. A
+     * session with no history has no reply in it to be pointed at, so it is handed the original prompt,
+     * the refused reply and the validator's lines. As in the test above, the error lines come out of a
+     * real `CoachReplyValidator` run rather than being written here.
+     */
+    @Test
+    fun aFreshSessionRepairPromptCarriesTheOriginalPromptTheRefusedReplyAndEveryError() {
+        val original = CoachPromptBuilder.prompt(
+            flightPlan(
+                history = listOf(
+                    landed(
+                        date = LocalDate.parse("2026-10-05"),
+                        title = "Legs + pull",
+                        exercises = listOf(exercise("Bench press", done(8, 135.0))),
+                    )
+                )
+            )
+        )
+        val refused = invalidLiftReply()
+        val context = GenerationContext(
+            kind = GenerationKind.FLIGHT_PLAN,
+            pattern = week.pattern,
+            sortieType = SortieType.LIFT,
+            // The same ids the prompt above lists, so the refused reply is answering that prompt.
+            equipmentKeys = equipment.map { it.key },
+            sortieLengthMinutes = profile.sortieLengthMinutes,
+        )
+        val result = CoachReplyValidator.validate(refused, context)
+        assertTrue("the reply should have been rejected, got $result", result is CoachReplyResult.Invalid)
+        val errors = (result as CoachReplyResult.Invalid).errors
+        assertTrue("expected several errors, got $errors", errors.size > 1)
+
+        val prompt = CoachPromptBuilder.freshSessionRepairPrompt(original, refused, errors)
+
+        // The original prompt's text and the refused reply's text, each whole and in one piece.
+        assertTrue("the original prompt is not in the fresh-session repair prompt:\n$prompt", prompt.contains(original))
+        assertTrue("the refused reply is not in the fresh-session repair prompt:\n$prompt", prompt.contains(refused))
+        // In the order a coach needs them: the prompt, then the reply that answered it, then what was wrong.
+        assertTrue("the refused reply does not follow the original prompt:\n$prompt", prompt.indexOf(original) < prompt.indexOf(refused))
+
+        // §7.6: every error line, verbatim, one per line, in the order the validator raised them.
+        val lines = prompt.lines()
+        val start = lines.indexOf("Your reply was not valid:")
+        assertTrue("no 'Your reply was not valid:' line in:\n$prompt", start >= 0)
+        assertEquals(errors, lines.subList(start + 1, start + 1 + errors.size))
+        for (error in errors) {
+            assertTrue("$error is not in the fresh-session repair prompt:\n$prompt", prompt.contains(error))
+        }
+
+        // The same ask §7.3 words a repair with, and nothing after it.
+        assertEquals("Reply again with only the corrected JSON object.", lines.last())
+
+        // The class's own rule: the same inputs give byte-identical text.
+        assertArrayEquals(
+            "the same inputs gave different bytes",
+            prompt.toByteArray(Charsets.UTF_8),
+            CoachPromptBuilder.freshSessionRepairPrompt(original, refused, errors).toByteArray(Charsets.UTF_8),
+        )
+
+        // Neither shape it is built beside: not the original prompt on its own, and not the two-line
+        // same-session repair prompt on its own.
+        assertNotEquals("the fresh-session repair prompt is the original prompt alone", original, prompt)
+        assertNotEquals(
+            "the fresh-session repair prompt is the same-session repair prompt",
+            CoachPromptBuilder.repairPrompt(errors),
+            prompt,
+        )
+
+        // And the two are not interchangeable: the same-session repair carries neither the prompt nor the reply.
+        val sameSession = CoachPromptBuilder.repairPrompt(errors)
+        assertFalse("the same-session repair prompt carries the original prompt", sameSession.contains(original))
+        assertFalse("the same-session repair prompt carries the refused reply", sameSession.contains(refused))
     }
 
     // ─── fixtures ───────────────────────────────────────────────────────────────
