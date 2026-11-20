@@ -1,5 +1,7 @@
 # Map — issue 57 (scrub / launch cancel the sortie's open Flight Plan generation)
 
+Split into 6 ordered tasks in `.rho/runs/issue-57-missionmanager-scrub-and-07fb/tasks.md`.
+
 ## The code the issue names
 
 **`app/src/main/java/com/liftoff/app/data/MissionManager.kt`** (539 lines) — the only writer of the week's
@@ -70,6 +72,29 @@ Room; it is not a failed land or scrub". `land`/`unlaunch` are the neighbouring 
 
 **`app/src/main/java/com/liftoff/app/ui/mission/MissionViewModel.kt`** (20) and `MissionScreen.kt` (42) — the
 other place `cancelGeneration` is already threaded through, for reference.
+
+## Wiring, checked line by line (2026-11-20)
+
+- `scrub`'s only main-source call sites are `InFlightViewModel.kt:159` and `LaunchpadViewModel.kt:190`;
+  `manager.launch`'s only main-source call site is `LaunchpadViewModel.kt:163`. Only three places in the tests
+  bind `scrub`'s return value: `MissionManagerTest.kt:713`, `:842`, `:872`.
+- `MissionManagerTest.kt:725` — `private suspend fun seedFlightPlan(missionId, sortieId, status:
+  GenerationStatus, at): Generation`. The case at 854 mixes the two actions: its first half asserts on
+  `manager.land(...)` (which stays `Long?`, out of scope) and only its last `scrub` changes shape.
+- `LiftoffShell.kt`: `shellScope = rememberCoroutineScope()` (79); `InFlightScreen(sortieId, container, onBack)`
+  (127); `LaunchpadScreen(container, onOpenInFlight = …)` (170); `MissionScreen(container, actionScope =
+  shellScope)` (177).
+- `LaunchpadScreen.kt:40` takes `(container, onOpenInFlight)` and builds the VM through
+  `internal fun launchpadViewModel(container, scope)` (54). **`LiftoffShell` is the only caller of
+  `LaunchpadScreen`**; the Compose card tests render `LaunchpadContent` on their own view model, so a required
+  `actionScope` on `LaunchpadScreen`/`launchpadViewModel` breaks no test.
+- `InFlightScreen.kt:43` takes `(sortieId, container, onBack)` and is called by **17 sites in
+  `InFlightScreenTest.kt`** (95, 149, 227, 300, 373, 459, 543, 618, 718, 799, 871, 932, 985, 1052, 1107, 1157).
+  A new `actionScope` there needs a default (falling back to the screen's own `rememberCoroutineScope`) or all
+  17 break. That class never taps Scrub — `scrubReason = null` is only a rendered-state field — so no real
+  canceller or enqueuer runs in it.
+- `MissionScreen.kt:31` declares `actionScope: CoroutineScope` with **no default**, which is safe only because
+  `LiftoffShell` is its sole caller.
 
 **`app/src/main/java/com/liftoff/app/MainActivity.kt`** — 34-42: `onAppOpen()` then `AppOpenSweep` with
 enqueue/cancel lambdas. The sweep is the thing that today cleans up the stale rows the brief describes.
@@ -183,6 +208,32 @@ failures, ≈2m cold / ≈1s warm. `app/build` is gitignored, so running the gat
 - `MissionViewModelResetTest`: `screenScope` and `actionScope` are separate `CoroutineScope(Dispatchers.Default
   + Job())` fields (42-43); the test cancels the screen scope and keeps the action scope alive, then cancels
   both in tearDown.
+
+## The 11 tests verify.sh names (checked against the tree, 2026-11-20)
+
+Already in `MissionManagerTest.kt` and must be rewritten in place onto `onQueued`, not replaced:
+`scrubbingTheCurrentSortieQueuesTheNextSortiesFlightPlanAndReportsItsId` (705),
+`aCurrentSortieQueuesNothingWhenMissionControlHasNoHostOrToken` (838, `assertNull(reported)`),
+`aSortieWithAnOpenFlightPlanGenerationIsNotQueuedTwiceAndThatRowsIdIsReported` (854).
+
+Absent, so each has to be written, in exactly one place:
+- `MissionManagerTest` — `scrubbingASortieWithAnOpenFlightPlanGenerationReturnsThatRowsId`,
+  `scrubbingASortieReturnsItsOpenRunningFlightPlanRowToo`,
+  `launchingAPlannedSortieWithAnOpenFlightPlanGenerationReturnsThatRowsId`,
+  `scrubbingOrLaunchingASortieWithNoOpenGenerationReturnsNothingAndStillWritesTheSortie`
+- `LaunchpadScrubTest` — `scrubFromTheLaunchpadCancelsTheScrubbedSortiesOpenFlightPlanGeneration`
+- `LaunchpadLaunchTest` (**new class**) —
+  `launchFromTheLaunchpadCancelsTheSortiesOpenFlightPlanGenerationAndStillNavigates`
+- `InFlightLandScrubTest` —
+  `scrubFromInFlightCancelsTheSortiesOpenFlightPlanGenerationAndStillEnqueuesTheQueuedPlan`,
+  `scrubFromInFlightCancelsTheOpenGenerationAfterTheScreenScopeIsCancelled`
+
+`verify.sh` also fails on any test in any class that ran and did not pass, so the whole suite is part of done.
+
+**Baseline, run in this worktree 2026-11-20:** `bash .rho/runs/.../verify.sh` → gate BUILD SUCCESSFUL (it
+resolves `~/android-toolchain/gradle/bin/gradle` here), 775 unit tests ran and passed, exit 1 with exactly the
+8 absent tests above listed as missing and the 3 existing ones reported `ok`. So the run's whole job is those 8
+plus keeping the other 775 green.
 
 ## Facts worth remembering
 
