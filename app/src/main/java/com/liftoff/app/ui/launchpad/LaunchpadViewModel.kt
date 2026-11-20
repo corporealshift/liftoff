@@ -27,6 +27,12 @@ class LaunchpadViewModel(
     private val queueGeneration: (Long) -> Unit,
     /** Hands one generation id to the cancel helper: its work, its row, and its session. */
     private val cancelGeneration: suspend (Long) -> Unit,
+    /**
+     * Where the superseded generations are cancelled. The shell's scope, not this screen's: Launch opens In-Flight
+     * the moment the sortie is in flight, and that must not stop the cancels half-way and leave the coach turn the
+     * owner just superseded running.
+     */
+    private val actionScope: CoroutineScope = scope,
 ) {
     /** Scrub confirmation dialog state. The reason lives in the dialog, not here. */
     var scrubbing by mutableStateOf(false)
@@ -148,6 +154,12 @@ class LaunchpadViewModel(
 
     // ── Launch ───────────────────────────────────────────────────────
 
+    /**
+     * Take the current sortie in flight. The Flight Plan generations the manager found still open on it are the
+     * Regenerate this Launch supersedes, so each is cancelled on its own after the launch has committed — on its
+     * own, and without waiting: stopping a session can mean a daemon round trip, and the plan the sortie already
+     * holds is the one it is now flying either way.
+     */
     fun launch(onLaunched: (Long) -> Unit) {
         val s = state.value
         val sortieId = when (s) {
@@ -160,7 +172,10 @@ class LaunchpadViewModel(
                 if (s is LaunchpadState.InFlight) {
                     onLaunched(sortieId)
                 } else {
-                    manager.launch(sortieId)
+                    val supersededIds = manager.launch(sortieId)
+                    for (generationId in supersededIds) {
+                        actionScope.launch { cancelGeneration(generationId) }
+                    }
                     onLaunched(sortieId)
                 }
             } catch (_: IllegalStateException) {
