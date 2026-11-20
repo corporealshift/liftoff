@@ -190,8 +190,13 @@ class LaunchpadViewModel(
         scrubbing = true
     }
 
-    /** The reason arrives from the dialog's Confirm; blank or whitespace-only stores null. The Flight Plan id
-     * scrub queued for the sortie it made current is enqueued only after scrub has returned. */
+    /**
+     * The reason arrives from the dialog's Confirm; blank or whitespace-only stores null. The Flight Plan id scrub
+     * queued for the sortie it made current is enqueued only after scrub has returned. The Flight Plan generations
+     * scrub found still open on the sortie being scrubbed are the coach turn that scrub supersedes, so each is
+     * cancelled after the scrub has committed — each on its own, on the action scope, so a cancel that fails there
+     * cannot turn a scrub already written into a failure.
+     */
     fun confirmScrub(reason: String) {
         val s = state.value
         val sortieId = when (s) {
@@ -202,9 +207,14 @@ class LaunchpadViewModel(
         }
         scope.launch {
             try {
-                // scrub's superseded ids are not cancelled here: storePlan refuses a SCRUBBED sortie, so an
-                // uncancelled row on one can never land a plan.
-                manager.scrub(sortieId, reason.trim().takeIf { it.isNotEmpty() }, queueGeneration)
+                val supersededIds = manager.scrub(
+                    sortieId,
+                    reason.trim().takeIf { it.isNotEmpty() },
+                    queueGeneration,
+                )
+                for (generationId in supersededIds) {
+                    actionScope.launch { cancelGeneration(generationId) }
+                }
             } catch (_: IllegalStateException) {
                 runCatching { manager.onAppOpen() }
             } finally {

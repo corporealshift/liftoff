@@ -118,6 +118,36 @@ class LaunchpadScrubTest {
         return vm to planned
     }
 
+    /**
+     * [plannedLaunchpad]'s week with Mission Control configured, so a scrub of the current sortie queues a Flight
+     * Plan for the next one. Its cancel lambda marks the row it is handed CANCELLED the way GenerationCanceller
+     * marks it, where the fixture above only records the id: a cancel here is a write the test reads back from
+     * Room. It is still never the real canceller, which reaches for WorkManager and a daemon this harness has
+     * neither of.
+     */
+    private suspend fun plannedLaunchpadWithMissionControl(): Pair<LaunchpadViewModel, LaunchpadState.Planned> {
+        settingsStore.setDaemonHost(MISSION_CONTROL_HOST)
+        settingsStore.setDaemonToken(MISSION_CONTROL_TOKEN)
+        settingsStore.setDefaultPattern("RL")
+        val mission = manager.onAppOpen()
+        manager.continueWithoutOutline(mission.id)
+
+        val vm = LaunchpadViewModel(
+            db = db,
+            manager = manager,
+            scope = scope,
+            queueGeneration = { queuedIds.add(it) },
+            cancelGeneration = { id ->
+                cancelledIds.add(id)
+                generationDao.markCancelled(id, System.currentTimeMillis())
+            },
+        )
+        val planned = withTimeout(5_000L) {
+            vm.state.first { it is LaunchpadState.Planned }
+        } as LaunchpadState.Planned
+        return vm to planned
+    }
+
     /** The sortie row once the scrub has reached the database, and the dialog has closed. */
     private suspend fun awaitScrubbed(vm: LaunchpadViewModel, sortieId: Long): Sortie {
         var row: Sortie? = null
@@ -224,6 +254,49 @@ class LaunchpadScrubTest {
         assertTrue(cancelledIds.isEmpty())
         assertTrue(plan.id !in cancelledIds)
         assertEquals(GenerationStatus.QUEUED, generationDao.get(plan.id)!!.status)
+        assertTrue(escaped.isEmpty())
+    }
+
+    // Scrub a sortie that has a coach turn still open on it: the scrub supersedes it, so the view model hands that
+    // row's id to the cancel helper and the row reads back CANCELLED from Room. The id scrub queued for the sortie it
+    // made current still reaches the queue helper, and that row stays QUEUED.
+    @Test
+    fun scrubFromTheLaunchpadCancelsTheScrubbedSortiesOpenFlightPlanGeneration() = runBlocking {
+        val (vm, planned) = plannedLaunchpadWithMissionControl()
+        val sortieId = planned.sortieId
+        val seededId = generationDao.insert(
+            Generation(
+                kind = GenerationKind.FLIGHT_PLAN,
+                missionId = sortieDao.get(sortieId)!!.missionId,
+                sortieId = sortieId,
+                status = GenerationStatus.QUEUED,
+                createdAt = System.currentTimeMillis(),
+            )
+        )
+
+        vm.requestScrub()
+        vm.confirmScrub("knee gave out")
+
+        val scrubbed = awaitScrubbed(vm, sortieId)
+        assertEquals(listOf(seededId), cancelledIds.toList())
+
+        val next = sortieDao.getForMission(scrubbed.missionId).first { it.index == planned.sortieIndex + 1 }
+        val queuedRow = generationDao.getAll().single {
+            it.kind == GenerationKind.FLIGHT_PLAN && it.sortieId == next.id
+        }
+        assertEquals(listOf(queuedRow.id), queuedIds.toList())
+
+        // The cancel is a Room write on the action scope, so it lands after the card does.
+        var row = generationDao.get(seededId)
+        withTimeout(5_000L) {
+            while (row == null || row.status != GenerationStatus.CANCELLED) {
+                delay(25)
+                row = generationDao.get(seededId)
+            }
+        }
+        assertEquals(GenerationStatus.CANCELLED, row!!.status)
+        assertEquals(GenerationStatus.QUEUED, generationDao.get(queuedRow.id)!!.status)
+        assertTrue(queuedRow.id !in cancelledIds)
         assertTrue(escaped.isEmpty())
     }
 
