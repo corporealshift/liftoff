@@ -92,6 +92,41 @@
   Invariant 3 (64): nothing in rho changes, only existing protocol methods. Invariant 2 (63): `coach/` is pure Kotlin.
 - `DESIGN.md` §7.6 (514): "The error list is sent back verbatim in repair prompts."
 
+## Confirmed at the tasks step (line numbers re-read, not inferred)
+
+- `CoachTurnRunner.kt`: `TURN_ENDS` (62-68) maps `"completed"` → `TurnEnd.Completed`, so
+  `DaemonScript.State("completed")` is what makes a turn end `Completed`. `runCoachTurn` calls
+  `onSessionId(session)` (190) on **both** the create and the resume path, so a fresh session's id already
+  reaches `savingProgressTo` and the row; only `reportedSessionId` in the worker does not.
+  `eventsAfter` (256-267) sends `rho.session.events_after` through `EventsAfterParams(sessionId, cursor)` —
+  a null cursor is what makes the frame carry none, and `CURSOR_UNKNOWN` gets one retry with no cursor.
+- `FakeDaemon.kt`: the cursor key in an `events_after` frame is **`last_event_id`** (266-278), so "the new
+  session was read with no cursor carried over" is an assertion on that key being absent.
+  `EventsAfterParams` (`rho/net/DaemonClient.kt` 319-322) has `last_event_id` defaulting to null, and
+  `RhoJson` (`rho/protocol/Events.kt` 22-27) sets `explicitNulls = false`, so a null cursor really is an
+  **absent key** in the frame rather than `"last_event_id": null`.
+  `rho.session.create` (228-237) answers `session_id` from `sessionId` at the moment of the call, so a
+  `DaemonScript.Act` that sets `daemon.sessionId` mid-run gives the next create a distinct id.
+  `rho.session.stop` (280-286) appends `state_change to=completed reason=stopped` — a stop is not a turn end
+  the worker chose. `nextTurn()` (399-403) replays the last scripted turn once the list runs out.
+- `GenerationWorkerTest.kt` helpers, exact lines: `runWorker` 1956, `insertOutlineGeneration` 1990,
+  `assertSessionGivenUpOnce` 2051, `assertSessionLeftOpen` 2061, `frameFor` 2103 (needs exactly one),
+  `firstFrameFor` 2115, `userMessagesFor` 2124, `promptsSent` 2131, `methodsSent` 2138.
+  `aPermanentRefusalAtACallFailsTheGenerationWithTheDaemonsMessageAndStopsTheSession` is at 1102.
+- `CoachFixtures.kt`: `BAD_JSON` 24, `SCHEMA_VIOLATION` 26, `OUTLINE_CONTEXT` 38, `fixture` 60,
+  `errorsOf` 93. Fixtures live under `app/src/test/resources/fixtures`, golden prompts under
+  `app/src/test/resources/prompts`.
+- `CoachPromptBuilderTest.kt` is a plain JVM test (no Robolectric) with the inputs written by hand at the top
+  of the file (`profile` 23, `equipment` 30, `week` 37); `repairPromptCarriesEveryValidatorErrorAndAsksForOnlyTheCorrectedJson`
+  is at 484 and reads its error lines out of a real `CoachReplyValidator.validate` run rather than writing
+  them — the new prompt test should do the same.
+- `GenerationWorker.kt`: `MAX_REPAIRS = 2` at 506; `promptFor` 413-420; `failGeneration` 430-444;
+  `giveUpSession` 447; `handSessionBack` 461.
+- Docs lines confirmed: `DESIGN.md` §7.3 step 5's "Invalid … in the **same session**" sentence is 338-340;
+  §10's "Invalid output" row is 611; §10's comparison-table row 10 "Validation | On the phone, with
+  in-session repair (≤2)" is 785; "Amendments after approval" heading 808, newest entry (2026-11-02) 812.
+  `ARCHITECTURE.md` invariants table 60-68: invariant 2 (63), 3 (64), 6 (67), 8 (69).
+
 ## Gate
 
 `gradlew.sh` pins `C:/Users/corpo/android-toolchain/...` — Windows paths, so it does not run on this machine:
@@ -105,7 +140,9 @@ believing it.
 
 Run it with `bash` (it is not executable). Measured on the untouched tree: exit 1 in ~1m08s, with
 `--- reports: 775 tests, 0 failures, 0 errors, 0 skipped` and exactly three `MISSING` lines for the three new
-test names. So the suite today is **775 testcases across 39 `TEST-*.xml` reports** (the 783 figure elsewhere is an
+test names. So the suite today is **775 testcases across 93 `TEST-*.xml` reports** (re-counted from
+`app/build/test-results/testDebugUnitTest` at the tasks step: 93 files, every one with `tests>0`, summing to
+775; the 39 figure an earlier note of this map carried was a mis-count, and the 783 figure elsewhere is an
 older tree), and every class check below passes before the fix.
 
 - Gradle ladder: `$LIFTOFF_GATE_GRADLE` → `bash gradlew.sh` (only if `bash gradlew.sh --version` succeeds, i.e. Git
