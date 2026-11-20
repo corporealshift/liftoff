@@ -94,8 +94,69 @@
 
 ## Gate
 
-`gradlew.sh` pins `C:/Users/corpo/android-toolchain/...` — Windows paths, so it does not run on this machine.
-Locally: `JAVA_HOME=~/android-toolchain/jdk ANDROID_HOME=~/android-toolchain/sdk
-~/android-toolchain/gradle/bin/gradle :app:assembleDebug :app:testDebugUnitTest` (~1m08s warm;
-`--no-build-cache` plus `rm -rf app/build/test-results/testDebugUnitTest` to force a real run).
-Suite today: 783 unit tests. `LiftoffShellTest` is the known flake in a full-suite run — rerun before believing it.
+`gradlew.sh` pins `C:/Users/corpo/android-toolchain/...` — Windows paths, so it does not run on this machine:
+`bash gradlew.sh --version` fails here, and `./gradlew` fails too unless `JAVA_HOME` is set. Locally the same
+toolchain is used directly: `JAVA_HOME=~/android-toolchain/jdk ANDROID_HOME=~/android-toolchain/sdk
+~/android-toolchain/gradle/bin/gradle :app:assembleDebug :app:testDebugUnitTest` (~1m08s warm, ~1m08s with the
+daemon already up; 46 actionable tasks). `LiftoffShellTest` is the known flake in a full-suite run — rerun before
+believing it.
+
+## The gate script (`.rho/runs/issue-58-generationworker-a-repair-mnx8/verify.sh`)
+
+Run it with `bash` (it is not executable). Measured on the untouched tree: exit 1 in ~1m08s, with
+`--- reports: 775 tests, 0 failures, 0 errors, 0 skipped` and exactly three `MISSING` lines for the three new
+test names. So the suite today is **775 testcases across 39 `TEST-*.xml` reports** (the 783 figure elsewhere is an
+older tree), and every class check below passes before the fix.
+
+- Gradle ladder: `$LIFTOFF_GATE_GRADLE` → `bash gradlew.sh` (only if `bash gradlew.sh --version` succeeds, i.e. Git
+  Bash on Windows) → `$HOME/android-toolchain/gradle/bin/gradle` with `JAVA_HOME`/`ANDROID_HOME` defaulted to that
+  toolchain → `./gradlew`.
+- The gate is `:app:assembleDebug :app:testDebugUnitTest --no-build-cache`, with the previous
+  `app/build/test-results/testDebugUnitTest` moved aside first (`mv`, not `rm -rf`: a stranded executor can hold
+  `binary/output.bin`). It then refuses a green run whose log says
+  `:app:testDebugUnitTest FROM-CACHE|UP-TO-DATE|NO-SOURCE`, because `org.gradle.caching=true` would otherwise let a
+  deleted results directory come back FROM-CACHE in about a second.
+- Up to 3 gate attempts, retried only when the failure is not a reported test result: no `BUILD SUCCESSFUL`/
+  `BUILD FAILED` line in the log (killed by the `timeout 1800`), the infra greps (daemon disappeared, OOM, Test
+  Executor, task timeout), no results directory without a Kotlin compile error, or every failing testcase in
+  `com.liftoff.app.ui.LiftoffShellTest`. A failure in any other class — including the new cases — is not retried.
+- Test names are matched across all reports with backticks/underscores/spaces removed and case folded, and a
+  `[param]` suffix stripped, so a backticked or parameterised name still counts. A `skipped` child counts as not
+  passing; no test in this suite skips today (no `@Ignore`, `assumeTrue`, `LIFTOFF_LIVE*` anywhere in `app/src`).
+- Named tests it requires (the comments in the script say what each must assert):
+  new — `aRefusedTurnThatEndedCompletedRepairsOnANewSessionAndThenTheGenerationSucceeds`,
+  `aGenerationThatRunsOutOfRepairsOnCompletedTurnsFailsWithTheLastErrorsAndNotTheDaemonsRefusal` (both
+  GenerationWorkerTest), `aFreshSessionRepairPromptCarriesTheOriginalPromptTheRefusedReplyAndEveryError`
+  (CoachPromptBuilderTest);
+  existing, must keep passing — `anInvalidReplyIsRepairedInTheSameSessionAndThenTheGenerationSucceeds`,
+  `afterTwoFailedRepairsTheGenerationFailsWithTheLastErrorsAndStoresNothing`,
+  `repairPromptCarriesEveryValidatorErrorAndAsksForOnlyTheCorrectedJson`,
+  `aPermanentRefusalAtACallFailsTheGenerationWithTheDaemonsMessageAndStopsTheSession`.
+- Class checks (all their tests must have run and passed): GenerationWorkerTest (36), CoachTurnRunnerTest (13),
+  CoachPromptBuilderTest (15), CoachPromptGoldenFileTest (5), CoachReplySemanticTest (15),
+  CoachReplyExtractionTest (10), GenerationDaoTest (9), PromptInputLoaderTest (11), GenerationCancellerTest (3).
+  No UI class is named: the brief names a worker test and the plan names no screen test.
+- Not checked, by design: the cursor a fresh session starts with (the fake's shared log answers a carried cursor
+  happily; only the `events_after` frame is visible, and the script asks for it inside the first new test), whether
+  the worker stops the session it is leaving, a permanent refusal inside a fresh-session repair (the plan says no
+  new test beyond the existing permanent-refusal case), the resume path, the DESIGN.md/ARCHITECTURE.md amendments,
+  and any UI test.
+
+## Harness details the new GenerationWorkerTest cases need
+
+- `insertOutlineGeneration(mission.id)` seeds the QUEUED row the repair cases run on; `runWorker(generationId)`
+  returns the `ListenableWorker.Result`. `frameFor(method)` **fails unless exactly one** such frame was sent, so a
+  two-session case must use `firstFrameFor` or `daemon.framesFor("rho.session.create")` and index the two.
+- `promptsSent()` returns the `rho.session.send_prompt` frames; the existing repair cases read
+  `["session_id"]`, `["client_id"]` (`"${row.id}-$attempt"`) and `["content"]` off them, and
+  `CoachFixtures.errorsOf(CoachFixtures.BAD_JSON, CoachFixtures.OUTLINE_CONTEXT)` is how the expected error lines
+  are recomputed in a test.
+- A second, distinct session id comes from `daemon.sessionId` (a `@Volatile var`) set inside a `DaemonScript.Act` at
+  the end of the first turn; `rho.session.create` answers with whatever the field holds at the call.
+- `DaemonScript.State("completed")` is what makes the first turn end `completed`: the fake pushes
+  `state_change to=completed`, and `CoachTurnRunner.handle()` maps it to `TurnEnd.Completed`. `rho.session.stop`
+  also appends `state_change to=completed reason=stopped`, so a `stop` frame is not itself a turn end.
+- `send_prompt` carries no cursor: the cursor goes in the `rho.session.events_after` frame, which is where a test can
+  see whether the refused turn's cursor was carried into the new session.
+- `MAX_REPAIRS = 2` (GenerationWorker.kt 506) is why the out-of-repairs case sees exactly three prompts.
+
