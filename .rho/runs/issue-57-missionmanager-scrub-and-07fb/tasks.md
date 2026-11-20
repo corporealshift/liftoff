@@ -11,7 +11,7 @@ Gate on this machine (the committed `gradlew.sh` is Windows-only — do not edit
 Order matters: 1 → 2 → 3 → 4 → 5 → 6. Task 3 is the only one that breaks a call site, so it carries its own
 fixes. Never edit `.rho/runs/issue-57-missionmanager-scrub-and-07fb/verify.sh`; running it read-only is fine.
 
-- [ ] 1. `MissionManager.launch` hands back the launched sortie's open Flight Plan ids
+- [x] 1. `MissionManager.launch` hands back the launched sortie's open Flight Plan ids
   Covers: `launch` returns the launched PLANNED sortie's open FLIGHT_PLAN generation ids instead of Unit, read
   inside the transaction before the IN_FLIGHT write, doc comment in `refly`'s wording. No caller reads the value
   yet, so nothing else moves. Read DESIGN.md §7.3's superseded-results rule before writing it.
