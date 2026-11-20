@@ -71,7 +71,7 @@ fixes. Never edit `.rho/runs/issue-57-missionmanager-scrub-and-07fb/verify.sh`; 
   Done when: those three ran and passed, the three rewritten cases ran and passed with their original
   assertions, and the gate is green.
 
-- [ ] 4. Launchpad scrub cancels every id `scrub` handed back
+- [x] 4. Launchpad scrub cancels every id `scrub` handed back
   Covers: `LaunchpadViewModel.confirmScrub` starts one `actionScope.launch { cancelGeneration(id) }` per id
   `scrub` returned, after the manager's transaction returned, and keeps enqueuing the id `scrub` queued through
   the `onQueued` it now passes. A failed cancel must not turn a committed scrub into a failure.
