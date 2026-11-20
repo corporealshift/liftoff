@@ -156,8 +156,9 @@ class InFlightViewModel(
         message.value = null
         scope.launch {
             try {
-                val queuedPlanId = missionManager.scrub(sortieId, normalizeNote(reason))
-                if (queuedPlanId != null) enqueueQuietly(queuedPlanId)
+                // The scrubbed sortie's own open rows are not cancelled here: storePlan refuses a SCRUBBED
+                // sortie, so an uncancelled row on one can never land a plan.
+                missionManager.scrub(sortieId, normalizeNote(reason)) { enqueueQuietly(it) }
                 leaveOnce(onDone)
             } catch (e: CancellationException) {
                 throw e

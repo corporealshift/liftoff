@@ -202,8 +202,9 @@ class LaunchpadViewModel(
         }
         scope.launch {
             try {
-                val queuedPlanId = manager.scrub(sortieId, reason.trim().takeIf { it.isNotEmpty() })
-                queuedPlanId?.let(queueGeneration)
+                // scrub's superseded ids are not cancelled here: storePlan refuses a SCRUBBED sortie, so an
+                // uncancelled row on one can never land a plan.
+                manager.scrub(sortieId, reason.trim().takeIf { it.isNotEmpty() }, queueGeneration)
             } catch (_: IllegalStateException) {
                 runCatching { manager.onAppOpen() }
             } finally {
