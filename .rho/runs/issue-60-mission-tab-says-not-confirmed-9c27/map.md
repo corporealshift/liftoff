@@ -40,7 +40,10 @@ Run: issue 60 — Mission tab says "Not confirmed yet" while the outline is gene
 
 - `app/src/main/java/com/liftoff/app/domain/CoachStatus.kt` (76 lines) — pure Kotlin.
   - `sealed interface CoachStatus { offersConfirm; offersRetry; offersContinueWithoutOutline }` with `Editable`,
-    `Planning`, `Offline`, `Failed(reason)`, `NotConfigured`, and `const val FAILED_WITHOUT_REASON`.
+    `Planning`, `Offline`, `Failed(reason)`, `NotConfigured`, and `const val FAILED_WITHOUT_REASON`. The flags,
+    since an assertion will read them: Editable `true,false,false`; Planning `false,false,true`; Offline
+    `false,false,true`; Failed `false,true,true`; NotConfigured `false,false,true` (in that order:
+    offersConfirm, offersRetry, offersContinueWithoutOutline).
   - `fun deriveCoachStatus(newestOutlineStatus, newestOutlineError, newestOutlineIsCoachOffline, coachConfigured)`:
     QUEUED/RUNNING → `Offline` if the row carries the offline mark else `Planning`; FAILED → `Failed(error ?:
     FAILED_WITHOUT_REASON)`; SUCCEEDED/CANCELLED/null → `Editable` if configured else `NotConfigured`. Line 73's
@@ -97,6 +100,44 @@ Run: issue 60 — Mission tab says "Not confirmed yet" while the outline is gene
 - **Nothing anywhere asserts "Not confirmed yet"** — `grep -rn "Not confirmed yet" app/src` hits only
   `MissionScreen.kt:130`. There is no Compose screen test for the Mission tab.
 - `app/src/test/java/com/liftoff/app/domain/CoachStatusTest.kt` — 11 tests over `deriveCoachStatus`.
+
+## The gate this run's verify.sh runs (measured on the untouched tree)
+
+- `bash .rho/runs/issue-60-mission-tab-says-not-confirmed-9c27/verify.sh` on the base commit `baa0eb8`: the
+  gate itself is **green** — `BUILD SUCCESSFUL in 1m8s`, `46 actionable tasks: 1 executed, 45 up-to-date`,
+  **775 test records over 93 reports, 0 failures, 0 skips** — and the script then exits 1 on the six named
+  tests, which is the point. Baseline for comparing later: 775 / 93.
+- Gradle resolution in the script: `bash gradlew.sh` when `C:/Users/corpo/android-toolchain/gradle/bin/gradle`
+  exists (Windows Git Bash), otherwise `$HOME/android-toolchain/gradle/bin/gradle` with
+  `JAVA_HOME=$HOME/android-toolchain/jdk` and `ANDROID_HOME=$HOME/android-toolchain/sdk`. `gradlew.sh` is
+  never edited. Tasks: `:app:assembleDebug :app:testDebugUnitTest --no-build-cache`, in the CI's order.
+- Report format, because the script reads it: Gradle writes one `TEST-<FQCN>.xml` per class under
+  `app/build/test-results/testDebugUnitTest/`; the `<testsuite name>` and the file name hold the FQCN, but
+  `<testcase name="…">` holds the **bare method name** and `<testcase classname="…">` the FQCN. So a name
+  check must use the testcase attribute and take the class from the file name — matching a FQCN prefix
+  against the testcase name matches nothing. Backtick names with spaces survive as written
+  (e.g. `Reset week is offered only for an ACTIVE mission`); `MissionTabStateTest` uses that style.
+- The script moves `app/build/test-results/testDebugUnitTest` aside before each gate attempt, so results left
+  by an earlier run cannot satisfy a name, and it fails if the log says
+  `:app:testDebugUnitTest FROM-CACHE|UP-TO-DATE|NO-SOURCE`.
+
+## The six names verify.sh requires (the work session writes these)
+
+All six are new; none exists on the base tree. They are listed with their "must show" comments in
+`verify.sh` under "the brief's two rules, as named tests":
+
+1. `theMissionTabReportsPlanningWhileItsDraftHasAnOpenOutlineGeneration` — the brief's case (QUEUED or RUNNING).
+2. `theMissionTabReportsOfflineWhenItsOpenOutlineRowCarriesTheCoachOfflineMark`
+3. `theMissionTabReportsFailedWithTheReasonItsOutlineRowCarriesAndOffersRetryAndContinue`
+4. `theMissionTabKeepsTheUnconfirmedDraftStatusWhenNoOutlineGenerationIsOpen` — no row / only-CANCELLED row /
+   no host+token.
+5. `theMissionTabFollowsItsOwnOutlineRowFromQueuedToFailedWithoutReSubscribing`
+6. `theMissionTabDoesNotReEmitForAnotherMissionsRowAFlightPlanRowOrACancelledRow`
+
+verify.sh also requires every test in these classes to pass: `MissionStatesTest` (12 today),
+`MissionTabStateTest` (1), `MissionViewModelResetTest` (1), `ResetWeekDialogTest` (3), `CoachStatusTest` (11),
+`LaunchpadCoachStatusTest` (5), `LaunchpadDraftStatusTest` (8), `LaunchpadStatesTest` (10),
+`LaunchpadDraftControlsTest` (4), `LaunchpadDraftGuardsTest` (2), `LaunchpadConfirmTest` (7).
 
 ## Two facts worth having to hand
 
