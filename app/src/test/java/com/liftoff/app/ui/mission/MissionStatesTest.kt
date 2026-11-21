@@ -6,8 +6,13 @@ import androidx.test.core.app.ApplicationProvider
 import com.liftoff.app.data.*
 import com.liftoff.app.domain.CoachStatus
 import com.liftoff.app.settings.SettingsStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -20,6 +25,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -35,6 +41,9 @@ class MissionStatesTest {
     private lateinit var settingsFile: File
     private lateinit var manager: MissionManager
     private lateinit var states: MissionStates
+
+    /** Everything the one subscription of a live-follow case has emitted, in the order it arrived. */
+    private val emissions = CopyOnWriteArrayList<MissionTabState>()
 
     /** The instant the fixture's clock reads; a generation row's createdAt is written later than this. */
     private val seededAt = Instant.parse("2026-01-12T00:00:00Z").toEpochMilli()
@@ -97,6 +106,27 @@ class MissionStatesTest {
     /** Rows are ordered by createdAt, so each write in a case gets its own later instant. */
     private fun at(step: Int): Long = seededAt + step * 1_000L
 
+    // ── The one subscription a live-follow case reads from ─────────────
+    // draftWeek() above calls observe() again, so it reads whatever Room holds at the moment of the read: enough
+    // for a status assertion, but it proves nothing about a subscription staying live across a write. A follow
+    // case opens observe() once, before its writes, and takes every emission out of [emissions].
+
+    /** Opens observe() once, into [emissions], and returns the job that keeps it open. */
+    private fun CoroutineScope.openSubscription(): Job =
+        launch { states.observe().collect { emissions.add(it) } }
+
+    private fun weeks(): List<MissionTabState.Week> = emissions.filterIsInstance<MissionTabState.Week>()
+
+    /** A Week this same collection has already emitted; bounded so a status that never arrives fails. */
+    private suspend fun awaitWeek(where: (MissionTabState.Week) -> Boolean): MissionTabState.Week =
+        withTimeout(AWAIT_MS) {
+            var found: MissionTabState.Week? = null
+            while (found == null) {
+                found = weeks().firstOrNull(where)
+                if (found == null) delay(POLL_MS)
+            }
+            found!!
+        }
 
     // ── Pattern chips from mixed sortie states ────────────────────────
 
@@ -556,5 +586,60 @@ class MissionStatesTest {
         assertFalse(after.coachStatus.offersRetry)
         assertFalse(after.coachStatus.offersContinueWithoutOutline)
         assertFalse(after.canReset)
+    }
+
+    // ── The tab follows its own row on the subscription it opened first ─
+    // One observe(), opened before the draft has any outline row, read through the two writes that a Confirm and
+    // a rejected reply make: unconfirmed, then planning, then failed carrying the row's own reason. Every status
+    // below is a value this one collection received, so a status only a fresh subscription could see fails here.
+
+    @Test
+    fun theMissionTabFollowsItsOwnOutlineRowFromQueuedToFailedWithoutReSubscribing() = runBlocking {
+        coachIsSetUp()
+        val mission = manager.onAppOpen()
+
+        val collecting = openSubscription()
+        try {
+            val unconfirmed = awaitWeek { it.coachStatus is CoachStatus.Editable }
+            assertEquals(MissionStatus.DRAFT, unconfirmed.status)
+            assertEquals(mission.id, unconfirmed.missionId)
+            assertTrue("nothing is open yet, so Confirm is the way on", unconfirmed.coachStatus.offersConfirm)
+
+            val beforeRow = emissions.size
+            val row = generationDao.insert(outlineRow(unconfirmed.missionId, GenerationStatus.QUEUED, at(1)))
+
+            val planning = awaitWeek { it.coachStatus is CoachStatus.Planning }
+            assertTrue("one new emission out of the one collection", emissions.size > beforeRow)
+            assertEquals("the same draft week, not a re-subscribed one", unconfirmed.missionId, planning.missionId)
+            assertEquals(MissionStatus.DRAFT, planning.status)
+            assertFalse("the ask is already out, so Confirm is gone", planning.coachStatus.offersConfirm)
+            assertFalse("the tab gains no button while the coach works", planning.canReset)
+            assertEquals(GenerationStatus.QUEUED, generationDao.get(row)!!.status)
+
+            // A validator's reason: punctuation and inner spacing, so a rewrite or a trim is caught.
+            val reason = "reply rejected: 3 of 5 sets name a barbell the owner does not own"
+            generationDao.markFailed(row, reason, at(2))
+
+            val beforeFailure = emissions.size
+            val failed = awaitWeek { it.coachStatus is CoachStatus.Failed }
+            assertTrue("the same subscription carried this one too", emissions.size > beforeFailure)
+            assertTrue("failed arrived after planning in the same collection",
+                emissions.indexOf(planning) < emissions.indexOf(failed))
+            assertEquals(unconfirmed.missionId, failed.missionId)
+            assertEquals(MissionStatus.DRAFT, failed.status)
+            assertEquals(reason, (failed.coachStatus as CoachStatus.Failed).reason)
+            assertTrue(failed.coachStatus.offersRetry)
+            assertTrue(failed.coachStatus.offersContinueWithoutOutline)
+            assertFalse(failed.coachStatus.offersConfirm)
+            assertFalse("the tab gains no button as its row changes", failed.canReset)
+            assertEquals(reason, generationDao.get(row)!!.error)
+        } finally {
+            collecting.cancel()
+        }
+    }
+
+    private companion object {
+        const val AWAIT_MS = 5_000L
+        const val POLL_MS = 25L
     }
 }
