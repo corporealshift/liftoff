@@ -111,7 +111,7 @@ Scratch files live under `app/build/`; never put a scratch test class under `app
   "same session"/"in-session" for a `completed` end, invariant 8 reads to match, and `git show --stat` for
   this commit lists only `DESIGN.md` and `ARCHITECTURE.md`. Commit.
 
-- [ ] 5. The whole gate, and the sweep for anything that read the old rule
+- [x] 5. The whole gate, and the sweep for anything that read the old rule
   Run `bash .rho/runs/issue-58-generationworker-a-repair-mnx8/verify.sh` (it is not executable) and read its
   output: the three new names, the four must-keep-passing names, the nine class checks, and the closing
   "Issue 58 done". Then sweep `app/src` for anything still assuming a repair always runs on the refused
