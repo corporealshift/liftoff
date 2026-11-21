@@ -354,6 +354,7 @@ class CoachPromptBuilderTest {
                 "sortie 1 (index 0) — run — landed",
                 "sortie 2 (index 1) — lift — pending",
                 "sortie 3 (index 2) — run — pending",
+                "In your notes, name a sortie by the number printed beside it, or by its type and focus, never by its index.",
             ),
             sectionLines(prompt, "This week"),
         )
@@ -451,6 +452,7 @@ class CoachPromptBuilderTest {
                 "sortie 2 (index 1) — lift — pending — focus: Push + core",
                 "sortie 3 (index 2) — run — pending — focus: Tempo intervals",
                 "planning: sortie 2 (index 1) — lift",
+                "In your notes, name a sortie by the number printed beside it, or by its type and focus, never by its index.",
             ),
             sectionLines(prompt, "This week"),
         )

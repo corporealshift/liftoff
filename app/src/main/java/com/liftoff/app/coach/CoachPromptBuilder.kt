@@ -107,6 +107,8 @@ object CoachPromptBuilder {
         input.plannedSortie?.let {
             lines += "planning: ${sortieNumber(it.index)} — ${word(it.type)}"
         }
+        // Issue 61: the coach's own prose numbered sorties from 0 while every screen numbers them from 1.
+        lines += "In your notes, name a sortie by the number printed beside it, or by its type and focus, never by its index."
         return section("This week", lines)
     }
 
