@@ -66,7 +66,7 @@ twice. `verify.sh` is never edited. Baseline measured on the untouched tree: the
   Done when: those four names appear as passing testcases in
   `app/build/test-results/testDebugUnitTest/TEST-*.xml` and the 12 existing cases still pass.
 
-- [ ] 5. `MissionStatesTest`: the live-follow case
+- [x] 5. `MissionStatesTest`: the live-follow case
   Covers the same file, and the harness that case needs: open `states.observe()` **once** into a
   collected list before any write and read every emission out of that one collection, the way
   `LaunchpadCoachStatusTest`'s `openSubscription`/`awaitDraft` do — a second `observe()` or a fresh
