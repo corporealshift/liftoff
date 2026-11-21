@@ -133,7 +133,7 @@ object CoachPromptBuilder {
         return section("History", blocks.joinToString(separator = "\n\n"))
     }
 
-    /** The type is uppercase here so the header reads differently from a `index 0 — run — …` week line. */
+    /** The type is uppercase here so the header reads differently from a `sortie 2 (index 1) — lift — …` week line. */
     private fun header(sortie: PromptHistorySortie): String =
         "${sortie.date.format(DATE)} ${sortie.type.name} \"${sortie.title}\" — ${word(sortie.state)}" +
             // The reason is the one thing that says why this sortie is in the history at all.
