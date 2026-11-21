@@ -331,9 +331,9 @@ class CoachPromptBuilderTest {
     // ─── §7.4 item 5: the week list ─────────────────────────────────────────────
 
     /**
-     * Plan decision 0: an OUTLINE prompt lists index, type and state only. Before the outline exists
-     * the only focus a row can carry is the "Continue without outline" placeholder, and showing it
-     * would anchor the coach on it.
+     * Plan decision 0: an OUTLINE prompt lists each sortie's number and index, its type and its state
+     * only. Before the outline exists the only focus a row can carry is the "Continue without outline"
+     * placeholder, and showing it would anchor the coach on it.
      */
     @Test
     fun outlinePromptWeekListsNoFocus() {
@@ -351,9 +351,9 @@ class CoachPromptBuilderTest {
         assertEquals(
             listOf(
                 "pattern: RLRLR",
-                "index 0 — run — landed",
-                "index 1 — lift — pending",
-                "index 2 — run — pending",
+                "sortie 1 (index 0) — run — landed",
+                "sortie 2 (index 1) — lift — pending",
+                "sortie 3 (index 2) — run — pending",
             ),
             sectionLines(prompt, "This week"),
         )
@@ -439,7 +439,7 @@ class CoachPromptBuilderTest {
         )
     }
 
-    /** §7.4 item 5, for a Flight Plan: the week list names which sortie is being planned. */
+    /** §7.4 item 5, for a Flight Plan: the week list numbers each sortie and names which one is being planned. */
     @Test
     fun flightPlanWeekShowsFocusAndNamesTheSortieBeingPlanned() {
         val prompt = CoachPromptBuilder.prompt(flightPlan(history = emptyList()))
@@ -447,15 +447,15 @@ class CoachPromptBuilderTest {
         assertEquals(
             listOf(
                 "pattern: RLRLR",
-                "index 0 — run — landed — focus: Easy 5k",
-                "index 1 — lift — pending — focus: Push + core",
-                "index 2 — run — pending — focus: Tempo intervals",
-                "planning: index 1 — lift",
+                "sortie 1 (index 0) — run — landed — focus: Easy 5k",
+                "sortie 2 (index 1) — lift — pending — focus: Push + core",
+                "sortie 3 (index 2) — run — pending — focus: Tempo intervals",
+                "planning: sortie 2 (index 1) — lift",
             ),
             sectionLines(prompt, "This week"),
         )
         assertEquals(
-            listOf("Write the Flight Plan for sortie 1 of this week"),
+            listOf("Write the Flight Plan for sortie 2 (index 1) of this week"),
             sectionLines(prompt, "Task"),
         )
     }

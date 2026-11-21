@@ -1,6 +1,6 @@
 ## Task
 
-Write the Flight Plan for sortie 1 of this week
+Write the Flight Plan for sortie 2 (index 1) of this week
 
 ## Instructions
 
@@ -24,12 +24,12 @@ Exercises may use only these ids. Bodyweight needs no id.
 ## This week
 
 pattern: RLRLR
-index 0 — run — landed — focus: Easy 5k
-index 1 — lift — pending — focus: Push + core
-index 2 — run — pending — focus: Tempo intervals
-index 3 — lift — pending
-index 4 — run — pending
-planning: index 1 — lift
+sortie 1 (index 0) — run — landed — focus: Easy 5k
+sortie 2 (index 1) — lift — pending — focus: Push + core
+sortie 3 (index 2) — run — pending — focus: Tempo intervals
+sortie 4 (index 3) — lift — pending
+sortie 5 (index 4) — run — pending
+planning: sortie 2 (index 1) — lift
 
 ## History
 
