@@ -94,7 +94,7 @@ files go under gitignored `app/build/`, never `app/src/test`.
   Done when: those three method names appear as passing `<testcase>`s in this run's XML reports, and
   each one asserts the numbers themselves (a test that only checks a line exists does not count).
 
-- [ ] 4. `docs: DESIGN.md §7.4 says what the prompt now numbers`
+- [x] 4. `docs: DESIGN.md §7.4 says what the prompt now numbers`
   `DESIGN.md` §7.4 item 1 (371–372) and item 5 (380–383) updated in place to describe the text the
   builder now sends: the Task line names the sortie being planned by its display number with the
   0-based index beside it; the week list gives each sortie its display number and its index; the
