@@ -78,7 +78,7 @@ twice. `verify.sh` is never edited. Baseline measured on the untouched tree: the
   Done when: that name passes, and the test would fail if the DRAFT arm re-subscribed instead of
   following the row (it asserts new emissions out of the one collection, not a re-read).
 
-- [ ] 6. Gate, sweep, findings
+- [x] 6. Gate, sweep, findings
   Run `bash .rho/runs/issue-60-mission-tab-says-not-confirmed-9c27/verify.sh` from the repo root; it
   resolves the toolchain itself (`gradlew.sh` is Windows-only and is never edited) and retries only a
   dead build or a failure confined to `LiftoffShellTest`/`InFlightScreenTest`. Fix whatever it names;
