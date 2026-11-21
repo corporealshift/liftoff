@@ -95,7 +95,7 @@ Scratch files live under `app/build/`; never put a scratch test class under `app
   Done when: a cold `--tests "com.liftoff.app.work.GenerationWorkerTest"` run is green with that name in its
   report and every earlier case in the class still passing. Commit.
 
-- [ ] 4. DESIGN.md and ARCHITECTURE.md say what the code now does
+- [x] 4. DESIGN.md and ARCHITECTURE.md say what the code now does
   `DESIGN.md`: amend §7.3 step 5 (334-342) inline for the split — a refused turn that ended `idle` is
   repaired in the same session, one that ended `completed` is repaired on a new session carrying the
   original prompt, the refused reply and the error list — in the same "(amended …)" style §7.3 already
