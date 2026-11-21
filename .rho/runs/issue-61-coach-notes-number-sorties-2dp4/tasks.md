@@ -57,7 +57,7 @@ files go under gitignored `app/build/`, never `app/src/test`.
   names index n; the Task line's number equals the number the same prompt's week list prints for the
   planned sortie; no failure or skip in any `TEST-*.xml`.
 
-- [ ] 2. `coach: tell the coach to name a sortie in its notes by its number, not its index`
+- [x] 2. `coach: tell the coach to name a sortie in its notes by its number, not its index`
   The one convention line, as the last line of the `This week` section in all three prompts
   (`thisWeek()`), saying the coach should refer to a sortie in its notes by the number printed beside
   it, or by its type and focus, and never by its index. The sentence is the implementer's, with two
