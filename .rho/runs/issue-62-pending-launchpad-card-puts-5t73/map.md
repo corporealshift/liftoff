@@ -96,3 +96,40 @@ JAVA_HOME=~/android-toolchain/jdk ANDROID_HOME=~/android-toolchain/sdk \
 ```
 
 The run's own `verify.sh` (never edit it) is invoked as `bash .rho/runs/<run>/verify.sh`.
+
+## Measuring the title: what the harness actually gives (probed, not guessed)
+
+Scratch probes were run under `app/build/scratch-verify/` (gitignored, applied with
+`gradle -I app/build/scratch-verify/init.gradle`, which adds that directory to the `testDebugUnitTest`
+Kotlin source set — the only way a scratch test class outside `app/src/test` gets compiled). Their output
+is only readable from `app/build/test-results/testDebugUnitTest/TEST-*.xml` under `<system-out>`, because
+Gradle prints no test stdout here.
+
+- **Robolectric's default graphics mode cannot measure this.** Without `@GraphicsMode(GraphicsMode.Mode.NATIVE)`
+  every character is 1 dp wide and every line is 35 dp tall whatever the font size: the 41-character focus reads
+  41 dp wide × 35 dp tall, and a five-line title is indistinguishable from a one-line title. Robolectric is 4.14.1
+  and no test in this repo sets a graphics mode, so a title-height case has to add the annotation itself.
+- **Density is 1.0** with `@Config(sdk = [34], qualifiers = "w411dp-h2000dp")`, so `boundsInRoot` pixels are already
+  dp. The content Column is 411 dp wide, the card's inner Column 371 dp.
+- **Compose 1.7.6 registers no `GetTextLayoutResult` semantics action on a plain `Text`** — the card's title node
+  carries only `Text`, and `performSemanticsAction(GetTextLayoutResult)` fails with "Semantics action
+  GetTextLayoutResult is not defined on node". The plan's Risk is confirmed: no line count is readable, so a case
+  reads the node's height.
+- **Untouched card, focus `"Lower Strength – Squat & Hinge, plus core"` written on the sortie row, plus a QUEUED
+  generation row so the status reads "Coach is planning…"** (a QUEUED row is what makes the status Planning; with no
+  generation row the status is Idle and the line reads "Flight Plan not ready yet." — same position, different text):
+  eyebrow top 0 / height 14 dp; title top 18 / height **329 dp** (five lines, 371 dp wide); pattern track top 363 /
+  height 52 dp; status top **435**. Short focus "Bench Press" → "BENCH PRESS": title height **81 dp** (one line,
+  334 dp wide), status top **187**. 112-character focus: title height **701 dp** (eleven lines), status top **807**.
+- **The same title in the card's 371 dp column and `screenTitle`'s own style, capped by hand** (`maxLines = n`,
+  `TextOverflow.Ellipsis`): 68 sp — 1 line 81, 2 lines **143**, 3 lines **205**, 4 lines 267 (a line costs 62 dp);
+  44 sp — 2 lines 92, 3 lines 132 (a line costs 40 dp); 34 sp — 2 lines 71; 30 sp — 2 lines 63; 22 sp — 2 lines 47.
+- **Everything under the title is fixed:** the status line's top is the title's height + 106 dp (18 dp title top
+  + 16 dp spacer + 52 dp `PatternTrack` + 20 dp spacer). 329+106=435, 81+106=187, 701+106=807 all hold. So a
+  two-line title at 68 sp leaves the status at 249 dp and at 44 sp at 198 dp; three lines at 68 sp put it at 311 dp.
+- `PatternTrack` is 52 dp tall whatever the chips; the letters inside it are centred, so the L/R text nodes read a
+  top a few dp below the track's own top.
+
+`verify.sh`'s bounds come from these: title node ≤ 175 dp (between 143 and 205), status top ≤ 280 dp (between 249
+and 311), one line at 68 sp accepted as 75–110 dp (81 dp measured; the upper end also covers a case that measures
+the `TitleBlock` column, 14 + 4 + 81 = 99 dp).
