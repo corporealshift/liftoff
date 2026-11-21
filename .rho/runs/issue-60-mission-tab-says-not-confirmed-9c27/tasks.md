@@ -8,7 +8,7 @@ them — 4 writes four of them, 5 writes the fifth; no name is left unwritten an
 twice. `verify.sh` is never edited. Baseline measured on the untouched tree: the gate is green at
 **775 test records over 93 reports, 0 failures**; the five new names should take it to 780.
 
-- [ ] 1. Give the Mission tab's draft week a coach status
+- [x] 1. Give the Mission tab's draft week a coach status
   Covers `app/src/main/java/com/liftoff/app/ui/mission/MissionState.kt`: the DRAFT arm of
   `MissionStates` joins `db.generationDao().observeNewestNonCancelledOutlineForMission(mission.id)`
   and `manager.coachConfigured` and derives through `domain/deriveCoachStatus` unchanged, in the
