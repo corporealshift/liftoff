@@ -105,8 +105,8 @@ Run: issue 60 — Mission tab says "Not confirmed yet" while the outline is gene
 
 - `bash .rho/runs/issue-60-mission-tab-says-not-confirmed-9c27/verify.sh` on the base commit `baa0eb8`: the
   gate itself is **green** — `BUILD SUCCESSFUL in 1m8s`, `46 actionable tasks: 1 executed, 45 up-to-date`,
-  **775 test records over 93 reports, 0 failures, 0 skips** — and the script then exits 1 on the six named
-  tests, which is the point. Baseline for comparing later: 775 / 93.
+  **775 test records over 93 reports, 0 failures, 0 skips** — and the script then exits 1 on the five named
+  tests, which is the point. Baseline for comparing later: 775 / 93; the five new names should take it to 780.
 - Gradle resolution in the script: `bash gradlew.sh` when `C:/Users/corpo/android-toolchain/gradle/bin/gradle`
   exists (Windows Git Bash), otherwise `$HOME/android-toolchain/gradle/bin/gradle` with
   `JAVA_HOME=$HOME/android-toolchain/jdk` and `ANDROID_HOME=$HOME/android-toolchain/sdk`. `gradlew.sh` is
@@ -121,18 +121,26 @@ Run: issue 60 — Mission tab says "Not confirmed yet" while the outline is gene
   by an earlier run cannot satisfy a name, and it fails if the log says
   `:app:testDebugUnitTest FROM-CACHE|UP-TO-DATE|NO-SOURCE`.
 
-## The six names verify.sh requires (the work session writes these)
+## The five names verify.sh requires (the work sessions write these)
 
-All six are new; none exists on the base tree. They are listed with their "must show" comments in
-`verify.sh` under "the brief's two rules, as named tests":
+HEAD's `verify.sh` is `b13a14c run: verify.sh rewritten by claude review`, which **dropped the sixth
+name** the earlier draft had (`theMissionTabDoesNotReEmitForAnotherMissionsRowAFlightPlanRowOrACancelledRow`):
+its "What is NOT checked" block says re-emitting for unrelated generation writes is an efficiency
+concern from the plan's Risks, not a behavior the brief asks for. Copying `LaunchpadCoachStatusTest`'s
+`distinctUntilChanged` wiring is still the plan's answer to it; it is just not gated.
+
+All five are new; none exists on the base tree. They are listed with their "must show" comments in
+`verify.sh` under "the brief's two rules, as named tests" (lines 186-212):
 
 1. `theMissionTabReportsPlanningWhileItsDraftHasAnOpenOutlineGeneration` — the brief's case (QUEUED or RUNNING).
 2. `theMissionTabReportsOfflineWhenItsOpenOutlineRowCarriesTheCoachOfflineMark`
-3. `theMissionTabReportsFailedWithTheReasonItsOutlineRowCarriesAndOffersRetryAndContinue`
-4. `theMissionTabKeepsTheUnconfirmedDraftStatusWhenNoOutlineGenerationIsOpen` — no row / only-CANCELLED row /
-   no host+token.
-5. `theMissionTabFollowsItsOwnOutlineRowFromQueuedToFailedWithoutReSubscribing`
-6. `theMissionTabDoesNotReEmitForAnotherMissionsRowAFlightPlanRowOrACancelledRow`
+3. `theMissionTabReportsFailedWithTheReasonItsOutlineRowCarriesAndOffersRetryAndContinue` — the row's
+   reason verbatim, Retry/Continue offered as the Launchpad's status offers them, and a DRAFT week's
+   `canReset` stays false (the tab gains no button).
+4. `theMissionTabKeepsTheUnconfirmedDraftStatusWhenNoOutlineGenerationIsOpen` — no row, and a draft whose
+   only OUTLINE row is CANCELLED.
+5. `theMissionTabFollowsItsOwnOutlineRowFromQueuedToFailedWithoutReSubscribing` — one open subscription:
+   unconfirmed → planning on a QUEUED row → failed with the reason on that row's `markFailed`.
 
 verify.sh also requires every test in these classes to pass: `MissionStatesTest` (12 today),
 `MissionTabStateTest` (1), `MissionViewModelResetTest` (1), `ResetWeekDialogTest` (3), `CoachStatusTest` (11),
@@ -149,3 +157,37 @@ verify.sh also requires every test in these classes to pass: `MissionStatesTest`
 - **A DRAFT can legitimately carry a CANCELLED outline row**: `work/AppOpenSweep.kt` cancels an open row whose
   "Mission or sortie has moved on" at each app open, and a mission left DRAFT stays DRAFT. That is the case the plan
   keeps on the "Not confirmed yet" line, so it is worth a test rather than an assumption.
+
+## Added while splitting the plan into tasks
+
+- **`MissionTabState.Week(...)` is constructed in exactly two places outside `MissionState.kt`**:
+  `MissionScreen.kt:270` (`MissionTabPreview`) and `MissionTabStateTest.kt:10` (the `week(status)` helper).
+  A new field with a default means neither needs an edit; without a default, both do.
+- **The wording is pinned by literals, not by the constants.** `LaunchpadDraftStatusTest` writes the strings out
+  inline — `"Coach is planning the week\u2026"` (241, 344, 429) and `"Mission Control offline \u2014 retrying"`
+  (296), plus substring probes at 213-214, 366-367, 388-389. `LaunchpadPendingStatusTest.kt:347-348` and
+  `LaunchpadViewInRhoTest.kt:256` declare **their own local copies** of the same two strings. So lifting
+  `PLANNING_LINE`/`OFFLINE_LINE` out of `LaunchpadScreen.kt` breaks no test, but changing one character of either
+  string breaks three classes.
+- `LaunchpadPendingStatusTest` (pins the PENDING sortie line, which is what reads `OFFLINE_LINE` at
+  `LaunchpadScreen.kt:249`) and `LaunchpadPlannedActionsTest` (`RE_PLANNING_LINE`) are not named by `verify.sh`
+  but run in the gate, so the wording task has to keep them green too.
+- **`MissionStatesTest`'s harness today runs with the coach unconfigured**: `setUp` (44-47) builds a
+  `SettingsStore` over a fixed file `settings.preferences_pb`, deleted in `tearDown` (60); no case sets a host or
+  a token. A case that wants `coachConfigured == true` must call `settingsStore.setDaemonHost(...)` +
+  `setDaemonToken(...)` — `LaunchpadCoachStatusTest.coachIsSetUp` (155-158) is that call pair, and its per-test
+  file `coach-status-<uuid>.preferences_pb` (84) is the pattern that keeps a setting change out of another class.
+  Its `draftMissionHasNoRows` (177-183) is the only existing DRAFT-arm case.
+- **The one-subscription harness to copy for the live-follow test**: `LaunchpadCoachStatusTest` 99-136 —
+  `openSubscription()` (one `launch { states.observe().collect { emissions.add(it) } }` job, cancelled in
+  `finally`), `awaitDraft { … }` (bounded poll, `AWAIT_MS 5_000` / `POLL_MS 25`), `assertNothingNewEmitted(before,
+  newest, what)` (`withTimeoutOrNull(SETTLE_MS 1_500)`). Rows are written with their own later `createdAt`
+  (`at(step)`, 153) because the DAO orders by it.
+- **DAO calls a state test uses**: `generationDao.insert(Generation(kind = OUTLINE, missionId = …, sortieId = null,
+  status = QUEUED, createdAt = …))`, `get(id)`, `setCoachOfflineMark(id, Generation.COACH_OFFLINE)` (68),
+  `markFailed(id, error, finishedAt)` (49), `markCancelled(id, finishedAt)` (52).
+- **The shape `MissionStates.observe()` has to take on**: today `observe()` (108-116) maps one flow into a
+  `suspend fun derive` (214-255); `LaunchpadStates.observe`/`derive` (96-136) is the target — `derive` returns a
+  `Flow`, the DRAFT arm is a `combine(planChanges, observeNewestNonCancelledOutlineForMission(mission.id),
+  manager.coachConfigured) { … deriveCoachStatus(…) }.distinctUntilChanged()`, and the other arms stay
+  `map`/`flowOf`.
