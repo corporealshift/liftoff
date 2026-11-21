@@ -9,9 +9,9 @@
 #      coach status the Launchpad draft reports while an outline generation is open, and keeps the
 #      "Not confirmed yet" status when none is — plus the follow-live and don't-churn rules the plan's
 #      Testing section names for the one-subscription join;
-#   3. that nothing else broke: the Mission tab's own state class, the Mission tab's canReset rule, the
-#      two Mission-tab UI tests, the Launchpad draft classes whose wording the tab now shares, and the
-#      domain rule the tab now reuses — every test in each of those classes, not just some.
+#   3. that nothing else broke: the Mission tab's own state class, the tests that read its Week shape,
+#      the Launchpad draft classes whose wording the tab now shares, and the domain rule the tab now
+#      reuses — every test in each of those classes, not just some.
 #
 # Why it fails on the untouched tree: none of the six names exists yet. MissionStatesTest has twelve
 # tests today and not one of them asserts anything about a coach status — the only draft case is
@@ -114,10 +114,18 @@ index_reports() {
 # Only these get another gate attempt:
 # - the suite never finished (no reports at all), or the build died on a daemon, memory or executor
 #   error: a hang is what app/build.gradle.kts's test-task timeout produces, and it writes no TEST-*.xml;
-# - a run whose only failures are in LiftoffShellTest, the class this repo has recorded expiring one
-#   waitFor at random in a full-suite run and passing on a rerun of the identical tree.
+# - a run whose only failures are in the two Compose screen classes this repo has recorded expiring a
+#   waitFor at random in a full-suite run on this machine — LiftoffShellTest (three consecutive attempts
+#   on the untouched tree, all at its waitFor in the same run, and green on the attempt before and after)
+#   and InFlightScreenTest (sortieNoteActionOnNoChecklistOpensDialogAndSaves, on an attempt where
+#   LiftoffShellTest also flaked). Gradle's default 512m test heap against a ~780-test Robolectric+Compose
+#   suite is the recorded cause; the recorded fix is the heap, in its own issue, not a change to a test.
+#   Neither class asserts anything about a draft's status line, so a real breakage from this brief would
+#   fail it on every attempt, not on one.
 # A compile error, or any other reported assertion failure, is a real result and is not retried —
 # including the six cases below, which are expected to be red until the fix exists.
+FLAKY_CLASSES="com.liftoff.app.ui.LiftoffShellTest com.liftoff.app.ui.inflight.InFlightScreenTest"
+
 transient_failure() {
   local log="$1" all broken
   if grep -qiE 'daemon disappeared|may have been killed|out of memory|GC overhead|LowMemory|Could not connect to the daemon|Build terminated|could not clear|Timeout has been exceeded|exceeded its configured timeout|Requesting stop of task|Test Executor|PersistentEnumerator storage corrupted' "$log" 2>/dev/null; then
@@ -135,7 +143,14 @@ transient_failure() {
   index_reports
   all=$(awk -F'\t' '$2 == "FAIL"' "$INDEX" | wc -l | tr -d '[:space:]')
   [ "$all" -gt 0 ] || return 0
-  broken=$(awk -F'\t' '$2 == "FAIL" && $4 != "com.liftoff.app.ui.LiftoffShellTest"' "$INDEX" | wc -l | tr -d '[:space:]')
+  broken=$(awk -F'\t' -v list="$FLAKY_CLASSES" '
+      BEGIN { n = split(list, flaky, " ") }
+      $2 == "FAIL" {
+        is_flaky = 0
+        for (i = 1; i <= n; i++) { if ($4 == flaky[i]) { is_flaky = 1 } }
+        if (!is_flaky) { others++ }
+      }
+      END { print others + 0 }' "$INDEX")
   [ "$broken" -eq 0 ]
 }
 
@@ -143,7 +158,7 @@ GATE_OK=0
 GATE_LOG=""
 ATTEMPT=0
 mkdir -p app/build
-for ATTEMPT in 1 2 3; do
+for ATTEMPT in 1 2 3 4 5; do
   GATE_LOG="$WORK/gate-$ATTEMPT.log"
   mkdir -p "$WORK"
   echo "--- gate attempt $ATTEMPT: ${GRADLE_RUN[*]} :app:assembleDebug :app:testDebugUnitTest --no-build-cache"
@@ -156,7 +171,8 @@ for ATTEMPT in 1 2 3; do
     break
   fi
   if transient_failure "$GATE_LOG"; then
-    echo "--- attempt $ATTEMPT failed on the build itself or on the recorded LiftoffShellTest flake; running the gate again" >&2
+    echo "--- attempt $ATTEMPT failed on the build itself or on the recorded flaky screen classes; pausing, then running the gate again" >&2
+    sleep 20
   else
     echo "--- attempt $ATTEMPT failed on a reported test result; not running the gate again" >&2
     break
@@ -191,6 +207,8 @@ TOTAL_SKIPPED=$(awk -F'\t' '$5 == "SKIP"' "$INDEX" | wc -l | tr -d '[:space:]')
 
 normalize() { echo "$1" | sed -E 's/[`_ ]//g' | tr '[:upper:]' '[:lower:]'; }
 
+MISSING=""
+
 # t <name> — the test ran, and passed. Names are compared with backticks, underscores and spaces removed
 # and case folded, so a test may be written with backticks and spaces instead. A name that no report
 # contains is a test that was never written, or never ran: Gradle exits 0 when nothing matches.
@@ -221,7 +239,6 @@ require_class() {
   fi
 }
 
-MISSING=""
 
 # ── the brief's two rules, as named tests ──────────────────────────────────────────────────────────
 # These six names do not exist on the untouched tree, which is what makes this script red before the
@@ -284,13 +301,16 @@ t theMissionTabDoesNotReEmitForAnotherMissionsRowAFlightPlanRowOrACancelledRow
 # alone.
 require_class com.liftoff.app.ui.mission.MissionStatesTest
 
-# The Mission tab's canReset rule, which is what keeps a failed draft from gaining a Reset week on the tab:
-# a DRAFT week is never resettable, and the Reset button stays on the Launchpad.
+# The tests that read `MissionTabState.Week` directly: MissionTabStateTest builds one by hand and asserts
+# the canReset rule — a DRAFT week is never resettable, which is what keeps a failed draft from gaining a
+# Reset week on the tab — and MissionViewModelResetTest waits for a Week out of the tab's own view model.
+# Either breaks the moment Week's shape changes without its call sites being updated; the plan's Risks
+# section names them for exactly that.
 require_class com.liftoff.app.ui.mission.MissionTabStateTest
-
-# The two tests that drive the Mission tab through the UI. The plan's Risks section names them as the ones
-# that break if Week's shape changes without updating their constructors.
 require_class com.liftoff.app.ui.mission.MissionViewModelResetTest
+
+# The Reset dialog's own copy test, named because the plan's Decision keeps Reset on the Launchpad: the
+# Mission tab gains no button, so nothing here should change.
 require_class com.liftoff.app.ui.mission.ResetWeekDialogTest
 
 # The domain rule the tab now reuses, unchanged: deriveCoachStatus's ranking of a generation row over the
@@ -309,7 +329,7 @@ require_class com.liftoff.app.ui.launchpad.LaunchpadDraftGuardsTest
 require_class com.liftoff.app.ui.launchpad.LaunchpadConfirmTest
 
 # ── result ───────────────────────────────────────────────────────────────────────────────────────────
-echo "--- index: $TOTAL_TESTS test records, $TOTAL_FAILED not passing ($TOTAL_SKIPPED skipped), over $(ls "$RESULTS"/TEST-*.xml | wc -l | tr -d '[:space:]') reports"
+echo "--- index: $TOTAL_TESTS test records over $(ls "$RESULTS"/TEST-*.xml | wc -l | tr -d '[:space:]') reports; $TOTAL_FAILED not passing, of which $TOTAL_SKIPPED were skipped"
 if [ "$TOTAL_FAILED" -ne 0 ]; then
   echo "verify: FAIL — the gate passed but a report records a failure or a skip:"
   awk -F'\t' '$2 == "FAIL" { print "  " $3 "  (" $4 ")" }' "$INDEX"
