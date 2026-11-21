@@ -51,7 +51,7 @@ JAVA_HOME=$HOME/android-toolchain/jdk ANDROID_HOME=$HOME/android-toolchain/sdk \
 a full run in which no `app/build/test-results/testDebugUnitTest/TEST-*.xml` reports a failure, an error or
 a skip. Scratch files and gate logs go under gitignored `app/build/`, never `app/src/test`.
 
-- [ ] 1. `theme: give the shared title composables a line cap that defaults to today`
+- [x] 1. `theme: give the shared title composables a line cap that defaults to today`
   Plan step 2, landed alone with no caller yet. `DisplayTitle` and `TitleBlock` in
   `app/src/main/java/com/liftoff/app/ui/theme/Headings.kt` gain a line cap — a maximum line count and an
   overflow — whose defaults leave all seventeen call sites outside `Headings.kt` (14 `TitleBlock`, 3 direct
