@@ -31,7 +31,7 @@ JAVA_HOME=$HOME/android-toolchain/jdk ANDROID_HOME=$HOME/android-toolchain/sdk \
 then read `app/build/test-results/testDebugUnitTest/TEST-*.xml` rather than the exit code. Scratch
 files go under gitignored `app/build/`, never `app/src/test`.
 
-- [ ] 1. `coach: give every sortie in the prompt its display number beside its index`
+- [x] 1. `coach: give every sortie in the prompt its display number beside its index`
   The numbering half of "Shape of the change", in `coach/CoachPromptBuilder.kt`: `thisWeek()`
   (98–111) writes each week line with the display number `index + 1` and keeps the 0-based index
   beside it — the brief's shape `sortie 1 (index 0) — run — pending` — with the number written plain
