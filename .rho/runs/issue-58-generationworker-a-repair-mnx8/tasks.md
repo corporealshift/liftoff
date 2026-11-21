@@ -78,7 +78,7 @@ Scratch files live under `app/build/`; never put a scratch test class under `app
   `aPermanentRefusalAtACallFailsTheGenerationWithTheDaemonsMessageAndStopsTheSession` (1102) still pass with
   their exactly-one-create assertions intact. Commit.
 
-- [ ] 3. A `completed` turn still gets the whole repair budget
+- [x] 3. A `completed` turn still gets the whole repair budget
   Tests only, in `app/src/test/java/com/liftoff/app/work/GenerationWorkerTest.kt`, against task 2's arm —
   no production change expected, since the cap is already the row's `Generation.attempt` and `MAX_REPAIRS`
   is 2 (506). Name exactly:
