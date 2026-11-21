@@ -30,15 +30,24 @@
   - Call sites of `TitleBlock` in this file: 139 (Draft), 191 (Planned), 216 (Pending), 261 (InFlight), 277 (Closed).
 - `app/src/main/java/com/liftoff/app/ui/theme/Headings.kt` — `Eyebrow` (18), `DisplayTitle` (29, uppercases
   the text, `style` defaults to `LiftoffType.screenTitle()`), `TitleBlock` (41, eyebrow + 4 dp spacer +
-  `DisplayTitle`, takes `titleStyle`). No `maxLines`/`overflow` parameter anywhere. Call sites: Launchpad
-  (139, 191, 216, 261, 277), Mission (`MissionScreen.kt:111,165,176,202,242`), Landed (100, 178), Mission
-  Control (143), `ui/PlaceholderScreen.kt:29`. `InFlightScreen.kt:440` and `RunContent.kt:58` call
-  `DisplayTitle` directly with `LiftoffType.headerTitle()` — the app already typesets a screen title at the
-  smaller 44 sp display size, which is the precedent for a Launchpad title that shrinks.
+  `DisplayTitle`, takes `titleStyle`). No `maxLines`/`overflow` parameter anywhere. **Seventeen call sites
+  outside `Headings.kt`** (`grep -rn "TitleBlock(\|DisplayTitle(" app/src/main/java | grep -v theme/Headings.kt`):
+  14 `TitleBlock` — Launchpad (139, 191, 216, 261, 277), Mission (`MissionScreen.kt:111,165,176,202,242`),
+  Landed (`LandedScreen.kt:100,178`), Mission Control (`control/MissionControlScreen.kt:143`),
+  `ui/PlaceholderScreen.kt:29` — and 3 direct `DisplayTitle` (`InFlightScreen.kt:313` and `:440`,
+  `RunContent.kt:58`), all three with `LiftoffType.headerTitle()`. That is the app already typesets a screen
+  title at the smaller 44 sp display size — the precedent for a Launchpad title that shrinks. `Headings.kt`
+  also calls both in its own `@Preview HeadingsPreview` (65–79), behind `LocalInspectionMode`.
 - `app/src/main/java/com/liftoff/app/ui/theme/Type.kt` — `screenTitle` = BigShoulders W900, 68 sp,
   lineHeight 0.9 em (32–35). Other display sizes in the same scale: `headerTitle` 44, `launchLabel` 34,
   `landLabel` 30, `cardTitle` 22. `app/src/test/.../ui/theme/TypographyTest.kt` asserts each role's exact
-  size (screenTitle at :56), so the roles are locked by test.
+  size (screenTitle at :56), so the roles are locked by test. Its five tests: `namedRolesMatchReadmeTypeTable`
+  asserts every README role **by hand** — it never opens `design/README.md`, so editing that table cannot
+  break it; `originalEightRolesAreUnchanged` compares whole `TextStyle` objects against
+  `LiftoffTypography()`'s eight M3 slots, so a change to `screenTitle`'s metrics fails it;
+  `materialSlotsUseDesignFonts`, `everyMaterialRoleUsesABundledFamily` and
+  `filledRolesKeepMaterialDefaultMetrics` cover the fonts and the seven filled M3 slots. A new role added
+  beside the existing ones breaks none of the five.
 - Precedent for two-line caps and for reading a layout result: `InFlightScreen.kt:412–414` and `:633`
   use `maxLines = 2` + `TextOverflow.Ellipsis`; `Buttons.kt:192` and `BackupSection.kt:161` use
   `onTextLayout = { result -> … result.lineCount … }`. No `TextMeasurer` or `BoxWithConstraints` in the
@@ -76,12 +85,14 @@ carry the same long title; the brief names only the Launchpad card, so those are
 
 ## Docs that set rules
 
-- `design/README.md` — Type table: "Screen title (Launchpad) | Big Shoulders | 68 / 900 | uppercase,
-  line-height 0.9". Also: "The other Launchpad states in §9 (PENDING, …) are not mocked up. Build them
+- `design/README.md` — Type table (header at :56, the Launchpad row at **:59**): "Screen title (Launchpad) |
+  Big Shoulders | 68 / 900 | uppercase, line-height 0.9". Also: "The other Launchpad states in §9 (PENDING, …) are not mocked up. Build them
   from the same parts." 1 CSS px = 1 dp.
 - `design/screens/launchpad.html` — the PLANNED mockup: eyebrow + title at 68 px, line-height 0.9, one
   line ("Push + core", :30–33); then pattern track (:35), Flight Plan (:46), actions (:63).
-- `DESIGN.md` §9 (Launchpad states, 574+), §13 (the gate: `:app:assembleDebug :app:testDebugUnitTest`).
+- `DESIGN.md` §9 (Launchpad states, 574+) — describes the five states' content and the status line's wording;
+  it says nothing about title sizes or line counts, so a title-fit rule contradicts nothing there and needs no
+  amendment. §13 (the gate: `:app:assembleDebug :app:testDebugUnitTest`).
 - `ARCHITECTURE.md` — the UI layer's structure (state derivation in `LaunchpadState`, drawing in
   `LaunchpadScreen`, tokens in `ui/theme`).
 
@@ -133,3 +144,42 @@ Gradle prints no test stdout here.
 `verify.sh`'s bounds come from these: title node ≤ 175 dp (between 143 and 205), status top ≤ 280 dp (between 249
 and 311), one line at 68 sp accepted as 75–110 dp (81 dp measured; the upper end also covers a case that measures
 the `TitleBlock` column, 14 + 4 + 81 = 99 dp).
+
+## What the run's verify.sh fixes in place of a task
+
+`verify.sh` (never edit it) names five test **methods**, matched as `<testcase name=…>` across every report
+of the gate run, so the file and package are the implementer's call — the plan puts all five in a new
+`LaunchpadPendingTitleTest.kt`: `pendingTitleWithALongFocusIsAtMostTwoLinesTall` (title node ≤ 175 dp),
+`pendingStatusLineStaysNearTheTopOfTheCardWithALongFocus` (status top ≤ 280 dp),
+`pendingTitleWithAShortFocusIsOneLineAtTheFullDisplaySize` (75–110 dp),
+`pendingTitleWithAnUnreasonablyLongFocusIsAtMostTwoLinesTall` (≤ 175 dp),
+`plannedCardTitleIsStillOneLineAtTheFullDisplaySize` (75–110 dp, node found by "PUSH + CORE"). It requires
+six classes green as a class: `TypographyTest`, `LaunchpadPendingStatusTest`, `LaunchpadPlannedActionsTest`,
+`LaunchpadViewInRhoTest`, `LaunchpadCoachStatusTest`, `LaunchpadStatesTest`.
+
+The two focus strings it spells out, en dash U+2013 both times (a hyphen measures a different width):
+`"Lower Strength – Squat & Hinge, plus core"` (41 characters) and
+`"Lower Strength – Squat, Hinge, Core, Lunges, Calf Raises, Seated Cable Rows, Face Pulls, Hamstring Curls and Abs"`
+(112 characters).
+
+Recipes the cases need, all already in the repo:
+- A PENDING card with a chosen focus: `LaunchpadStatesTest.kt:94–95` inserts a `Sortie` row straight into the
+  Room database with `focus = "Bench Press"` (every nullable field named), or write it onto the row
+  `continueWithoutOutline` created with `dao.update(...copy(focus = …))` as `LaunchpadPendingStatusTest.kt:111`
+  does. The QUEUED FLIGHT_PLAN row `continueWithoutOutline` queues is what makes the status read
+  "Coach is planning…" (`LaunchpadScreen.kt:256`); with no generation row it reads
+  "Flight Plan not ready yet." (`:257`).
+- A PLANNED card: `LaunchpadPlannedActionsTest.kt`'s `plannedLift()` (153) — `markSucceeded(queuedRow,
+  seededAt + 60_000)` then `manager.storePlan(sortieId, CoachFixtures.validReply(CoachFixtures.LIFT_PLAN,
+  CoachFixtures.LIFT_CONTEXT))`. `CoachFixtures.LIFT_PLAN`'s plan title is "Push + core"
+  (`coach/CoachFixtures.kt:114`), and the PLANNED card's title is the plan's title (`LaunchpadState.kt:209`),
+  so its title node reads "PUSH + CORE" whatever the row's focus says.
+- `boundsInRoot` is already used in these tests (`LaunchpadViewInRhoTest.kt:191–198`,
+  `LaunchpadReFlyTest.kt:219–220`, `LaunchpadPlannedActionsTest.kt:197–199`) but only to compare one node's
+  position with another's — no existing test measures a text height, so a title that shrinks breaks none of
+  them, and their cards' titles are short anyway.
+
+CLAUDE.md's rules for every commit here: message `area: lowercase summary` (no ticket number, no tags),
+stage only the files the task names — never `git add -A`, because `.rho/` is untracked scratch; LF endings
+everywhere (`* text=auto eol=lf`); `:app:assembleDebug :app:testDebugUnitTest` green before a task is called
+done.
