@@ -29,8 +29,11 @@ Where the coach's sortie numbering lives, and what already asserts it.
 - `app/src/test/resources/prompts/` — `outline.txt` (1917 B), `lift-flight-plan-with-outline.txt` (2875 B),
   `run-flight-plan.txt` (2341 B). The lines this issue moves: the five week lines at 27–31 and the
   `planning:` line at 32 in the two Flight Plan files; the Task line at 3 in the two Flight Plan files
-  (`Write the Flight Plan for sortie 1 of this week` / `… sortie 2 …`). `outline.txt` also carries the
-  outline schema's `"index": { "type": "integer", "minimum": 0 }` at 71–73 — the 0-based contract stays.
+  (`Write the Flight Plan for sortie 1 of this week` / `… sortie 2 …`). `pattern:` is line 26 in all
+  three and does not change; `outline.txt`'s Task line does not change. Confirmed with `cat -A`: every
+  line ends in LF with no CR, and the separator is the em dash `—` (U+2014, `M-bM-^@M-^T`).
+  `outline.txt` also carries the outline schema's `"index": { "type": "integer", "minimum": 0 }` at
+  71–73 — the 0-based contract stays.
 - `app/src/test/java/com/liftoff/app/coach/CoachPromptGoldenFileTest.kt` (263 lines) — compares the three
   prompts with the golden files **byte for byte** (UTF-8, so a stray CR fails). Fixed inputs at 99–200:
   a five-position `RLRLR` week, indices 0–4, first three carrying a focus; `sortieIndex = 1` for the lift
@@ -39,14 +42,44 @@ Where the coach's sortie numbering lives, and what already asserts it.
   `outputSchemaSectionIsTheResourceFileVerbatim` (75–95) pins the schema tail;
   `buildingTheSamePromptTwiceGivesIdenticalText` (58–68) pins purity.
 - `app/src/test/java/com/liftoff/app/coach/CoachPromptBuilderTest.kt` (644 lines) — the per-rule tests.
-  Exact week-line assertions: 354–356 (outline, `sectionLines(prompt, "This week")`) and 450–453
-  (Flight Plan, with `focus:` and `planning: index 1 — lift`); exact Task-line assertion at 458
-  (`Write the Flight Plan for sortie 1 of this week`); eight-sections-in-order test at 401;
-  `sectionLines(prompt, heading)` helper at 630.
+  Only two methods hold exact prompt text this issue moves, and both must move with the builder in the
+  same commit: `outlinePromptWeekListsNoFocus` (338–362, the `sectionLines(prompt, "This week")` list at
+  351–359, its five entries being `pattern: RLRLR` plus the three week lines) and
+  `flightPlanWeekShowsFocusAndNamesTheSortieBeingPlanned` (444–461, the week list at 447–456 with
+  `focus:` suffixes and `planning: index 1 — lift`, plus the Task-line assertion at 457–460).
+  Its own `week` fixture (38–44) is a **three**-sortie RLRLR week (indices 0–2) and the
+  `flightPlan(history)` helper (549–556) sets `sortieIndex = 1`; a new test that needs indices 0–4
+  builds its own five-position week rather than widening that fixture, which those two assertions read.
+  `sectionLines(prompt, heading)` helper at 630 — lines past the blank line after `## Heading`, up to
+  the next `##`, trailing blanks dropped. `promptCarriesTheEightSectionsInOrder` (401) counts headings
+  only, so a line added inside `This week` does not disturb it.
+  The outline prompt's two substring bans live here too, at 360–361: `assertFalse(prompt.contains("focus:"))`
+  and `assertFalse(prompt.contains("planning:"))` — so any new line in an outline prompt must avoid both
+  substrings (`CoachPromptGoldenFileTest.kt:39–40` bans them in the golden text the same way).
 - `app/src/main/java/com/liftoff/app/coach/CoachReplyValidator.kt` (139–141) — the index error reads
   `sorties[$position].index: must be $position`, i.e. array position wording, not "sortie N". `GenerationWorker`
   hands those lines to `repairPrompt` (`GenerationWorkerTest.kt:807` compares them byte for byte).
   Not part of this issue: no numbering the coach could copy.
+
+## Moving the text: what has to move together (worked out 2026-11-21)
+
+- Only three sites in `app/src/main` print a sortie number into a prompt: `CoachPromptBuilder.kt:60`
+  (Task line), `:101` (week line), `:108` (`planning:` line). Nothing else in `main` writes prompt text,
+  so no other builder change is needed. `work/GenerationWorker.kt:488` logs
+  `flight plan for sortie ${row.sortieId}` — a Room row id in a log line, not coach-facing prose; out of
+  scope.
+- The three-way coupling that decides task order: `CoachPromptGoldenFileTest` compares the builder's
+  bytes with the three golden files, and `CoachPromptBuilderTest` quotes the week lines and the Task
+  line. A commit that changes the builder without the golden files and those two methods leaves the
+  suite red, so builder + golden files + the two methods land in the same commit.
+- `data/PromptInputLoaderTest.kt:343` does render a prompt, but asserts only history strings
+  (`"Legs + pull"`, and the absence of two coach notes), so prompt wording changes do not touch it.
+- The brief's own example shape for a numbered line is `sortie 1 (index 0) — run — pending`
+  (`brief.md:7`) — number first, index in parentheses beside it.
+- DESIGN.md's amendment entry shape, from the newest one at 813: `- **YYYY-MM-DD — <short title>
+  (§refs).** body` as the first bullet after the intro at 810–811. "Marked inline" is done by writing
+  the new thing into the affected section's own text (as §5.1/§6/§9 do for Back to Launchpad) — there
+  is no `(amended …)` marker in the section bodies.
 
 ## The numbering the prompt has to match (UI, unchanged)
 
