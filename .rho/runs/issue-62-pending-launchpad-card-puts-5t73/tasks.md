@@ -123,7 +123,7 @@ a skip. Scratch files and gate logs go under gitignored `app/build/`, never `app
   `LaunchpadPendingTitleTest` green as a class with all five cases in it; a full gate run shows no failure,
   error or skip anywhere.
 
-- [ ] 4. `docs: design/README.md says what the Launchpad title does when the text is long`
+- [x] 4. `docs: design/README.md says what the Launchpad title does when the text is long`
   Plan step 5, one line: the Type table's "Screen title (Launchpad)" row (`design/README.md:59`) says what
   the title does when the text does not fit at 68/900 — the PENDING card's title, the sortie's focus, is
   capped at two lines, shrinks to fit down to a floor and ellipsizes past it, while a title that already
