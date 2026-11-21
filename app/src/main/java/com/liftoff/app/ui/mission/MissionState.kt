@@ -1,7 +1,9 @@
 package com.liftoff.app.ui.mission
 
 import com.liftoff.app.data.*
+import com.liftoff.app.domain.CoachStatus
 import com.liftoff.app.domain.currentSortie
+import com.liftoff.app.domain.deriveCoachStatus
 import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatWeekDate
@@ -23,6 +25,12 @@ sealed interface MissionTabState {
         val chips: List<com.liftoff.app.ui.theme.PatternChip>,
         val outlineNotes: String?,
         val rows: List<SortieRow>,
+        /**
+         * What the draft says about Mission Control, derived the way the Launchpad's draft derives it. Only the
+         * DRAFT arm fills it in from live sources; a confirmed week and a hand-built Week carry the default, which
+         * is the status the tab's "Not confirmed yet" line is drawn from.
+         */
+        val coachStatus: CoachStatus = CoachStatus.Editable,
     ) : MissionTabState {
         /** MissionManager.resetWeek's own status rule; a draft has nothing to start over. */
         val canReset: Boolean = status != MissionStatus.DRAFT
@@ -110,7 +118,7 @@ class MissionStates(
             .flatMapLatest { ws ->
                 if (ws == null) flowOf(MissionTabState.Loading)
                 else db.missionDao().observeWeek(ws)
-                    .map { missionWithSorties -> derive(missionWithSorties) }
+                    .flatMapLatest { missionWithSorties -> derive(missionWithSorties) }
             }
             .flowOn(Dispatchers.IO)
     }
@@ -211,47 +219,55 @@ class MissionStates(
         return "SORTIE ${sortie.index + 1} · ${sortie.type.name.replace("_", " ").uppercase()}${if (sortie.state != SortieState.PENDING) " · ${sortie.state.name.replace("_", " ").uppercase()}" else ""}"
     }
 
-    private suspend fun derive(missionWithSorties: MissionWithSorties?): MissionTabState {
-        val mission = missionWithSorties?.mission ?: return MissionTabState.Loading
+    /**
+     * One Flow per mission emission. The DRAFT arm is the only one that joins flows of its own: its coach status
+     * has two live sources, and the newest outline row is keyed by a mission id this is the first place that knows.
+     * The ACTIVE and CLOSED arms emit what they build today, so neither pays a settings or generation read it did
+     * not pay before.
+     */
+    private fun derive(missionWithSorties: MissionWithSorties?): Flow<MissionTabState> {
+        val mission = missionWithSorties?.mission ?: return flowOf(MissionTabState.Loading)
         val sorties = missionWithSorties.sorties
 
         return when (mission.status) {
-            MissionStatus.DRAFT -> MissionTabState.Week(
-                missionId = mission.id,
-                weekStart = mission.weekStart,
-                status = mission.status,
-                chips = deriveChips(mission.pattern, emptyList()),
-                outlineNotes = null,
-                rows = emptyList(),
-            )
-
-            MissionStatus.CLOSED -> {
-                val rows = sorties.map { sortie ->
-                    SortieRow(sortie.id, sortie.index, sortie.type, sortie.focus, sortie.state)
-                }
+            MissionStatus.DRAFT -> combine(
+                db.generationDao().observeNewestNonCancelledOutlineForMission(mission.id),
+                manager.coachConfigured,
+            ) { outline, configured ->
                 MissionTabState.Week(
                     missionId = mission.id,
                     weekStart = mission.weekStart,
                     status = mission.status,
-                    chips = deriveChips(mission.pattern, sorties),
-                    outlineNotes = mission.outlineNotes,
-                    rows = rows,
+                    chips = deriveChips(mission.pattern, emptyList()),
+                    outlineNotes = null,
+                    rows = emptyList(),
+                    coachStatus = deriveCoachStatus(
+                        newestOutlineStatus = outline?.status,
+                        newestOutlineError = outline?.error,
+                        newestOutlineIsCoachOffline = outline?.isCoachOffline ?: false,
+                        coachConfigured = configured,
+                    ),
                 )
-            }
+            }.distinctUntilChanged()
 
-            MissionStatus.ACTIVE -> {
-                val rows = sorties.map { sortie ->
-                    SortieRow(sortie.id, sortie.index, sortie.type, sortie.focus, sortie.state)
-                }
-                MissionTabState.Week(
-                    missionId = mission.id,
-                    weekStart = mission.weekStart,
-                    status = mission.status,
-                    chips = deriveChips(mission.pattern, sorties),
-                    outlineNotes = mission.outlineNotes,
-                    rows = rows,
-                )
-            }
+            MissionStatus.CLOSED -> flowOf(deriveConfirmedWeek(mission, sorties))
+
+            MissionStatus.ACTIVE -> flowOf(deriveConfirmedWeek(mission, sorties))
         }
+    }
+
+    /** A confirmed week: its sortie rows, chips and outline notes, from the mission row alone. */
+    private fun deriveConfirmedWeek(mission: Mission, sorties: List<Sortie>): MissionTabState.Week {
+        val rows = sorties.map { sortie ->
+            SortieRow(sortie.id, sortie.index, sortie.type, sortie.focus, sortie.state)
+        }
+        return MissionTabState.Week(
+            missionId = mission.id,
+            weekStart = mission.weekStart,
+            status = mission.status,
+            chips = deriveChips(mission.pattern, sorties),
+            outlineNotes = mission.outlineNotes,
+            rows = rows,
+        )
     }
 }
