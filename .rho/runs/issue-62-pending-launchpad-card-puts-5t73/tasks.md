@@ -101,7 +101,7 @@ a skip. Scratch files and gate logs go under gitignored `app/build/`, never `app
   pre-fix tree first and failed there; a full gate run shows no failure, error or skip anywhere; the five
   Launchpad classes verify.sh names are still green.
 
-- [ ] 3. `launchpad: tests that the cap leaves the short focus and the PLANNED card alone`
+- [x] 3. `launchpad: tests that the cap leaves the short focus and the PLANNED card alone`
   Plan step 4: three more cases in the file task 2 left — read it first and reuse its harness helpers, its
   node-finding and its `@GraphicsMode`. No new source unless one of these fails, in which case task 2's fix
   is corrected in this same commit: these three are the cases that catch a cap tuned to the one length the
