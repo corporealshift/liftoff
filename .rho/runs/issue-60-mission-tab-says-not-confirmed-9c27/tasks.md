@@ -49,7 +49,7 @@ twice. `verify.sh` is never edited. Baseline measured on the untouched tree: the
   Done when: both screens read one copy (or the fallback is recorded), and `LaunchpadDraftStatusTest`,
   `LaunchpadPendingStatusTest` and `LaunchpadPlannedActionsTest` pass unchanged.
 
-- [ ] 4. `MissionStatesTest`: the four draft-status cases
+- [x] 4. `MissionStatesTest`: the four draft-status cases
   Covers `app/src/test/java/com/liftoff/app/ui/mission/MissionStatesTest.kt` — Robolectric +
   in-memory Room, coach configured through `settingsStore.setDaemonHost`/`setDaemonToken`, OUTLINE
   rows written the way `LaunchpadCoachStatusTest` writes them (`Generation(kind = OUTLINE,
