@@ -23,7 +23,7 @@ twice. `verify.sh` is never edited. Baseline measured on the untouched tree: the
   `MissionTabStateTest`'s one case pass unchanged, and the new field is reachable on a DRAFT week.
   No test name from `verify.sh` belongs to this task.
 
-- [ ] 2. Draw the coach line in the Mission tab's draft block
+- [x] 2. Draw the coach line in the Mission tab's draft block
   Covers `app/src/main/java/com/liftoff/app/ui/mission/MissionScreen.kt` 128-134: keep the
   `status == MissionStatus.DRAFT` gate, and inside it pick the line from the week's coach status
   instead of drawing one sentence for every draft — the Launchpad's planning line, its offline line,
