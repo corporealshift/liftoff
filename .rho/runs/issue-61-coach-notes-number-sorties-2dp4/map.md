@@ -82,6 +82,41 @@ Where the coach's sortie numbering lives, and what already asserts it.
 - `ARCHITECTURE.md` invariant 2 (63) — `coach/` is pure Kotlin with no Android imports. Milestone M0 (79)
   names the prompt builder and its golden prompts.
 
+## What the gate script names (verify.sh — the definition of done)
+
+Three new tests, by name; the work steps must use these names, in any class:
+
+1. `promptNumbersEachSortieByItsDisplayNumberAndKeepsItsIndex` — one test, the three prompts in it: every
+   `This week` sortie line names the sortie by `index + 1` (1…5 for indices 0…4) and keeps the 0-based index
+   beside it; the `planning:` line carries the same two numbers for the same sortie.
+2. `everyCoachPromptTellsTheCoachToNameSortiesByTheirNumberNotTheirIndex` — one test, the three prompts in it:
+   each carries one line in `This week` telling the coach to name a sortie in its notes by the number printed
+   beside it, or by type and focus, never by index; the same line in all three; no `focus:` / `planning:`
+   substring in it.
+3. `flightPlanTaskLineNamesTheSortieByTheNumberItsWeekLinePrints` — one test, the two golden planned
+   positions (index 1 → 2, index 2 → 3): the Task line's number equals the number the same prompt's week list
+   prints for that sortie, with the index named too.
+
+Whole classes it also requires green (rename-robust, no new tests): `CoachPromptGoldenFileTest`,
+`CoachPromptBuilderTest`, `CoachSchemaFilesTest`, `CoachReplySemanticTest`, `CoachReplyFixtureTest`,
+`PromptInputLoaderTest`, `GenerationWorkerTest`. No UI test is named, and none should be written for this issue.
+
+## Baseline on the untouched tree (measured 2026-11-21)
+
+`bash .rho/runs/issue-61-coach-notes-number-sorties-2dp4/verify.sh` on the untouched tree: gate green on
+attempt 1 in 1m26s (local toolchain, `--no-build-cache`, 46 tasks executed), **775 test records over 93
+reports, 0 failures, 0 skips**, all seven class checks ok (CoachPromptGoldenFileTest 5, CoachPromptBuilderTest
+15, CoachSchemaFilesTest 3, CoachReplySemanticTest 15, CoachReplyFixtureTest 17, PromptInputLoaderTest 11,
+GenerationWorkerTest 36), and the script exits 1 on the three names above. With those three names present and
+passing the same script exits 0 (checked against a synthetic index, since a scratch test cannot be written in
+`app/src/test` by this session). No test in the repo is skipped today, so the script treats a skip as a failure.
+
+The text the change moves, as it stands in the golden files: `outline.txt` week lines 27–31 read
+`index 0 — run — landed` … `index 4 — run — pending` with no `planning:` line; the two Flight Plan files read
+the same five lines with ` — focus: Back squat` on indices 1 and 2, then `planning: index 1 — lift` /
+`planning: index 2 — run`, and their Task lines read `Write the Flight Plan for sortie 1 of this week` /
+`… sortie 2 …`. `CoachPromptBuilder.kt:60` is the Task line, `:101` the week line, `:107-109` the planning line.
+
 ## Gate on this machine
 
 `bash gradlew.sh :app:assembleDebug :app:testDebugUnitTest` is the documented gate, but the committed
