@@ -73,7 +73,7 @@ files go under gitignored `app/build/`, never `app/src/test`.
   green; the outline prompt still contains neither `focus:` nor `planning:`; no failure or skip in
   any `TEST-*.xml`.
 
-- [ ] 3. `coach: tests for the numbering the coach is shown`
+- [x] 3. `coach: tests for the numbering the coach is shown`
   The three tests verify.sh names, written in `coach/CoachPromptBuilderTest.kt` beside the existing
   §7.4 cases (a new `coach/` test class is fine too — names are matched across every report). All
   three build their inputs by hand the way that class's cases do, over a **five-position `RLRLR`
