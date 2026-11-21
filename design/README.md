@@ -56,7 +56,7 @@ Two Google Fonts, both under the Open Font License. Bundle them in `res/font/`.
 | Role | Font | Size / weight | Notes |
 |---|---|---|---|
 | Wordmark "LIFTOFF" | Big Shoulders | 24 / 900 | letter-spacing 0.14em |
-| Screen title (Launchpad) | Big Shoulders | 68 / 900 | uppercase, line-height 0.9 |
+| Screen title (Launchpad) | Big Shoulders | 68 / 900 | uppercase, line-height 0.9; a title that fits stays 68 / 900 — one that doesn't (the PENDING card's focus) caps at two lines, shrinking 68 → 44 → 34 and ellipsizing past 34 |
 | Screen title (In-Flight header) | Big Shoulders | 44 / 900 | uppercase |
 | Primary button (Launch) | Big Shoulders | 34 / 900 | letter-spacing 0.16em |
 | Primary button (Land) | Big Shoulders | 30 / 900 | letter-spacing 0.16em |
