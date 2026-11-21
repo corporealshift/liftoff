@@ -21,6 +21,8 @@ import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
 import com.liftoff.app.domain.CoachStatus
 import com.liftoff.app.ui.PlaceholderScreen
+import com.liftoff.app.ui.launchpad.OFFLINE_LINE
+import com.liftoff.app.ui.launchpad.PLANNING_LINE
 import com.liftoff.app.ui.sortie.FlightPlanSection
 import com.liftoff.app.ui.sortie.formatDistance
 import com.liftoff.app.ui.sortie.formatWeekDate
@@ -175,8 +177,7 @@ private fun DraftNote(text: String, color: Color) {
     Text(text = text, style = LiftoffType.note().copy(color = color))
 }
 
-private const val PLANNING_LINE = "Coach is planning the week…"
-private const val OFFLINE_LINE = "Mission Control offline — retrying"
+/** This tab's own sentences; the coach's planning and offline lines come from the Launchpad's shared copy. */
 private const val UNCONFIRMED_LINE = "Not confirmed yet. Confirm this Mission on the Launchpad."
 private const val LAUNCHPAD_POINTER_LINE = "Retry or continue on the Launchpad."
 
