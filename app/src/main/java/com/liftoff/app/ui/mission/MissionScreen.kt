@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.liftoff.app.AppContainer
 import com.liftoff.app.data.*
+import com.liftoff.app.domain.CoachStatus
 import com.liftoff.app.ui.PlaceholderScreen
 import com.liftoff.app.ui.sortie.FlightPlanSection
 import com.liftoff.app.ui.sortie.formatDistance
@@ -126,10 +127,7 @@ private fun WeekContent(
 
     // Draft message
     if (state.status == MissionStatus.DRAFT) {
-        Text(
-            text = "Not confirmed yet. Confirm this Mission on the Launchpad.",
-            style = LiftoffType.note().copy(color = Muted),
-        )
+        DraftCoachLine(state.coachStatus)
         Spacer(Modifier.height(20.dp))
     }
 
@@ -150,6 +148,37 @@ private fun WeekContent(
         Spacer(Modifier.height(20.dp))
     }
 }
+
+/**
+ * What the draft says about Mission Control, in the Launchpad's own words. The actions stay on the
+ * Launchpad — DESIGN.md §9 gives this tab only Reset week — so a failure says where to act.
+ * Editable and NotConfigured mean nothing is in flight, which is what the tab's own sentence is for.
+ */
+@Composable
+private fun DraftCoachLine(status: CoachStatus) {
+    when (status) {
+        CoachStatus.Planning -> DraftNote(PLANNING_LINE, Muted)
+        CoachStatus.Offline -> DraftNote(OFFLINE_LINE, Muted)
+        // The row's own words with no label in front of them, as the Launchpad shows them; this tab runs
+        // no Retry, so there is no report of its own to put in the slot.
+        is CoachStatus.Failed -> {
+            DraftNote(status.reason, Red)
+            Spacer(Modifier.height(4.dp))
+            DraftNote(LAUNCHPAD_POINTER_LINE, Muted)
+        }
+        CoachStatus.Editable, CoachStatus.NotConfigured -> DraftNote(UNCONFIRMED_LINE, Muted)
+    }
+}
+
+@Composable
+private fun DraftNote(text: String, color: Color) {
+    Text(text = text, style = LiftoffType.note().copy(color = color))
+}
+
+private const val PLANNING_LINE = "Coach is planning the week…"
+private const val OFFLINE_LINE = "Mission Control offline — retrying"
+private const val UNCONFIRMED_LINE = "Not confirmed yet. Confirm this Mission on the Launchpad."
+private const val LAUNCHPAD_POINTER_LINE = "Retry or continue on the Launchpad."
 
 @Composable
 private fun SortieDetailView(state: SortieDetailState, onBack: () -> Unit) {
