@@ -68,7 +68,7 @@ a skip. Scratch files and gate logs go under gitignored `app/build/`, never `app
   `grep -rn "TitleBlock(\|DisplayTitle(" app/src/main/java | grep -v theme/Headings.kt` shows no call site
   passing a cap yet.
 
-- [ ] 2. `launchpad: keep the PENDING title inside two lines`
+- [x] 2. `launchpad: keep the PENDING title inside two lines`
   Plan steps 1 and 3, in that order. **Write the two cases below first and run them against the tree as it
   is** — they must fail there, and what they report is the map's measurement (title node 329 dp, status top
   435 dp), which is what the fix is then measured against. Then the fix, at `PendingContent`'s `TitleBlock`
