@@ -108,7 +108,7 @@ files go under gitignored `app/build/`, never `app/src/test`.
   is the newest in the list and names §7.4; no comment in the builder describes the old week-line
   shape; DESIGN.md stays LF-only; the coach tests still green.
 
-- [ ] 5. Gate: the whole suite runs clean, and the run's checks pass
+- [x] 5. Gate: the whole suite runs clean, and the run's checks pass
   No new source. Run `bash .rho/runs/issue-61-coach-notes-number-sorties-2dp4/verify.sh` from the
   repository root and read its output, not just its exit code. Then sweep for anything left calling
   the 0-based index "sortie N" in coach-facing text: `grep -rn 'sortie ' app/src/main/java/com/liftoff/app/coach/`,
