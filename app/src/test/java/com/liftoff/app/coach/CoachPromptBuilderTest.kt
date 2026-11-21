@@ -331,9 +331,9 @@ class CoachPromptBuilderTest {
     // ─── §7.4 item 5: the week list ─────────────────────────────────────────────
 
     /**
-     * Plan decision 0: an OUTLINE prompt lists index, type and state only. Before the outline exists
-     * the only focus a row can carry is the "Continue without outline" placeholder, and showing it
-     * would anchor the coach on it.
+     * Plan decision 0: an OUTLINE prompt lists each sortie's number and index, its type and its state
+     * only. Before the outline exists the only focus a row can carry is the "Continue without outline"
+     * placeholder, and showing it would anchor the coach on it.
      */
     @Test
     fun outlinePromptWeekListsNoFocus() {
@@ -351,9 +351,10 @@ class CoachPromptBuilderTest {
         assertEquals(
             listOf(
                 "pattern: RLRLR",
-                "index 0 — run — landed",
-                "index 1 — lift — pending",
-                "index 2 — run — pending",
+                "sortie 1 (index 0) — run — landed",
+                "sortie 2 (index 1) — lift — pending",
+                "sortie 3 (index 2) — run — pending",
+                "In your notes, name a sortie by the number printed beside it, or by its type and focus, never by its index.",
             ),
             sectionLines(prompt, "This week"),
         )
@@ -439,7 +440,7 @@ class CoachPromptBuilderTest {
         )
     }
 
-    /** §7.4 item 5, for a Flight Plan: the week list names which sortie is being planned. */
+    /** §7.4 item 5, for a Flight Plan: the week list numbers each sortie and names which one is being planned. */
     @Test
     fun flightPlanWeekShowsFocusAndNamesTheSortieBeingPlanned() {
         val prompt = CoachPromptBuilder.prompt(flightPlan(history = emptyList()))
@@ -447,15 +448,16 @@ class CoachPromptBuilderTest {
         assertEquals(
             listOf(
                 "pattern: RLRLR",
-                "index 0 — run — landed — focus: Easy 5k",
-                "index 1 — lift — pending — focus: Push + core",
-                "index 2 — run — pending — focus: Tempo intervals",
-                "planning: index 1 — lift",
+                "sortie 1 (index 0) — run — landed — focus: Easy 5k",
+                "sortie 2 (index 1) — lift — pending — focus: Push + core",
+                "sortie 3 (index 2) — run — pending — focus: Tempo intervals",
+                "planning: sortie 2 (index 1) — lift",
+                "In your notes, name a sortie by the number printed beside it, or by its type and focus, never by its index.",
             ),
             sectionLines(prompt, "This week"),
         )
         assertEquals(
-            listOf("Write the Flight Plan for sortie 1 of this week"),
+            listOf("Write the Flight Plan for sortie 2 (index 1) of this week"),
             sectionLines(prompt, "Task"),
         )
     }
@@ -471,6 +473,127 @@ class CoachPromptBuilderTest {
             history = emptyList(),
             sortieIndex = 7,
         )
+    }
+
+    // ─── issue 61: the numbering the coach is shown ─────────────────────────────
+
+    /**
+     * Issue 61: the coach's notes numbered a sortie by its 0-based index while every screen numbers it
+     * from 1, so the athlete read "sortie 1" for the row the Mission tab calls 02. Every prompt now
+     * prints both numbers for every sortie — the display number, which is the sortie's 1-based position
+     * in the week, and the index the coach replies with — and the `planning:` line is the same sortie,
+     * so it must carry the same two numbers.
+     */
+    @Test
+    fun promptNumbersEachSortieByItsDisplayNumberAndKeepsItsIndex() {
+        for ((input, prompt) in numberingCases()) {
+            val label = caseLabel(input)
+            val lines = sectionLines(prompt, "This week")
+            val sortieLines = lines.filter { it.startsWith("sortie ") }
+            assertEquals("$label: the week list does not print one line for each of the five positions", 5, sortieLines.size)
+            assertEquals(
+                "$label: the week list is not in index order",
+                (0..4).toList(),
+                sortieLines.map { numbersIn(it, label).second },
+            )
+            for (index in 0..4) {
+                val line = sortieLines[index]
+                val display = index + 1
+                assertEquals(
+                    "$label: the line for index $index does not name it $display with index $index beside it",
+                    display to index,
+                    numbersIn(line, label),
+                )
+                assertTrue(
+                    "$label: \"$line\" does not put both numbers for index $index before the type and state",
+                    line.startsWith("sortie $display (index $index)"),
+                )
+            }
+
+            val planning = lines.filter { it.startsWith("planning: ") }
+            val planned = input.sortieIndex
+            if (planned == null) {
+                assertEquals("$label: an OUTLINE prompt names a sortie it is planning", emptyList<String>(), planning)
+                continue
+            }
+            assertEquals("$label: the week list does not name exactly one sortie as being planned", 1, planning.size)
+            assertEquals(
+                "$label: the planning line does not carry ${planned + 1} and index $planned",
+                (planned + 1) to planned,
+                numbersIn(planning.single(), label),
+            )
+            assertEquals(
+                "$label: the planning line numbers the sortie being planned differently from its own week line",
+                numbersIn(sortieLines[planned], label),
+                numbersIn(planning.single(), label),
+            )
+        }
+    }
+
+    /**
+     * The rule that fixes issue 61 is one line, in the section that holds the list, in every prompt
+     * kind: a rule the coach is told in an outline prompt and not in a Flight Plan prompt is a rule the
+     * coach does not have. It points at the number printed beside each sortie, so it says nothing about
+     * the indices printed in the same parentheses — and the numbers it points at are the positions, 1…5,
+     * not the 0-based indices the coach replies with.
+     */
+    @Test
+    fun everyCoachPromptTellsTheCoachToNameSortiesByTheirNumberNotTheirIndex() {
+        val rules = mutableListOf<String>()
+        for ((input, prompt) in numberingCases()) {
+            val label = caseLabel(input)
+            val lines = sectionLines(prompt, "This week")
+            val printed = lines.filter { it.startsWith("sortie ") }.map { numbersIn(it, label) }
+            val rule = lines.filter {
+                !it.startsWith("sortie ") && !it.startsWith("pattern:") && !it.startsWith("planning:")
+            }
+            assertEquals("$label: the This week section does not carry exactly one line for the coach to follow", 1, rule.size)
+            val line = rule.single()
+            assertTrue("$label: the line is not about the coach's own notes: $line", line.contains("notes"))
+            assertTrue("$label: the line does not name a number as what the coach should write: $line", line.contains("number"))
+            assertTrue("$label: the line does not rule the index out of the coach's notes: $line", line.contains("index") && line.contains("never"))
+            assertFalse("$label: the line uses the focus field's own wording: $line", line.contains("focus:"))
+            assertFalse("$label: the line uses the planning field's own wording: $line", line.contains("planning:"))
+            assertFalse("$label: the line names a numbered sortie, so it is another entry in the list: $line", NUMBER_AND_INDEX.containsMatchIn(line))
+            assertFalse("$label: the line carries a number of its own instead of pointing at the list's: $line", line.any { it.isDigit() })
+            assertEquals("$label: the rule appears more than once in the prompt", 1, prompt.lines().count { it == line })
+
+            assertEquals("$label: the numbers the coach is told to use are not 1..5", (1..5).toList(), printed.map { it.first })
+            assertEquals("$label: the indices printed beside those numbers are not 0..4", (0..4).toList(), printed.map { it.second })
+            assertTrue("$label: a number the coach is told to use is not its sortie's position + 1: $printed", printed.all { it.first == it.second + 1 })
+            rules += line
+        }
+        assertEquals(3, rules.size)
+        assertEquals("the three prompts do not tell the coach the same rule", 1, rules.distinct().size)
+    }
+
+    /**
+     * The line the coach actually acts on, which the brief's example does not show: it used to read
+     * `Write the Flight Plan for sortie 1 of this week` for the sortie its own list called 2 and the
+     * Mission tab called 02, so the prompt disagreed with itself about the one sortie in question.
+     */
+    @Test
+    fun flightPlanTaskLineNamesTheSortieByTheNumberItsWeekLinePrints() {
+        for (planned in listOf(1, 2)) {
+            val input = numberingFlightPlan(planned)
+            val prompt = CoachPromptBuilder.prompt(input)
+            val label = caseLabel(input)
+            val task = sectionLines(prompt, "Task")
+            assertEquals("$label: the Task section is not one line naming the session the coach is writing", 1, task.size)
+            val line = task.single()
+            assertTrue("$label: the Task line does not name the sortie being planned: $line", line.startsWith("Write the Flight Plan for sortie "))
+            val fromTask = numbersIn(line, label)
+            val weekLine = sectionLines(prompt, "This week").filter { it.startsWith("sortie ") }[planned]
+            val fromWeek = numbersIn(weekLine, label)
+            assertEquals(
+                "$label: the Task line and this prompt's own week list number the sortie being planned differently",
+                fromWeek,
+                fromTask,
+            )
+            assertEquals("$label: the Task line does not name index $planned as sortie ${planned + 1}", (planned + 1) to planned, fromTask)
+            assertTrue("$label: the Task line does not name index $planned beside the number: $line", line.contains("(index $planned)"))
+            assertTrue("$label: the Task line prints the 0-based index under the word sortie: $line", fromTask.first != fromTask.second)
+        }
     }
 
     // ─── §7.3 step 5 / §7.6: the repair prompt ──────────────────────────────────
@@ -554,6 +677,57 @@ class CoachPromptBuilderTest {
         history = history,
         sortieIndex = 1,
     )
+
+    /**
+     * The week the numbering tests read, built here rather than by widening the 3-sortie [week]
+     * fixture above: five positions, `RLRLR`, indices 0–4, an outline focus stored for the first three —
+     * the golden inputs' week.
+     */
+    private fun fivePositionWeek() = PromptWeek(
+        pattern = "RLRLR",
+        sorties = listOf(
+            PromptSortie(0, SortieType.RUN, SortieState.LANDED, "Easy 5k"),
+            PromptSortie(1, SortieType.LIFT, SortieState.PENDING, "Push + core"),
+            PromptSortie(2, SortieType.RUN, SortieState.PENDING, "Tempo intervals"),
+            PromptSortie(3, SortieType.LIFT, SortieState.PENDING),
+            PromptSortie(4, SortieType.RUN, SortieState.PENDING),
+        ),
+    )
+
+    private fun numberingOutline() = CoachPromptInput(
+        kind = GenerationKind.OUTLINE,
+        profile = profile,
+        equipment = equipment,
+        week = fivePositionWeek(),
+        history = emptyList(),
+    )
+
+    private fun numberingFlightPlan(sortieIndex: Int) = CoachPromptInput(
+        kind = GenerationKind.FLIGHT_PLAN,
+        profile = profile,
+        equipment = equipment,
+        week = fivePositionWeek(),
+        history = emptyList(),
+        sortieIndex = sortieIndex,
+    )
+
+    /** The three prompts every numbering test reads: the outline, and a Flight Plan for index 1 and for index 2. */
+    private fun numberingCases(): List<Pair<CoachPromptInput, String>> =
+        listOf(numberingOutline(), numberingFlightPlan(1), numberingFlightPlan(2))
+            .map { it to CoachPromptBuilder.prompt(it) }
+
+    private fun caseLabel(input: CoachPromptInput) =
+        if (input.sortieIndex == null) "OUTLINE prompt" else "FLIGHT_PLAN prompt for index ${input.sortieIndex}"
+
+    /** `sortie 2 (index 1)` — the display number and the 0-based index, in the order the builder prints them. */
+    private val NUMBER_AND_INDEX = Regex("sortie (\\d+) \\(index (\\d+)\\)")
+
+    /** The two numbers one line prints for one sortie, as `display to index`; a line printing neither fails. */
+    private fun numbersIn(line: String, label: String): Pair<Int, Int> {
+        val match = NUMBER_AND_INDEX.find(line)
+            ?: throw AssertionError("$label: \"$line\" prints no `sortie N (index M)` pair")
+        return match.groupValues[1].toInt() to match.groupValues[2].toInt()
+    }
 
     private fun landed(
         date: LocalDate,
