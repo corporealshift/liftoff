@@ -39,7 +39,7 @@ Scratch files live under `app/build/`; never put a scratch test class under `app
   SUCCESSFUL, the new name is in `CoachPromptBuilderTest`'s report as passing, and
   `repairPromptCarriesEveryValidatorErrorAndAsksForOnlyTheCorrectedJson` still passes. Commit.
 
-- [ ] 2. The Invalid arm picks the session from how the refused turn ended — and the test that proves it
+- [x] 2. The Invalid arm picks the session from how the refused turn ended — and the test that proves it
   `app/src/main/java/com/liftoff/app/work/GenerationWorker.kt`, the `CoachReplyResult.Invalid` arm of
   `storeFinishedTurn` (299-331): when `refused.end == TurnEnd.Completed` the repair runs on a **new**
   session — `runCoachTurn` with a null `sessionId` (which is already what creates one, `CoachTurnRunner.kt`
