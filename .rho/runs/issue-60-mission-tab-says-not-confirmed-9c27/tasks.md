@@ -36,7 +36,7 @@ twice. `verify.sh` is never edited. Baseline measured on the untouched tree: the
   Compose test of the drawn line is wanted here: the brief asks for a state test, and `verify.sh`
   names none, so the four and one cases in tasks 4-5 are what pin this.
 
-- [ ] 3. One copy of the planning/offline wording for both tabs
+- [x] 3. One copy of the planning/offline wording for both tabs
   Covers `app/src/main/java/com/liftoff/app/ui/launchpad/LaunchpadScreen.kt` 184-185: lift
   `PLANNING_LINE` and `OFFLINE_LINE` so `MissionScreen.kt` reads the same constants — the codebase's
   only shared coach string, `internal const val NOT_CONFIGURED_MESSAGE` in `LaunchpadViewModel.kt:18`,
