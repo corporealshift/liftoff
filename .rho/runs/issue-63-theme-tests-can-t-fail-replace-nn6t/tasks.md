@@ -40,7 +40,7 @@ in that same file and record it in map.md. Append what you learn to map.md; do n
   those four files, and the constant names and values are appended to map.md under "Constants
   named by task 1" so tasks 2–5 read them instead of re-deriving them.
 
-- [ ] 2. Rewrite `StripesTest`
+- [x] 2. Rewrite `StripesTest`
   `app/src/test/java/com/liftoff/app/ui/theme/StripesTest.kt`. Tests it writes:
   **`StripesTest.stripeBandHeightsAreTheValuesTheStripesDraw`** — the named band-height constants
   read from `Stripes.kt`, compared against each other (TriStripe's three equal bands, DuoStripe's
