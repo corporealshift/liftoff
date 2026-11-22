@@ -74,7 +74,7 @@ in that same file and record it in map.md. Append what you learn to map.md; do n
   Done when: the class runs alone green, all three names are in its XML report, and the full gate
   is green.
 
-- [ ] 4. Rewrite `ButtonsTest`
+- [x] 4. Rewrite `ButtonsTest`
   `app/src/test/java/com/liftoff/app/ui/theme/ButtonsTest.kt`. Tests it writes:
   **`ButtonsTest.buttonDimensionsAreTheDesignValues`** — the named height, shadow-offset,
   border-width and icon-size constants compared against each other (PrimaryButton taller than
