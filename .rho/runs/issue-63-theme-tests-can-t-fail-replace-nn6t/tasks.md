@@ -54,7 +54,7 @@ in that same file and record it in map.md. Append what you learn to map.md; do n
   already pins the tokens. The class ends with just these two cases.
   Done when: the class runs alone green, both names are in its XML report, and the full gate is green.
 
-- [ ] 3. Rewrite `PatternTrackTest`
+- [x] 3. Rewrite `PatternTrackTest`
   `app/src/test/java/com/liftoff/app/ui/theme/PatternTrackTest.kt`. Tests it writes:
   **`PatternTrackTest.chipSizeFollowsChipState`** — `chipSizeDp(state)` called with each of the
   four `ChipState` values, compared against the named size constants and against each other
