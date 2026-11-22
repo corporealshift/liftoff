@@ -120,7 +120,7 @@ in that same file and record it in map.md. Append what you learn to map.md; do n
   Done when: the two files are the only changes, `LiftoffShellTest` and `PreviewsTest` both pass in
   the full suite, and the commit exists.
 
-- [ ] 7. Run the gate and sweep for what is left
+- [x] 7. Run the gate and sweep for what is left
   Run `bash .rho/runs/issue-63-theme-tests-can-t-fail-replace-nn6t/verify.sh` once and read its
   report: every line must be `ok` and the verdict `done`. If a named case is reported as not
   running, fix the test that names it (tasks 2–5), not the script. Then sweep the four rewritten
