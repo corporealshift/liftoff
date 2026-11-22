@@ -6,14 +6,17 @@
 # What is checked, in one line:
 # the CI gate still passes, and every assertion the brief names as one that cannot fail is
 # replaced by a test that can — a number read out of the production theme file it claims to
-# describe, or a real measurement of a rendered composable — and MainActivity is exercised by a
-# test that actually launches it.
+# describe, or a real measurement of a rendered composable — and MainActivity is still launched
+# by a test that passes.
 #
 # What is NOT checked here, and why:
 # - No test source is read. This gate runs the suite and reads the JUnit XML reports Gradle
-#   writes; it never greps a .kt file for a name, a string or a pattern, and never checks that a
-#   file exists. A test of the new behavior is the proof. The only counting here is of the cases
-#   Gradle recorded under com.liftoff.app.MainActivityTest, which the plan deletes.
+#   writes; it never greps a .kt file for a name, a string or a pattern, never counts tests, and
+#   never checks that a file exists. A test of the new behavior is the proof.
+# - Whether MainActivityTest was rewritten or deleted. The brief allows either ("Rewrite or
+#   delete MainActivityTest"); the plan deletes it (Decision: "MainActivityTest: rewrite or
+#   delete?"), and the owner reviews that in the pull request. Whatever remains must pass, which
+#   the gate already requires.
 # - Whether each new test can actually fail is not probed by mutating production code: a
 #   mutation would have to edit tracked files mid-gate and restore them, and it would pin
 #   constant names the work steps have not chosen yet. The named cases below are each written so
@@ -21,30 +24,22 @@
 #   measurement to take.
 # - Which file a named test sits in: a name is matched against the classname attribute of every
 #   report, so a case may move file or package as long as it lands in the class named beside it.
-#   The plan puts them in the four theme test files; nothing here requires that.
-# - The mechanism of PreviewsTest's fix. Kotlin's assert is gated on the JVM's -ea flag
-#   (kotlinlang.org kotlin/assert.html) and Gradle's Test task enables assertions, so today's
+# - The mechanism of PreviewsTest's fix. Gradle's Test task enables assertions, so today's
 #   assert(found) already throws when found is false: swapping it for check(found) changes
 #   nothing observable from outside the JVM. What this gate can require is that PreviewsTest
-#   still runs and still passes with its nine private @Preview composables; the swap itself is
-#   reviewed in the pull request, where the brief's bullet about it lives.
+#   still runs and still passes; the swap itself is reviewed in the pull request.
 # - The cases the brief lists as fine as they are: ColorTokensTest, FontResourcesTest,
 #   FontLicenseTest, ColorSchemeTest, TypographyTest, IconsTest. They must still run and pass;
 #   they are not required to change.
-# - The design numbers themselves, beyond the named cases that read them. The owner reviews the
-#   values in the pull request; this gate only requires that the cases reading them pass.
+# - The design numbers themselves, beyond the named cases that read them.
 # - Whether the old vacuous cases were renamed or deleted. Only what replaces them is required.
-# - The theme color tokens, Type, Shapes, Headings, InkRuledListRow, and the screens that render
-#   these composables: the CI gate runs all of them.
-# - Whether the plan's fallbacks were taken (deleting the icon-order case, deleting the Big
-#   Shoulders case). The fallbacks are recorded in plan.md and reviewed in the pull request.
 #
 # How to run it: bash .rho/runs/issue-63-theme-tests-can-t-fail-replace-nn6t/verify.sh
 # It runs the CI pair (:app:assembleDebug :app:testDebugUnitTest) over the whole suite, so it
-# takes minutes, not seconds. Run it after the theme tests are rewritten, not between edits.
+# takes minutes, not seconds.
 #
 # It fails on the untouched tree, and for the right reason: the ten named cases below do not
-# exist yet, and com.liftoff.app.MainActivityTest still contributes tests.
+# exist yet.
 
 set -euo pipefail
 
@@ -60,13 +55,9 @@ trap 'rm -rf "$WORK"' EXIT
 # ---------------------------------------------------------------------------
 # The Gradle command, chosen the way CI chooses it.
 # ci.yml runs `./gradlew :app:assembleDebug :app:testDebugUnitTest` on Ubuntu with Java 17.
-# gradlew.sh is the owner's own shortcut and is Windows-only: it execs
-# C:/Users/corpo/android-toolchain/gradle/bin/gradle whatever the platform, so it is used only
-# where it works. On a machine with no cached wrapper distribution the pinned toolchain is used
-# instead — the same Gradle 8.11.1 that gradle/wrapper/gradle-wrapper.properties asks for — with
-# JAVA_HOME and ANDROID_HOME pointed at it. Nothing here edits gradlew.sh: it is not part of an
-# issue's files. LIFTOFF_TOOLCHAIN overrides the toolchain root; it exists only so this script
-# can be tested against synthetic report sets, and is unset in every real run.
+# gradlew.sh is the owner's own shortcut and is Windows-only, so it is used only where it works.
+# Elsewhere the pinned toolchain is used — the same Gradle the wrapper asks for — with
+# JAVA_HOME and ANDROID_HOME pointed at it. LIFTOFF_TOOLCHAIN overrides the toolchain root.
 # ---------------------------------------------------------------------------
 RUNNER=()
 case "$(uname -s 2>/dev/null || echo unknown)" in
@@ -110,8 +101,7 @@ clear_results() {
 }
 
 # Gradle's JUnit XML, indexed three ways: by method name, by class.method, and by class. Each
-# name keeps the worst outcome it produced anywhere in the suite, so a case that is skipped in
-# one report and passed in another is not counted as passed.
+# name keeps the worst outcome it produced anywhere in the suite.
 index_reports() {
     : > "$WORK/raw"
     for file in "$RESULTS"/TEST-*.xml; do
@@ -147,8 +137,6 @@ index_reports() {
                 status = "pass"
                 match($0, /name="[^"]*"/)
                 name = substr($0, RSTART + 6, RLENGTH - 7)
-                # Gradle closes a passing testcase on the line it opens it ("<testcase ... />"), so a
-                # skipped or failed one can carry its <skipped/> or <failure/> on that same line.
                 if ($0 ~ /<skipped[ \/>]/) status = worse(status, "skip")
                 if ($0 ~ /<failure|<error/) status = worse(status, "fail")
                 if ($0 ~ /<\/testcase>/ || $0 ~ /\/>[ \t]*$/) { flush(); intest = 0 }
@@ -178,13 +166,9 @@ index_reports() {
     fi
 }
 
-# A run that failed only because Gradle itself broke, or because of the flakes this repository
-# has recorded: com.liftoff.app.ui.LiftoffShellTest (a waitFor that expires under full-suite
-# load, a different case each time) and com.liftoff.app.ui.inflight.InFlightScreenTest (a
-# CalledFromWrongThreadException from a DefaultDispatcher worker reaching a node tree being torn
-# down). Both are green when their class runs alone. A failure in any other class is a real
-# failure and stops the retry, so a case this run is supposed to create can never be retried
-# into green.
+# A run that failed only because Gradle itself broke, or because of the recorded flakes in
+# LiftoffShellTest and InFlightScreenTest. A failure in any other class is a real failure and
+# stops the retry, so a case this run is supposed to create can never be retried into green.
 transient_failure() {
     local attempt="$1"
     local gate_log="$WORK/gate-$attempt.log"
@@ -230,9 +214,7 @@ for attempt in 1 2 3; do
         continue
     fi
     if [ "$rc" -eq 0 ]; then
-        # clear_results moved the reports aside, so the test task cannot be UP-TO-DATE; if it says
-        # it did not run, the reports on disk are not this run's and nothing below means anything.
-        # assembleDebug is not checked: it is a lifecycle task and is normally UP-TO-DATE.
+        # The reports were moved aside, so the test task cannot legitimately be UP-TO-DATE.
         if grep -E '^> Task :app:testDebugUnitTest (FROM-CACHE|UP-TO-DATE|NO-SOURCE)' "$last_log" >/dev/null 2>&1; then
             log "verify: the test task was served from cache or skipped; that is not a run of the current tree"
             gate_status="red"
@@ -265,11 +247,7 @@ fi
 
 log "=== $(wc -l < "$WORK/methods") test names, $(wc -l < "$WORK/classes") classes indexed ==="
 
-# ---------------------------------------------------------------------------
 # t <class> <method> — the case must exist, must have run, and must have passed.
-# <class> may be given simple or fully qualified; the match is on the classname attribute
-# Gradle writes, so a package change does not break it.
-# ---------------------------------------------------------------------------
 t() {
     local cls="$1" method="$2" want status
     want="$(printf '%s' "$method" | tr -d '`')"
@@ -300,154 +278,92 @@ c() {
     esac
 }
 
-# absent <class> — no test case may run under this class. The count is of cases, not of class
-# records, so a deleted class and a class with no cases both read as zero. The qualified key is
-# "<class>.<method>", so the class is what sits before the first dot that follows it.
-absent() {
-    local cls="$1" n
-    n="$(awk -F '\t' -v c="$cls" 'index($1, c ".") == 1 { n++ } END { print n + 0 }' "$WORK/qualified")"
-    if [ "$n" -eq 0 ]; then
-        ok "$cls contributes no tests"
-    else
-        bad "$cls still contributes $n test(s)"
-    fi
-}
-
 # ===========================================================================
-# 1. StripesTest — the brief's first example: assertEquals(Mustard.value, Mustard.value), and
-#    locals asserted against literals.
+# 1. StripesTest
 # ===========================================================================
 
-# The band heights the brief says are "hard-coded inside the composables and never named" must
-# now be values declared in Stripes.kt that TriStripe and DuoStripe themselves read, and the
-# test must read those same values: 6 dp for a tri stripe's band, 5 dp for a duo stripe's.
+# Tri band 6 dp, duo band 5 dp, read from the values Stripes.kt's composables draw with.
 # Decision: "Do the composables switch to the new constants, or do the constants exist only for
-# the tests?" — a constant no composable reads proves nothing about what is drawn.
+# the tests?"
 # Decision: "Do the rewritten tests pin the design values, or only the relationships between
-# them?" — the design sheet's numbers, not only tri = 3 x band.
+# them?"
 t StripesTest stripeBandHeightsAreTheValuesTheStripesDraw
 
-# The same claim measured from the other side, through the semantics tree: a rendered TriStripe
-# is 18 dp tall (3 x 6) and a rendered DuoStripe is 10 dp (2 x 5). Density is 1.0 on this
-# machine, so dp and px agree here.
-# Decision: "Which claims get a rendered Compose test, and which are pinned as numbers?" — the
-# first of the four claims this plan renders.
+# A rendered TriStripe measures 18 dp tall and a rendered DuoStripe 10 dp.
+# Decision: "Which claims get a rendered Compose test, and which are pinned as numbers?"
 t StripesTest stripesRenderAtTheirBandHeights
 
 # ===========================================================================
-# 2. PatternTrackTest — the brief's second example: assertEquals(44f, 44f) and
-#    assertEquals(900, 900).
+# 2. PatternTrackTest
 # ===========================================================================
 
-# The chip diameter must be a function of the chip's state that the composables call, not a
-# literal in a test: 52 dp for a Current chip, 44 dp for Upcoming, Landed and Scrubbed.
-# Decision: "Do the composables switch to the new constants, or do the constants exist only for
-# the tests?" — PatternTrack.kt already calls chipSizeDp, so the production call site is what
-# makes this a claim about the app rather than about the test.
+# chipSizeDp: 52 dp for a Current chip, 44 dp for Upcoming, Landed and Scrubbed.
 t PatternTrackTest chipSizeFollowsChipState
 
-# The track's height measured from the rendered composable: a track holding two non-landed
-# letters — "R" current and "L" upcoming — is 52 dp tall, and both letters appear as text nodes,
-# which is the one-chip-per-letter claim the drawBehind loop cannot be checked through.
-# Decision: "Which claims get a rendered Compose test, and which are pinned as numbers?" — the
-# second of the four rendered claims.
+# A rendered track of "R" (current) and "L" (upcoming) shows both letters as text nodes and
+# measures 52 dp tall.
+# Decision: "Which claims get a rendered Compose test, and which are pinned as numbers?"
 t PatternTrackTest trackDrawsOneChipPerLetterAndMeasuresItsHeight
 
-# Everything else about the track is drawn, so it has no semantics node and is pinned as values
-# the composables read: the chip ring widths 3 dp current, 2 dp upcoming, 2 dp scrubbed; the
-# connector 2 dp wide and inset 22 dp from each end; the check mark 20 dp.
+# Ring widths 3/2/2 dp, connector 2 dp wide and inset 22 dp, check mark 20 dp, read from the
+# values PatternTrack.kt draws with.
 # Decision: "Do the rewritten tests pin the design values, or only the relationships between
-# them?" — the design sheet's numbers, so a restyle fails the gate.
+# them?"
 t PatternTrackTest chipRingsAndConnectorAreTheDesignWidths
 
 # ===========================================================================
-# 3. ButtonsTest — the brief's third example: val iconAtEnd = true; assertEquals(true,
-#    iconAtEnd), and the same shape for the pressed color and the underline.
+# 3. ButtonsTest
 # ===========================================================================
 
-# The dimensions the brief says are "hard-coded inside the composables and never named" must be
-# values in Buttons.kt that PrimaryButton and InkButton read: 72 dp primary height, 64 dp ink
-# height, 2 dp border, 26 dp icon, 12 dp gap, a 44 dp minimum touch height, and a 1 dp underline
-# 4 dp below the baseline.
+# 72 dp primary height, 64 dp ink height, 2 dp border, 26 dp icon, 12 dp gap, 44 dp minimum
+# touch height, 1 dp underline 4 dp below the baseline, read from Buttons.kt's values.
 # Decision: "Do the composables switch to the new constants, or do the constants exist only for
 # the tests?"
 # Decision: "Do the rewritten tests pin the design values, or only the relationships between
 # them?"
 t ButtonsTest buttonDimensionsAreTheDesignValues
 
-# The pressed fill must be computed from the tokens it claims to use — Red, RedPressed and Ink
-# are already asserted against their hex literals in ColorTokensTest — and the test must show
-# the relationship the vacuous pressed == pressed was standing in for: the pressed fill differs
-# from the normal fill, and is darker than it.
+# The pressed fill, computed from Red, RedPressed and Ink, differs from and is darker than the
+# normal fill.
 t ButtonsTest pressedFillIsComputedFromTheTokens
 
-# The brief names iconAtEnd specifically, so the flip is measured rather than restated: render
-# PrimaryButton once with the icon leading and once with iconAtEnd, and the label's left edge
-# moves by 38 dp (26 dp icon + 12 dp gap). PrimaryButton and InkButton set contentDescription =
-# null on their Icon, so the label's position is the only handle the semantics tree gives. The
-# plan's fallback for this case is deletion if the measurement cannot be made; it stays required
-# here because the brief flags this exact vacuous test by name.
-# Decision: "Which claims get a rendered Compose test, and which are pinned as numbers?" — the
-# third of the four rendered claims.
+# Rendering PrimaryButton with and without iconAtEnd moves the label's left edge by icon + gap.
+# Decision: "Which claims get a rendered Compose test, and which are pinned as numbers?"
 t ButtonsTest labelShiftsWhenTheIconMoves
 
 # ===========================================================================
-# 4. OffsetShadowTest — the brief's fourth example: modifier != null on a non-nullable type,
-#    and locals asserted against literals for the offset and the corner.
+# 4. OffsetShadowTest
 # ===========================================================================
 
-# The offset and the corner must be values in OffsetShadow.kt that both offsetShadow and
-# OffsetShadowBox read: 4 dp each, which is design/README.md's box-shadow: 4px 4px 0.
+# Default offset 4 dp and corner 4 dp, read from the values offsetShadow and OffsetShadowBox use.
 # Decision: "Do the composables switch to the new constants, or do the constants exist only for
-# the tests?" — OffsetShadow.kt's private Modifier.offset(offset: Dp) is a no-op, and
-# design/README.md says the content is not shifted, so this pins the default the modifier is
-# called with. The test must NOT claim the content moves.
-# Decision: "Do the rewritten tests pin the design values, or only the relationships between
-# them?"
+# the tests?"
 t OffsetShadowTest offsetShadowDefaultsAreFourDp
 
-# The claim the vacuous modifier != null was standing in for, measured instead: a tagged box of
-# a fixed size that applies offsetShadow keeps exactly that size, because the shadow is drawn
-# behind and takes no layout space.
-# Decision: "Which claims get a rendered Compose test, and which are pinned as numbers?" — the
-# fourth of the four rendered claims.
+# A fixed-size tagged box with offsetShadow keeps exactly that size: the shadow takes no layout
+# space. It must not claim the content moves.
+# Decision: "Which claims get a rendered Compose test, and which are pinned as numbers?"
 t OffsetShadowTest aShadowedBoxKeepsTheSizeItAskedFor
 
 # ===========================================================================
-# 5. MainActivityTest — the brief's fifth example: a file that "never touches MainActivity",
-#    with a comment claiming it does.
+# 5. MainActivity — still launched by a passing test.
 # ===========================================================================
 
-# Decision: "MainActivityTest: rewrite or delete?" — deleted. Its two cases are vacuous, and
-# MainActivity runs the open sweep inside lifecycleScope.launch { repeatOnLifecycle(STARTED) }
-# on the application's own container with no injectable seam, so a rewrite would be an
-# integration test duplicating LiftoffShellTest. What the brief wants is MainActivity exercised
-# by a test that touches it, and that is the class below.
-absent com.liftoff.app.MainActivityTest
-
-# MainActivity is launched here, through createAndroidComposeRule<MainActivity>(). This is the
-# coverage the deleted file's comment claimed to provide.
+# Decision: "MainActivityTest: rewrite or delete?" — LiftoffShellTest launches MainActivity
+# through createAndroidComposeRule<MainActivity>(), so it must keep passing.
 c com.liftoff.app.ui.LiftoffShellTest
 
 # ===========================================================================
-# 6. PreviewsTest — the brief's sixth example: Kotlin assert(), which only throws under -ea.
+# 6. PreviewsTest — still runs and passes after assert() becomes check().
 # ===========================================================================
-
-# The brief says this file's checks are "correct, but they depend on a JVM flag". The nine
-# private @Preview composables in ui/theme/ must still be found and must still pass, so the swap
-# to check() cannot quietly drop a case or widen the search. The mechanism itself is not
-# observable from outside the JVM — see the header.
 c com.liftoff.app.ui.theme.PreviewsTest
 
 # ===========================================================================
-# 7. What the brief says is fine as it is, and what the new constants must not disturb.
+# 7. What the brief says is fine as it is, and the rewritten classes as a whole.
 # ===========================================================================
 
-# The brief lists these as correct already: they must still run and still pass, unchanged.
-# Decision: "FontLicenseTest uses the same Kotlin assert() the brief flags in PreviewsTest, yet
-# the brief lists it among the files that are fine. Fix it too?" — the review reversed the
-# plan's first answer: FontLicenseTest is left untouched, so it is required here only as a class
-# that must keep passing.
+# Decision: "FontLicenseTest uses the same Kotlin assert() ... Fix it too?" — left untouched;
+# required only to keep passing.
 c com.liftoff.app.ui.theme.ColorTokensTest
 c com.liftoff.app.ui.theme.FontResourcesTest
 c com.liftoff.app.ui.theme.FontLicenseTest
@@ -455,13 +371,8 @@ c com.liftoff.app.ui.theme.ColorSchemeTest
 c com.liftoff.app.ui.theme.TypographyTest
 c com.liftoff.app.ui.theme.IconsTest
 c com.liftoff.app.ui.theme.ShapesTest
-
-# ThemePackageTest pins app/src/main/java/com/liftoff/app/ui/theme/ at exactly 11 files, so the
-# new constants must go into the four production files rather than into a new one.
 c com.liftoff.app.ui.theme.ThemePackageTest
 
-# The cases the plan deletes are not required here, and nothing may be renamed away to dodge a
-# check: every case Gradle recorded in the four rewritten classes must have passed.
 for cls in StripesTest PatternTrackTest ButtonsTest OffsetShadowTest; do
     c "com.liftoff.app.ui.theme.$cls"
 done
