@@ -136,7 +136,7 @@ a skip. Scratch files and gate logs go under gitignored `app/build/`, never `app
   other row of the table byte-identical to before; the file stays LF-only
   (`LC_ALL=C tr -d -c '\r' < design/README.md | wc -c` reports 0); the suite still green.
 
-- [ ] 5. Gate: the whole suite runs clean, and the run's checks pass
+- [x] 5. Gate: the whole suite runs clean, and the run's checks pass
   No new source. Run `bash .rho/runs/issue-62-pending-launchpad-card-puts-5t73/verify.sh` from the repository
   root and read its output, not just its exit code. Then sweep for what the plan decided to leave:
   `grep -rn "TitleBlock(\|DisplayTitle(" app/src/main/java | grep -v theme/Headings.kt` — every call site
