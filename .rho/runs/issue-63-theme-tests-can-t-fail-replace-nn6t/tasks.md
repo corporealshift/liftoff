@@ -26,7 +26,7 @@ either — a first read of some paths in this worktree returned content that is 
 Tasks 2–5 read the constants from the production files; if one they need was never named, name it
 in that same file and record it in map.md. Append what you learn to map.md; do not rewrite it.
 
-- [ ] 1. Name the literals in the four theme files
+- [x] 1. Name the literals in the four theme files
   Production-only refactor, plan step 1: `app/src/main/java/com/liftoff/app/ui/theme/Stripes.kt`,
   `PatternTrack.kt`, `Buttons.kt`, `OffsetShadow.kt`. Every value the plan lists — band heights,
   chip sizes, connector width and its inset, check-icon size, the chip stroke widths, button
