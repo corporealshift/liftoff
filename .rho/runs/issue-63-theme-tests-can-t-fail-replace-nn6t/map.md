@@ -210,3 +210,110 @@ unmodified afterwards.
   `compileDebugUnitTestKotlin` and `testDebugUnitTest` executed, `assembleDebug` UP-TO-DATE) — 93
   report classes, 775 cases, no `<failure>`, `<error>` or `<skipped>` anywhere; `StripesTest` 2 cases,
   both passing. Logs: gitignored `app/build/task2-gate.log`, `app/build/task2-gate-final.log`.
+
+## Task 3 — `PatternTrackTest` rewritten (what this task found)
+
+`app/src/test/java/com/liftoff/app/ui/theme/PatternTrackTest.kt` is now 187 lines with four cases: the
+three `verify.sh` names plus `chipColoursAreTheTokensPatternTrackDrawsWith`, which holds the colour
+assertions the old class had. Same class setup as `StripesTest` (`AndroidJUnit4` +
+`@Config(qualifiers = "w411dp-h2000dp")` + `@get:Rule val composeRule = createComposeRule()`).
+
+- `chipSizeFollowsChipState` — each chip-size constant against its design number (44/52/44/44), each
+  `chipSizeDp(state)` against the constant named for that state, then the constants against each other
+  (`Current > Landed`, `> Upcoming`, `> Scrubbed`; `Landed == Upcoming == Scrubbed`), and
+  `ChipSizeCurrentDp.dp == PatternTrackHeightDp` (`PatternTrack.kt`'s own "as tall as the widest chip").
+- `trackDrawsOneChipPerLetterAndMeasuresItsHeight` — four chips, one per state, letters "D"/"R"/"L"/"S"
+  (R current and L upcoming, the letters `verify.sh`'s comment names), track tagged
+  `pattern-track`. `onAllNodes(hasParent(hasTestTag(TRACK_TAG))).assertCountEquals(3)` counts the
+  semantics nodes the track itself carries; `onNodeWithText(letter, substring = false).assertExists()`
+  per visible letter — `assertExists` fails on zero matches *and* on more than one, which is what "one
+  chip per letter" means — and `assertDoesNotExist()` for the Landed letter. Height is
+  `with(density) { PatternTrackHeightDp.roundToPx() }` against `fetchSemanticsNode().size.height` (Int px).
+- `chipRingsAndConnectorAreTheDesignWidths` — the four widths against their design numbers (3/2/2/2),
+  then against each other: `currentRing > upcomingRing`, `currentRing > scrubbedRing`,
+  `connector < currentRing`, `connector <= upcomingRing`, `connector <= scrubbedRing`,
+  `upcomingRing == connector`. `ConnectorInsetDp` against 22 dp **and** against `ChipSizeLandedDp.dp / 2`
+  (the inset is half a non-Current chip's diameter, which is why the line starts at that chip's edge);
+  `LandedCheckSizeDp` against 20 dp and `< ChipSizeLandedDp.dp`.
+- `chipColoursAreTheTokensPatternTrackDrawsWith` — `Color(0xFF1D1B19) == Ink`, `0xFFC23F14 == Red`,
+  `0xFFF2EADB == Cream`, `0xFFFFFFFF == White`, `0xFFE8DFCD == Sand`, `0xFF5E5850 == Muted`, then five
+  `!=` checks between tokens (Ink/Red, White/Ink, Cream/Sand, Muted/Ink, Sand/Red). The old
+  `Color.White == Color.White` line is gone; `White` is now the repo token, not Material's.
+
+**Two claims the old class made that are gone on purpose.** `chipTextUsesBigShouldersFontFamily`
+compared two literal `Set`s of `BigShoulders` with each other and could not fail; the plan's
+PatternTrackTest has no font case, so the font claim is untested here. And `tasks.md` says the colour
+assertions "read `LiftoffTheme.palette`" — **no `palette` identifier exists in this repo**
+(`grep -rn palette --include=*.kt app/src` → 0 hits). The theme's colours are the public top-level
+tokens in `Color.kt`; `LiftoffColorScheme()` is declared in `Color.kt:21` (capital L, not
+`liftoffColorScheme`) and `LiftoffTheme` is only a `MaterialTheme(...)` wrapper. `PatternTrack`,
+`Stripes` and `Buttons` reference `MaterialTheme`/`colorScheme` **zero** times — they read the tokens
+directly — so the colour case reads the tokens.
+
+**The connector is not thinner than *either* ring.** `tasks.md`'s parenthetical says "connector thinner
+than either"; `ConnectorWidthDp` is 2 dp and `ChipRingUpcomingWidthDp`/`ChipRingScrubbedWidthDp` are
+also 2 dp. What is true on the current tree is `connector < currentRing` and
+`connector <= upcomingRing`/`<= scrubbedRing`, with `upcomingRing == connector` asserted as what it is.
+Do not write `connector < upcomingRing` — it is false.
+
+**What a rendered `PatternTrack` puts in the semantics tree** (probe dump, density 1.0, w411dp): root →
+the tagged track `Box` (411 × 52 px) → **exactly three** `Text` nodes, one per chip that draws its
+letter. A Landed chip (`Canvas` circle + `Icon(contentDescription = null)`) contributes **no node at
+all**: 0 nodes carry `Role.Image`, and `onNodeWithText("D")` finds nothing. The chip `Box`es, the `Row`
+and the `Canvas` are invisible to the tree, so a chip count cannot be read off it. The `Text` nodes
+measure **1 × 35 px** — Robolectric's default graphics mode fakes text widths, so never assert a
+letter's width or position.
+
+**Compose 1.7.6 test API names that are not what you'd guess** (each cost a compile error):
+`createComposeRule` is `androidx.compose.ui.test.junit4.createComposeRule` — `...test.junit.` does not
+resolve. `SemanticsNodeInteractionCollection` has **`assertCountEquals`**, not `assertCount`, and
+`SemanticsNodeInteraction` has **no `onChildren()`** — scope a query with
+`onAllNodes(hasParent(hasTestTag(tag)))` or read `fetchSemanticsNode().children`. `SemanticsConfiguration`
+exposes no `keys` and no `getOrNull` (use `config.map { it.key.name }`, `contains` + `config[key]`).
+`Role.Image`, not `Role.Imagery`. `with(density) { }` is `kotlin.with`; importing
+`androidx.compose.ui.unit.with` fails. `onAllNodes` is a member of the rule (no import), while
+`onNodeWithTag`/`onNodeWithText`/`hasParent`/`hasTestTag`/`assertCountEquals` are extensions in
+`androidx.compose.ui.test`. `onNodeWithText`'s default is `substring = true`.
+
+**Mutation probes** (mutated copies and logs gitignored under `app/build/`; `PatternTrack.kt` and
+`Color.kt` restored from copies, and `git status` afterwards showed only the test file modified):
+- `PatternTrackHeightDp` 52 → 48 dp: `chipSizeFollowsChipState` fails (`expected:<52.0.dp> but
+  was:<48.0.dp>`); the render case **passes** — it tracks the constant, so it is not the absolute pin.
+- the track drawn with `.height(48.dp)` while the constant stays 52 dp: the render case fails
+  (`expected:<52> but was:<48>`, message `PatternTrack renders PatternTrackHeightDp (52.0.dp) tall
+  (52px at density 1.0)`), the constant case passes. A draw site that stops reading the constant is
+  caught by the render.
+- `ChipRingCurrentWidthDp` 3 → 2 dp: only `chipRingsAndConnectorAreTheDesignWidths` fails.
+- `ChipSizeCurrentDp` 52 → 44: only `chipSizeFollowsChipState` fails.
+- `val Muted = Color(0xFF5E5850)` → `0xFF5E5851` in `Color.kt`: only the colour case fails.
+- a `Text(chip.letter)` added to the Landed branch: the render case fails — the count goes 3 → 4 and
+  `assertDoesNotExist` on "D" fires. So the count is a real count of what the tree sees.
+- the Current branch drawing `text = ""`: the render case fails on `onNodeWithText("R")`.
+
+**What the colour case cannot do — tasks 4 and 5 have the same limit.** Swapping a draw site
+(`color = Muted` → `color = Ink` in `PatternTrack.kt`) is **not** caught by any assertion: colours are
+not in the semantics tree and `PatternTrack(chips, modifier)` takes no colour parameters, so the only
+thing a test can pin is the token value. The colour case pins tokens; it does not prove which token a
+draw site uses. `ButtonsTest.pressedFillIsComputedFromTheTokens` (task 4) is pinned the same way — its
+value is computing from `Red`/`RedPressed`/`Ink` rather than from hex.
+
+**Gate on the final tree.** `JAVA_HOME=~/android-toolchain/jdk ANDROID_HOME=~/android-toolchain/sdk
+ANDROID_SDK_ROOT=~/android-toolchain/sdk timeout 1800 ~/android-toolchain/gradle/bin/gradle
+:app:assembleDebug :app:testDebugUnitTest --no-build-cache --console=plain` → exit 0,
+`testDebugUnitTest` executed (`compileDebugUnitTestKotlin` and `assembleDebug` UP-TO-DATE) — 93 report
+classes, **776** cases (was 775; `PatternTrackTest` 3 → 4), no `<failure>`, `<error>` or `<skipped>`.
+`PatternTrackTest` alone: 4 cases, 3.683 s (the first case pays the Robolectric + Compose startup) /
+0.471 s (the render) / 0.001 s / 0.001 s. `verify.sh` on this tree: gate ok, `PatternTrackTest`'s three
+names ok, `class com.liftoff.app.ui.theme.PatternTrackTest` ok — **20 ok, 5 failed**, the 5 being
+`ButtonsTest`'s and `OffsetShadowTest`'s cases, which tasks 4 and 5 write. Logs: gitignored
+`app/build/task3-alone.log`, `task3-alone2.log`, `task3-gate.log`, `task3-verify.log`,
+`app/build/scratch-task3/mut-*.log`.
+**`./gradlew.sh` cannot run on this machine** — it is `exec "C:/Program Files/Java/jdk-17.0.17+10/bin/java"`;
+the earlier claim in this map that it works here is wrong. Use the toolchain `gradle` above, and
+`ANDROID_HOME` is `~/android-toolchain/sdk`, not `android-sdk`.
+
+**Scratch harness that worked.** `app/build/scratch-task3/init.gradle` (the `gradle.projectsEvaluated {
+... srcDir(...) }` shape) plus `gradle --init-script app/build/scratch-task3/init.gradle
+:app:testDebugUnitTest --tests com.liftoff.app.ui.theme.PatternTrackProbe`. A test's `println` does
+**not** reach the console; read it from the report:
+`grep -o "PROBE[^<]*" app/build/test-results/testDebugUnitTest/TEST-<class>.xml`.
