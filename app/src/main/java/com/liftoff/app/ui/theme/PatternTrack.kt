@@ -20,12 +20,31 @@ import androidx.compose.ui.unit.sp
 enum class ChipState { Landed, Current, Upcoming, Scrubbed }
 data class PatternChip(val letter: String, val state: ChipState)
 
+/** Chip diameters in dp. The track is as tall as the widest chip, the Current one. */
+internal val ChipSizeLandedDp = 44
+internal val ChipSizeCurrentDp = 52
+internal val ChipSizeUpcomingDp = 44
+internal val ChipSizeScrubbedDp = 44
+
+/** The track's own height, today the same as a Current chip's diameter. */
+internal val PatternTrackHeightDp = 52.dp
+
+/** Ring widths, and the connector line drawn between chips. */
+internal val ChipRingCurrentWidthDp = 3.dp
+internal val ChipRingUpcomingWidthDp = 2.dp
+internal val ChipRingScrubbedWidthDp = 2.dp
+internal val ConnectorWidthDp = 2.dp
+internal val ConnectorInsetDp = 22.dp
+
+/** The check mark drawn inside a Landed chip. */
+internal val LandedCheckSizeDp = 20.dp
+
 /** Circle diameter for each chip state. */
 internal fun chipSizeDp(state: ChipState): Int = when (state) {
-    ChipState.Landed -> 44
-    ChipState.Current -> 52
-    ChipState.Upcoming -> 44
-    ChipState.Scrubbed -> 44
+    ChipState.Landed -> ChipSizeLandedDp
+    ChipState.Current -> ChipSizeCurrentDp
+    ChipState.Upcoming -> ChipSizeUpcomingDp
+    ChipState.Scrubbed -> ChipSizeScrubbedDp
 }
 
 @Composable
@@ -37,7 +56,7 @@ fun PatternTrack(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp),
+            .height(PatternTrackHeightDp),
     ) {
         if (chips.size >= 2) {
             Canvas(
@@ -45,11 +64,11 @@ fun PatternTrack(
                     .fillMaxWidth()
                     .matchParentSize(),
             ) {
-                val insetStart = density.run { 22.dp.toPx() }
-                val insetEnd = size.width - density.run { 22.dp.toPx() }
+                val insetStart = density.run { ConnectorInsetDp.toPx() }
+                val insetEnd = size.width - density.run { ConnectorInsetDp.toPx() }
                 drawLine(
                     color = Ink,
-                    strokeWidth = density.run { 2.dp.toPx() },
+                    strokeWidth = density.run { ConnectorWidthDp.toPx() },
                     start = Offset(insetStart, size.height / 2),
                     end = Offset(insetEnd, size.height / 2),
                 )
@@ -87,7 +106,7 @@ private fun PatternChipView(chip: PatternChip) {
                 Icon(
                     painter = LiftoffIcons.check(),
                     contentDescription = null,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(LandedCheckSizeDp),
                     tint = Cream,
                 )
             }
@@ -96,7 +115,7 @@ private fun PatternChipView(chip: PatternChip) {
                     drawCircle(color = Red)
                     drawCircle(
                         color = Ink,
-                        style = Stroke(width = density.run { 3.dp.toPx() }),
+                        style = Stroke(width = density.run { ChipRingCurrentWidthDp.toPx() }),
                     )
                 }
                 Text(
@@ -112,7 +131,7 @@ private fun PatternChipView(chip: PatternChip) {
                     drawCircle(color = Cream)
                     drawCircle(
                         color = Ink,
-                        style = Stroke(width = density.run { 2.dp.toPx() }),
+                        style = Stroke(width = density.run { ChipRingUpcomingWidthDp.toPx() }),
                     )
                 }
                 Text(
@@ -128,7 +147,7 @@ private fun PatternChipView(chip: PatternChip) {
                     drawCircle(color = Sand)
                     drawCircle(
                         color = Ink,
-                        style = Stroke(width = density.run { 2.dp.toPx() }),
+                        style = Stroke(width = density.run { ChipRingScrubbedWidthDp.toPx() }),
                     )
                 }
                 Text(

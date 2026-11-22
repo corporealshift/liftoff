@@ -108,3 +108,57 @@ then `… gradle -I app/build/scratch-taskN/init.gradle :app:testDebugUnitTest -
 ## Constants named by task 1 (fill this in when task 1 runs)
 
 Task 1 (see `tasks.md`) names the inline literals in `Stripes.kt`, `PatternTrack.kt`, `Buttons.kt`, `OffsetShadow.kt`. Record here, exactly: the constant name, its value, the file, and what it was. Tasks 2-5 read them from the production file — this section is so they do not have to guess which of several 4.dp literals a name refers to.
+
+**Filled in by task 1.** 23 `internal val`s, each declared in the file whose drawing it came from and read at that draw site. No value changed, no test file touched, nothing moved between files. Gate green on this tree: `:app:assembleDebug` + `:app:testDebugUnitTest` (`--no-build-cache`, both tasks executed) — 93 report classes, no `<failure>`, `<error>` or `<skipped>` anywhere, and the same per-class case counts as the untouched tree (StripesTest 2, PatternTrackTest 3, ButtonsTest 6, OffsetShadowTest 2, PreviewsTest 1, ThemePackageTest 1). Log: gitignored `app/build/task1-gate.log`.
+
+### Stripes.kt — constants at 17-18 (file 56 → 60 lines)
+
+| constant | value | what it was |
+| --- | --- | --- |
+| `TriStripeBandHeightDp` | `6.dp` | the three `Modifier.height(6.dp)` bands of `TriStripe` (was 24-26; now 28-30) |
+| `DuoStripeBandHeightDp` | `5.dp` | the two `height(5.dp)` bands of `DuoStripe` (was 37-38; now 41-42) |
+
+### PatternTrack.kt — constants at 24-40 (file 160 → 179 lines)
+
+| constant | value | what it was |
+| --- | --- | --- |
+| `ChipSizeLandedDp` | `44` (**Int**) | `chipSizeDp`'s `Landed` branch (now 44) |
+| `ChipSizeCurrentDp` | `52` (**Int**) | its `Current` branch (now 45) |
+| `ChipSizeUpcomingDp` | `44` (**Int**) | its `Upcoming` branch (now 46) |
+| `ChipSizeScrubbedDp` | `44` (**Int**) | its `Scrubbed` branch (now 47) |
+| `PatternTrackHeightDp` | `52.dp` | the track `Box`'s `.height(52.dp)` (was 40; now 59) |
+| `ChipRingCurrentWidthDp` | `3.dp` | `Current`'s `Stroke(3.dp.toPx())` (now 118) |
+| `ChipRingUpcomingWidthDp` | `2.dp` | `Upcoming`'s `Stroke(2.dp.toPx())` (now 134) |
+| `ChipRingScrubbedWidthDp` | `2.dp` | `Scrubbed`'s `Stroke(2.dp.toPx())` (now 150) |
+| `ConnectorWidthDp` | `2.dp` | the connector `drawLine`'s `strokeWidth` (now 71) |
+| `ConnectorInsetDp` | `22.dp` | both ends of the connector line (was 48-49; now 67-68) |
+| `LandedCheckSizeDp` | `20.dp` | the `Icon` inside a `Landed` chip (was 90; now 109) |
+
+### Buttons.kt — constants at 28-35 (file 229 → 239 lines)
+
+| constant | value | what it was |
+| --- | --- | --- |
+| `PrimaryButtonHeightDp` | `72.dp` | `PrimaryButton`'s `height` parameter default (now 44) |
+| `InkButtonHeightDp` | `64.dp` | `InkButton`'s `height` parameter default (now 108) |
+| `ButtonBorderWidthDp` | `2.dp` | both `BorderStroke(2.dp, Ink)` calls (now 61, 124) |
+| `ButtonIconSizeDp` | `26.dp` | the four `Modifier.size(26.dp)` icons (now 78, 92, 141, 155) |
+| `ButtonIconLabelGapDp` | `12.dp` | the four `Spacer(Modifier.width(12.dp))` (now 81, 88, 144, 151) |
+| `TextButtonMinHeightDp` | `44.dp` | `UnderlinedTextButton`'s `heightIn(min = 44.dp)` (now 176) |
+| `TextButtonUnderlineWidthDp` | `1.dp` | the underline `drawLine`'s `strokeWidth` (now 196) |
+| `TextButtonUnderlineGapDp` | `4.dp` | `baselinePx + 4.dp.toPx()`, the underline's gap below the baseline (now 192) |
+
+### OffsetShadow.kt — constants at 20-21 (file 83 → 87 lines)
+
+| constant | value | what it was |
+| --- | --- | --- |
+| `OffsetShadowDefaultOffsetDp` | `4.dp` | `offsetShadow`'s `offset` default (now 32) **and** `OffsetShadowBox`'s `offset` default (now 69) |
+| `OffsetShadowDefaultCornerRadiusDp` | `4.dp` | the `4.dp` inside `offsetShadow`'s default `Shape` argument, `RoundedCornerShape(...)` (now 31) |
+
+### What tasks 2-5 need to know about these names
+
+- **The four chip-size constants are `Int`, not `Dp`**, because `chipSizeDp` keeps its `Int` return type (plan: "`chipSizeDp` stays the source of the chip sizes"). `PatternTrackHeightDp` is a *separate* `52.dp` literal that happens to equal `ChipSizeCurrentDp` today; task 3's track-height assertion reads `PatternTrackHeightDp`, not `ChipSizeCurrentDp.dp`.
+- **`Buttons.kt` names no shadow offset.** Its two `offset = 4.dp` arguments now read `OffsetShadowDefaultOffsetDp` from `OffsetShadow.kt` (plan: "reads the `OffsetShadow.kt` default constant rather than a second name for the same number"). So task 4's shadow-offset assertion reads that name from `OffsetShadow.kt`, and it is the same number task 5 pins.
+- **`OffsetShadowDefaultCornerRadiusDp` is only reachable as a number inside a `Shape`** (`RoundedCornerShape(...)`), not as a `cornerRadius` parameter; `Buttons.kt` still uses `ButtonShape` (16.dp corners) from `Shape.kt` and names no radius of its own.
+- **`OffsetShadowDefaultOffsetDp` is a default parameter value of two public functions**, and `PrimaryButtonHeightDp` / `InkButtonHeightDp` are default parameter values of public composables. Kotlin compiles that (it checks types in a signature, not default expressions); the gate proves it.
+- **Still literals on purpose** — the plan does not name them: `UnderlinedTextButton`'s `padding(horizontal = 8.dp)`, the previews' `padding(20.dp)`, the chip letters' `26.sp` / `22.sp` font sizes, `Headings.kt`'s `Spacer(4.dp)`, and every literal in the screens that call these composables.
+- **Line numbers in the Production section above are the pre-task-1 ones.** The four files grew (56→60, 160→179, 229→239, 83→87); the "now" numbers in these tables are the post-task-1 draw sites.

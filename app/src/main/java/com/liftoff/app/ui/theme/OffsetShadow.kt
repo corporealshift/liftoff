@@ -16,6 +16,10 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** The design's shadow: 4 dp right and 4 dp down, on a 4 dp corner, no blur. */
+internal val OffsetShadowDefaultOffsetDp = 4.dp
+internal val OffsetShadowDefaultCornerRadiusDp = 4.dp
+
 /**
  * Draws a solid offset shadow behind its content.
  *
@@ -24,8 +28,8 @@ import androidx.compose.ui.unit.dp
  */
 fun Modifier.offsetShadow(
     color: Color = Ink,
-    shape: Shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
-    offset: Dp = 4.dp,
+    shape: Shape = androidx.compose.foundation.shape.RoundedCornerShape(OffsetShadowDefaultCornerRadiusDp),
+    offset: Dp = OffsetShadowDefaultOffsetDp,
 ): Modifier = this then Modifier.drawBehind {
     val outline = shape.createOutline(size, layoutDirection, this)
     val dx = offset.toPx()
@@ -62,7 +66,7 @@ private fun androidx.compose.ui.geometry.RoundRect.shifted(offset: Offset): andr
 @Composable
 fun OffsetShadowBox(
     color: Color = Ink,
-    offset: Dp = 4.dp,
+    offset: Dp = OffsetShadowDefaultOffsetDp,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
