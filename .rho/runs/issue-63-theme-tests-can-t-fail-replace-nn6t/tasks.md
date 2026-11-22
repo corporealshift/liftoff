@@ -93,7 +93,7 @@ in that same file and record it in map.md. Append what you learn to map.md; do n
   Done when: the class runs alone green, all three names are in its XML report, and the full gate
   is green.
 
-- [ ] 5. Rewrite `OffsetShadowTest`
+- [x] 5. Rewrite `OffsetShadowTest`
   `app/src/test/java/com/liftoff/app/ui/theme/OffsetShadowTest.kt`. Tests it writes:
   **`OffsetShadowTest.offsetShadowDefaultsAreFourDp`** — the named default offset (and the default
   shape's radius) read from `OffsetShadow.kt` and compared against each other, plus the default
