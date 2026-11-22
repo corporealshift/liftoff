@@ -162,3 +162,51 @@ Task 1 (see `tasks.md`) names the inline literals in `Stripes.kt`, `PatternTrack
 - **`OffsetShadowDefaultOffsetDp` is a default parameter value of two public functions**, and `PrimaryButtonHeightDp` / `InkButtonHeightDp` are default parameter values of public composables. Kotlin compiles that (it checks types in a signature, not default expressions); the gate proves it.
 - **Still literals on purpose** — the plan does not name them: `UnderlinedTextButton`'s `padding(horizontal = 8.dp)`, the previews' `padding(20.dp)`, the chip letters' `26.sp` / `22.sp` font sizes, `Headings.kt`'s `Spacer(4.dp)`, and every literal in the screens that call these composables.
 - **Line numbers in the Production section above are the pre-task-1 ones.** The four files grew (56→60, 160→179, 229→239, 83→87); the "now" numbers in these tables are the post-task-1 draw sites.
+
+## Task 2 — `StripesTest` rewritten (what this task found)
+
+`app/src/test/java/com/liftoff/app/ui/theme/StripesTest.kt` is now 90 lines and has exactly the two
+cases `verify.sh` names, nothing else. Class setup: `@RunWith(AndroidJUnit4::class)` +
+`@Config(qualifiers = "w411dp-h2000dp")` + `@get:Rule val composeRule = createComposeRule()`.
+
+- `stripeBandHeightsAreTheValuesTheStripesDraw` — reads `TriStripeBandHeightDp` and
+  `DuoStripeBandHeightDp` into locals, then five assertions: each band against the design value
+  (`6.dp`, `5.dp`), `triBand > duoBand`, and the band counts as totals (`triBand * 3 == 18.dp`,
+  `duoBand * 2 == 10.dp`). Every assertion reads a production constant on one side.
+- `stripesRenderAtTheirBandHeights` — one `setContent` holding `TriStripe(Modifier.testTag("tri-stripe"))`
+  and `DuoStripe(Modifier.testTag("duo-stripe"))`; `LocalDensity.current` is assigned inside
+  `setContent` to a `lateinit var density: Density`; expected height is
+  `3 * with(density) { TriStripeBandHeightDp.roundToPx() }` (and `2 *` the duo constant), compared
+  against `onNodeWithTag(tag).fetchSemanticsNode().size.height`, which is Int px.
+
+All color assertions are gone, including the `Color(0xFFC23F14).value == Red.value` ones; the class
+no longer mentions `Red`/`Mustard`/`Teal`. `ColorTokensTest` pins the tokens.
+
+**Mutation probes (the reason to believe the two cases can fail).** Logs and the mutated copies are
+gitignored under `app/build/`; `Stripes.kt` was restored from a copy and `git status` confirmed it
+unmodified afterwards.
+- `TriStripeBandHeightDp` 6 dp → 7 dp: the constant case fails
+  (`expected:<6.0.dp> but was:<7.0.dp>`), the render case **passes** — it tracks the constant, so it
+  is not the absolute pin. The pair is what pins the design value.
+- one `TriStripe` band Box sized with a literal `8.dp` while the constant stayed 6 dp: the render
+  case fails (`expected:<18> but was:<20>`), the constant case passes. So a draw site that stops
+  reading the constant is caught by the render.
+- a wrong band count in the test (4 instead of 3): fails with `expected:<24> but was:<18>`, which is
+  also what showed the measured height is a real measurement.
+
+**Numbers worth reusing for tasks 3–5.**
+- `@Config(qualifiers = "w411dp-h2000dp")` resolves to **density 1.0** in this suite (the failure
+  message printed `at density 1.0`), so 6 dp → 6 px and a `TriStripe` measures 18 px. The test still
+  captures `LocalDensity` rather than assuming it.
+- `Modifier.testTag` passed through `TriStripe`'s/`DuoStripe`'s `modifier` reaches the `Column` as its
+  own semantics node even though the three band `Box`es carry no semantics of their own, and
+  `SemanticsNode.size` (Int px) is the layout size. No `waitFor`, no `useUnmergedTree`, no
+  `@GraphicsMode` was needed.
+- `Modifier.height(Dp)` rounds **each** band with `roundToPx()`, so the height to expect is band count
+  × rounded band, not `roundToPx(band count × band)`. At density 1.0 the two agree; at 2.625 they
+  differ by 1 px (3 × 16 = 48 vs round(47.25) = 47), so write the per-band form.
+- Cost: the render case is ~3.8 s (Robolectric + Compose startup), the constant-only case 0.07 s.
+- Gate on the final tree: `:app:assembleDebug` + `:app:testDebugUnitTest` (`--no-build-cache`;
+  `compileDebugUnitTestKotlin` and `testDebugUnitTest` executed, `assembleDebug` UP-TO-DATE) — 93
+  report classes, 775 cases, no `<failure>`, `<error>` or `<skipped>` anywhere; `StripesTest` 2 cases,
+  both passing. Logs: gitignored `app/build/task2-gate.log`, `app/build/task2-gate-final.log`.
