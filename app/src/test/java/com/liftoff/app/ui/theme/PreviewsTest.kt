@@ -23,7 +23,7 @@ class PreviewsTest {
                         val decl = lines[j].trim()
                         if (decl.startsWith("private fun") || decl.startsWith("private suspend")) {
                             previewCount++
-                            assert(decl.startsWith("private fun") || decl.startsWith("private suspend")) {
+                            check(decl.startsWith("private fun") || decl.startsWith("private suspend")) {
                                 "${file.name}:$j — $decl is not private"
                             }
                             found = true
@@ -31,7 +31,7 @@ class PreviewsTest {
                         }
                         if (decl.isEmpty()) continue
                     }
-                    assert(found) {
+                    check(found) {
                         "${file.name}:$i — @Preview without a following private fun declaration"
                     }
                 }
