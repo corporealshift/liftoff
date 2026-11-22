@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -68,14 +67,23 @@ class OffsetShadowTest {
 
         // The corner that reaches the drawing is the one offsetShadow builds its path from: it calls
         // shape.createOutline(size, layoutDirection, this) (OffsetShadow.kt:34) and fills that
-        // outline, so the radius is read off the outline itself. The buttons OffsetShadowBox wraps
-        // are filled with ButtonShape (Buttons.kt:60, 123), and a shadow is a copy of the shape it
-        // sits behind, so the two corners belong to each other.
+        // outline, so a radius is read off an outline. Both corners here come from production:
+        // ButtonShape (Shape.kt:8) is what Buttons.kt fills its buttons with (Buttons.kt:60, 123),
+        // and a shadow is a copy of the shape it sits behind, so the two belong to each other.
+        // Reading the constant back out of a RoundedCornerShape this test built itself would measure
+        // only the constructor, so nothing here does that.
         val probe = Size(120f, 60f)
-        val shadowCorner = cornerOf(RoundedCornerShape(corner), probe, Density(1f))
         val buttonCorner = cornerOf(ButtonShape, probe, Density(1f))
-        assertEquals("the corner offsetShadow fills is the corner the constant names", 4.0f, shadowCorner, 0.001f)
-        assertEquals("the shadow behind a button copies that button's corner", buttonCorner, shadowCorner, 0.001f)
+        assertEquals("the corner a button is filled with is the design's 4 dp", 4.0f, buttonCorner, 0.001f)
+        with(Density(1f)) {
+            assertEquals(
+                "the shadow copies the corner of the button it sits behind: " +
+                    "constant=$corner buttonShapeRadiusPx=$buttonCorner",
+                corner.toPx(),
+                buttonCorner,
+                0.001f,
+            )
+        }
 
         // Both functions default their colour to Ink (OffsetShadow.kt:30, 68) — the design's ink,
         // which is what every border in this theme is drawn with.

@@ -17,15 +17,14 @@ class PreviewsTest {
             for (i in lines.indices) {
                 if ("@Preview" in lines[i]) {
                     // Look ahead up to 3 lines for the function declaration
-                    // (@Composable may sit between @Preview and private fun).
+                    // (@Composable may sit between @Preview and private fun). A declaration that is
+                    // not private never matches, so it leaves found false and the check below names
+                    // the file and line.
                     var found = false
                     for (j in i + 1..minOf(i + 3, lines.size - 1)) {
                         val decl = lines[j].trim()
                         if (decl.startsWith("private fun") || decl.startsWith("private suspend")) {
                             previewCount++
-                            check(decl.startsWith("private fun") || decl.startsWith("private suspend")) {
-                                "${file.name}:$j — $decl is not private"
-                            }
                             found = true
                             break
                         }
