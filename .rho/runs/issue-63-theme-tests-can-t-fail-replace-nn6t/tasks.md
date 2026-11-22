@@ -110,7 +110,7 @@ in that same file and record it in map.md. Append what you learn to map.md; do n
   Done when: the class runs alone green, both names are in its XML report, and the full gate is
   green.
 
-- [ ] 6. Delete `MainActivityTest`, and make `PreviewsTest`'s failure real
+- [x] 6. Delete `MainActivityTest`, and make `PreviewsTest`'s failure real
   Delete `app/src/test/java/com/liftoff/app/MainActivityTest.kt` (its 2 cases) — `LiftoffShellTest`
   already launches `MainActivity` through `createAndroidComposeRule<MainActivity>()`. Note that
   `verify.sh` no longer checks for its absence (the review dropped that check), but the plan's
