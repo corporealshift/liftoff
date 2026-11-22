@@ -317,3 +317,85 @@ the earlier claim in this map that it works here is wrong. Use the toolchain `gr
 :app:testDebugUnitTest --tests com.liftoff.app.ui.theme.PatternTrackProbe`. A test's `println` does
 **not** reach the console; read it from the report:
 `grep -o "PROBE[^<]*" app/build/test-results/testDebugUnitTest/TEST-<class>.xml`.
+
+### Task 4 — `ButtonsTest` rewritten (3 cases, 260 lines)
+
+`buttonDimensionsAreTheDesignValues`, `pressedFillIsComputedFromTheTokens`,
+`labelShiftsWhenTheIconMoves`. The old class's 6 cases are gone; its `Red`/`RedPressed`/`Ink` hex
+pins live inside the colour case.
+
+**`InkRed` and "the mix `Buttons.kt` performs" do not exist on this tree.** `grep -rn "InkRed" .rho/
+app/src` hits only `tasks.md:83` and this map's own line 27 — no Kotlin file. `grep -rn
+"mix\|lerp\|blend" app/src/main/java/com/liftoff/app/ui/theme/*.kt` hits nothing. What is true
+instead: `val RedPressed = Color(0xFF8F2E0E)` is its own token at `Color.kt:12` (public `val`s, not
+`internal`), pinned by `ColorTokensTest` against `design/README.md:38` (`red_pressed` `#8F2E0E`), and
+`Buttons.kt` **swaps tokens and mixes nothing**: `if (isPressed.value) RedPressed else Red` at
+`Buttons.kt:60` (`PrimaryButton`'s fill) and `:114` (`InkButton`'s shadow), `if (isPressed.value) Red
+else Ink` at `:190` and `:195` (`UnderlinedTextButton`'s label and underline). So
+`pressedFillIsComputedFromTheTokens` cannot derive `RedPressed`; it measures what `RedPressed` keeps
+from `Red`, computed from the two tokens' channels: hue 14.88° vs 14.83° (asserted within 1°),
+saturation 0.902 vs 0.897 (within 0.1), luminance 0.280 vs 0.381 (darker). `Ink` is hue 30.0°,
+saturation 0.138, luminance 0.107 — darker than both reds and barely a colour, which is what the old
+"Normal shadow should be Ink" comment got wrong: `InkButton`'s shadow is `Red` at rest and
+`RedPressed` while pressed (`:114`); its **fill** is `Ink` in both states (`:123`).
+`UnderlinedTextButton` swaps the other way, so its pressed colour is *lighter* than its rest colour —
+asserted, because it is the one relationship the three tokens have that the filled buttons do not.
+
+**`composeRule.setContent` cannot be called twice per test** — the second call throws
+`IllegalStateException: Cannot call setContent twice per test!`. To measure one composable in two
+states, hold `val iconAtEnd = mutableStateOf(false)`, pass `iconAtEnd = iconAtEnd.value`, and flip it
+with `composeRule.runOnIdle { iconAtEnd.value = true }`. `runOnIdle` is a member of `ComposeTestRule`
+(no import), and the flip recomposes and lays out before it returns.
+
+**What the render case measures.** `Modifier.testTag` on `PrimaryButton`'s `modifier` reaches
+`OffsetShadowBox`'s outer `Box` (`Buttons.kt:53-55` `modifier = modifier` `.fillMaxWidth()` `.height(height)` →
+`OffsetShadow.kt:76`), and `fetchSemanticsNode().size` is 411 × 72 px at `w411dp-h2000dp` (density
+1.0) — the height is `roundToPx(PrimaryButtonHeightDp)`, asserted. The label is only reachable with
+`onNodeWithText(LABEL, substring = false, useUnmergedTree = true)`; `Modifier.clickable` has merged it
+into the button node. `SemanticsNode.boundsInRoot.left` is a Float px. Measured: **221.0 px** with the
+icon first, **183.0 px** with `iconAtEnd` — a shift of **−38 px** = `roundToPx(26.dp) +
+roundToPx(12.dp)`. **The label moves left when the icon moves to the end**; assert `abs(shift)`
+against the expected move and the direction (`shift < 0`) separately, or the sign will read as a bug.
+Robolectric's fake text metrics give "LAUNCH" a 7 px width, so the `Row` is 45 px wide inside the 411
+px button and the shift is centring arithmetic (the `Row` is wrap-content, centred by the `Box`'s
+`contentAlignment = Center`) — never the label's own width. Each child is rounded separately, so the
+expected move is `roundToPx(icon) + roundToPx(gap)`, not `roundToPx(icon + gap)`.
+
+**Mutation probes** (mutated files restored from copies under gitignored `app/build/scratch63/`;
+`git status` afterwards showed only `ButtonsTest.kt` modified):
+- `PrimaryButton`'s icon-first `Modifier.size(ButtonIconSizeDp)` (`Buttons.kt:78`) → `24.dp`: the
+  render case fails with `shift=-37.0`, the constant case passes. **37, not 36** — the narrower `Row`
+  is centred, so the whole `Row` shifts 1 px and only the measured side moves 38→37.
+- `ButtonIconLabelGapDp` 12 → 20 dp (`Buttons.kt:32`): only `buttonDimensionsAreTheDesignValues` fails
+  (`expected:<12.0.dp> but was:<20.0.dp>`); the render case passes — it tracks the constant, so it is
+  not the absolute pin.
+- `val RedPressed` → `0xFF8F2E14` (`Color.kt:12`): the colour case fails on the hex pin. With the three
+  hex pins commented out it fails instead on `the pressed fill is the same red as the rest fill, only
+  darker: pressed hue=12.682926384715529 rest hue=14.82758507358443` — the relationship assertions are
+  live, not dead weight sitting behind the pins.
+- Colours are still uncatchable at the draw site (task 3's finding holds here): the colour case pins
+  tokens, so changing `if (isPressed.value) RedPressed else Red` at `Buttons.kt:60` to another token is
+  caught by nothing in `ButtonsTest`.
+
+**More phantom content in this map's "Theme files" section — re-derive before use.** `read` returned a
+199-line `Buttons.kt` that is not on disk (the real file is 239 lines: the constants are at 28-35, the
+icon size is `modifier = Modifier.size(ButtonIconSizeDp)` on the `Icon` itself at 78/92/141/155 with no
+`Row` wrapper, and `PrimaryButton`'s label colour is `labelStyle.copy(color = White)` inline at 85).
+`read` returned a 35-line `Color.kt` (the real file is 54 lines; `val Ink` 10, `val Red` 11, `val
+RedPressed` 12) and this map's line 27 names `InkRed` plus `Teal = 0xFF145060`, `TealLight =
+0xFF6FA8A0`, `Muted = 0xFF8A857C`, none of which are in `Color.kt` (real: `Teal 0xFF1F5F6B`,
+`TealLight 0xFF2F7A6E`, `Muted 0xFF5E5850`). `Icons.kt` is 42 lines on disk and in the git blob:
+`object LiftoffIcons` is five `@Composable fun`s returning `painterResource` — `rocket` 19, `planet`
+20, `flag` 21, `sliders` 22, `check` 23 — no ImageVector, no BitmapPainter, no `iconSizeDp` parameter.
+Being `@Composable`, `LiftoffIcons.check()` can only be called inside `setContent`; it renders fine
+under Robolectric (`isIncludeAndroidResources = true`), as the `LaunchpadScreen` tests already prove.
+Confirm with `awk 'END{print NR}' <path>` against `git show HEAD:<path> | awk 'END{print NR}'`.
+
+**Gate on the final tree.** The toolchain gradle command → exit 0, 93 report classes, **773** cases
+(was 776; `ButtonsTest` 6 → 3), no `<failure>`, `<error>` or `<skipped>`. `ButtonsTest` alone: 3 cases,
+3.533 s (the first pays the Robolectric + Compose startup) / 0.079 s / 0.455 s (the render).
+`verify.sh` on this tree: gate ok, all three `ButtonsTest` names ok, `class
+com.liftoff.app.ui.theme.ButtonsTest` ok — **23 ok, 2 failed**, the 2 being `OffsetShadowTest`'s cases,
+which task 5 writes. Logs: gitignored `app/build/scratch63/buttons-alone*.log`,
+`mutate-{iconsize,gap,redpressed,hue}.log`, `verify-task4.log`, and the pristine copies
+`Buttons.kt.orig`, `Color.kt.orig`, `ButtonsTest.kt.final`.
