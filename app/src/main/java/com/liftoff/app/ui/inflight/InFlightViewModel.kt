@@ -159,8 +159,8 @@ class InFlightViewModel(
     /**
      * Scrub keeps the sets already logged; the reason is optional and normalised like a note. The Flight Plan
      * generations still open on the sortie being scrubbed are the coach turn this scrub supersedes, so each is
-     * cancelled after the scrub has committed — each on its own, on the action scope, and outside the try below,
-     * so a cancel that fails there cannot turn a scrub already written into "Couldn't scrub this sortie.".
+     * cancelled after the scrub has committed — each started on the action scope rather than awaited on this
+     * one, so a cancel outlives the screen that asked for it and cannot fail this handler either.
      */
     fun scrub(reason: String?, onDone: () -> Unit) {
         if (left.get()) return
@@ -168,23 +168,19 @@ class InFlightViewModel(
         busy = true
         message.value = null
         scope.launch {
-            // null is the refusal, not an empty list: an empty list is a scrub that committed with nothing
-            // open on the sortie, and it still calls onDone.
-            val supersededIds = try {
-                missionManager.scrub(sortieId, normalizeNote(reason)) { enqueueQuietly(it) }
+            try {
+                val supersededIds = missionManager.scrub(sortieId, normalizeNote(reason)) { enqueueQuietly(it) }
+                for (generationId in supersededIds) {
+                    actionScope.launch { cancelGeneration(generationId) }
+                }
+                leaveOnce(onDone)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 message.value = "Couldn't scrub this sortie."
-                null
             } finally {
                 busy = false
             }
-            if (supersededIds == null) return@launch
-            for (generationId in supersededIds) {
-                actionScope.launch { cancelGeneration(generationId) }
-            }
-            leaveOnce(onDone)
         }
     }
 

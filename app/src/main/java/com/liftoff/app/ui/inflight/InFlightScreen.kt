@@ -45,10 +45,11 @@ fun InFlightScreen(
     sortieId: Long,
     container: AppContainer,
     /**
-     * The shell's scope, for the work that outlives this screen: a scrub's cancels. Defaulted to this screen's
-     * own scope, because unlike the tabs this screen has callers that are not the shell and pass no scope.
+     * The shell's scope, for the work that outlives this screen: a scrub's cancels. Required, as in
+     * LaunchpadScreen — a scrub takes this screen with it, so the screen's own scope is gone before a cancel
+     * that waits on the daemon has finished.
      */
-    actionScope: CoroutineScope = rememberCoroutineScope(),
+    actionScope: CoroutineScope,
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
