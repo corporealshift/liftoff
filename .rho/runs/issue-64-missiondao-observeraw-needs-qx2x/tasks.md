@@ -86,7 +86,7 @@ Conventions (CLAUDE.md + map.md), for every task:
   mutation log shows the same name failing with the annotation removed. Commit `MissionDaoTest.kt` alone,
   with the mutation, its failure line and both totals in the body.
 
-- [ ] 3. The consumers of the Flow, and the nesting risk
+- [x] 3. The consumers of the Flow, and the nesting risk
   No new behaviour and no new test. Covers plan.md §Testing "Consumers are unaffected" and §Risks
   "Nesting". Files: none expected; `findings.md` is this task's deliverable.
   Run cold, in **one** `:app:testDebugUnitTest` invocation carrying six `--tests` filters —
