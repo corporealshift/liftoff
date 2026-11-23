@@ -39,15 +39,15 @@ class PatternTrackTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    // chipSizeFollowsChipState — chipSizeDp returns 52 for Current and 44 for Landed, Upcoming and
-    // Scrubbed, each one read from the constant named for that state, and Current is the larger
-    // of the four.
+    // chipSizeFollowsChipState — chipSizeDp returns 52 dp for Current and 44 dp for Landed,
+    // Upcoming and Scrubbed, each one read from the constant named for that state, and Current is
+    // the larger of the four.
     @Test
     fun chipSizeFollowsChipState() {
-        assertEquals("a Landed chip is 44 dp", 44, ChipSizeLandedDp)
-        assertEquals("a Current chip is 52 dp", 52, ChipSizeCurrentDp)
-        assertEquals("an Upcoming chip is 44 dp", 44, ChipSizeUpcomingDp)
-        assertEquals("a Scrubbed chip is 44 dp", 44, ChipSizeScrubbedDp)
+        assertEquals("a Landed chip is 44 dp", 44.dp, ChipSizeLandedDp)
+        assertEquals("a Current chip is 52 dp", 52.dp, ChipSizeCurrentDp)
+        assertEquals("an Upcoming chip is 44 dp", 44.dp, ChipSizeUpcomingDp)
+        assertEquals("a Scrubbed chip is 44 dp", 44.dp, ChipSizeScrubbedDp)
 
         assertEquals("chipSizeDp(Landed) is ChipSizeLandedDp", ChipSizeLandedDp, chipSizeDp(ChipState.Landed))
         assertEquals("chipSizeDp(Current) is ChipSizeCurrentDp", ChipSizeCurrentDp, chipSizeDp(ChipState.Current))
@@ -68,14 +68,12 @@ class PatternTrackTest {
         )
         assertEquals("Landed and Upcoming are the same size", ChipSizeLandedDp, ChipSizeUpcomingDp)
         assertEquals("Landed and Scrubbed are the same size", ChipSizeLandedDp, ChipSizeScrubbedDp)
-
-        // PatternTrack.kt: "The track is as tall as the widest chip, the Current one."
-        assertEquals("the track is as tall as a Current chip is wide", ChipSizeCurrentDp.dp, PatternTrackHeightDp)
     }
 
     // trackDrawsOneChipPerLetterAndMeasuresItsHeight — a rendered track of "D" (landed), "R"
     // (current), "L" (upcoming) and "S" (scrubbed) shows one semantics node per letter the tree
-    // can see, and measures PatternTrackHeightDp tall.
+    // can see, and measures PatternTrackHeightDp tall. That height is a Current chip's diameter by
+    // construction (PatternTrack.kt), and chipSizeFollowsChipState pins that at 52 dp.
     @Test
     fun trackDrawsOneChipPerLetterAndMeasuresItsHeight() {
         val chips = listOf(
@@ -145,13 +143,13 @@ class PatternTrackTest {
         assertEquals("the connector inset is 22 dp", 22.dp, ConnectorInsetDp)
         assertEquals(
             "the inset is half a non-Current chip's diameter, so the line starts at that chip's edge",
-            ChipSizeLandedDp.dp / 2,
+            ChipSizeLandedDp / 2,
             ConnectorInsetDp,
         )
         assertEquals("the check mark is 20 dp", 20.dp, LandedCheckSizeDp)
         assertTrue(
             "the check mark is smaller than the chip it sits in: check=$LandedCheckSizeDp chip=$ChipSizeLandedDp",
-            LandedCheckSizeDp < ChipSizeLandedDp.dp,
+            LandedCheckSizeDp < ChipSizeLandedDp,
         )
     }
 

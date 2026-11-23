@@ -399,3 +399,21 @@ com.liftoff.app.ui.theme.ButtonsTest` ok — **23 ok, 2 failed**, the 2 being `O
 which task 5 writes. Logs: gitignored `app/build/scratch63/buttons-alone*.log`,
 `mutate-{iconsize,gap,redpressed,hue}.log`, `verify-task4.log`, and the pristine copies
 `Buttons.kt.orig`, `Color.kt.orig`, `ButtonsTest.kt.final`.
+
+## After the PR #84 review (corporealshift's review, 2026-11-22)
+
+Two small asks in `PatternTrack.kt`, both done; no drawn value changed.
+
+- The four chip-size constants are now `Dp` (`44.dp` / `52.dp` / `44.dp` / `44.dp`) and `chipSizeDp`
+  returns `Dp`, so the `Dp` suffix matches the type and `PatternChipView` reads
+  `chipSizeDp(chip.state)` with no `.dp`. This map's "the four chip-size constants are `Int`, not
+  `Dp`" bullet and the `ChipSizeLandedDp.dp` spellings in the task-3 notes no longer describe the tree.
+- `PatternTrackHeightDp` is now `internal val PatternTrackHeightDp = ChipSizeCurrentDp`, not a second
+  `52.dp` literal. `chipSizeFollowsChipState` lost its
+  `ChipSizeCurrentDp.dp == PatternTrackHeightDp` assertion — derivation makes it tautological — and
+  keeps its four design pins (44/52/44/44 dp), which is where 52 dp is still pinned.
+- Re-probed on the new shape: `ChipSizeCurrentDp` 52 → 48 dp fails only `chipSizeFollowsChipState`
+  (`expected:<52.0.dp> but was:<48.0.dp>`, `PatternTrackTest.kt:48`); the track drawn with
+  `.height(40.dp)` while the constant stays 52 dp fails only the render case (`expected:<52> but
+  was:<40>`). Full gate ok on the first attempt; `verify.sh` → 25 ok, 0 failed. Scratch copies and
+  logs under gitignored `app/build/`.

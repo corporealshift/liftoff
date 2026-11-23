@@ -14,20 +14,21 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 enum class ChipState { Landed, Current, Upcoming, Scrubbed }
 data class PatternChip(val letter: String, val state: ChipState)
 
-/** Chip diameters in dp. The track is as tall as the widest chip, the Current one. */
-internal val ChipSizeLandedDp = 44
-internal val ChipSizeCurrentDp = 52
-internal val ChipSizeUpcomingDp = 44
-internal val ChipSizeScrubbedDp = 44
+/** Chip diameters. */
+internal val ChipSizeLandedDp = 44.dp
+internal val ChipSizeCurrentDp = 52.dp
+internal val ChipSizeUpcomingDp = 44.dp
+internal val ChipSizeScrubbedDp = 44.dp
 
-/** The track's own height, today the same as a Current chip's diameter. */
-internal val PatternTrackHeightDp = 52.dp
+/** The track is as tall as the widest chip, so its height is that chip's, not a second 52. */
+internal val PatternTrackHeightDp = ChipSizeCurrentDp
 
 /** Ring widths, and the connector line drawn between chips. */
 internal val ChipRingCurrentWidthDp = 3.dp
@@ -40,7 +41,7 @@ internal val ConnectorInsetDp = 22.dp
 internal val LandedCheckSizeDp = 20.dp
 
 /** Circle diameter for each chip state. */
-internal fun chipSizeDp(state: ChipState): Int = when (state) {
+internal fun chipSizeDp(state: ChipState): Dp = when (state) {
     ChipState.Landed -> ChipSizeLandedDp
     ChipState.Current -> ChipSizeCurrentDp
     ChipState.Upcoming -> ChipSizeUpcomingDp
@@ -91,7 +92,7 @@ fun PatternTrack(
 
 @Composable
 private fun PatternChipView(chip: PatternChip) {
-    val sizeDp = chipSizeDp(chip.state).dp
+    val sizeDp = chipSizeDp(chip.state)
     val density = LocalDensity.current
 
     Box(
