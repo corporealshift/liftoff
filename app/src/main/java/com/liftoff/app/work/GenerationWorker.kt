@@ -262,9 +262,12 @@ class GenerationWorker(
      * because rho answers a prompt on a session it has already ended with a permanent code. The cap is the row's
      * [Generation.attempt], so the repairs belong to the generation rather than to this run.
      *
-     * [prompt] is the text this generation's first turn was sent, carried in rather than rebuilt here because a
-     * new session has to be handed that same text. Every turn's session id goes to [onTurnSession], which is
-     * where the id a refusal has to be answered about is held.
+     * [prompt] is the text this run sent its first turn, carried in rather than rebuilt here because a new
+     * session has to be handed the prompt the refused reply was answering. A run resuming a generation an
+     * earlier run started rebuilds it from the row's data as it reads now, so it can differ from the text
+     * that run sent; the repair quotes this run's text, which is the one the fresh session is answering.
+     * Every turn's session id goes to [onTurnSession], which is where the id a refusal has to be answered
+     * about is held.
      *
      * A valid reply is written only while the row is still the generation its target is waiting for
      * (§7.3's regeneration path): the currency check, the store and the mark share one transaction, so a
