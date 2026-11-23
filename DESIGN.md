@@ -386,8 +386,9 @@ produce the same text. Sections, in order:
      `sortie 2 (index 1) — lift — pending`.
    - The outline, if it exists, with the focus of each sortie.
    - For a Flight Plan, which sortie is being planned, under the same two numbers.
-   - One line telling the coach to name a sortie in its notes by the number printed beside
-     it, or by its type and focus, and never by its index. (amended 2026-11-21)
+   - One line telling the coach to name a sortie in its notes by its sortie number (as in
+     `sortie 2`) or by its type and focus, and never by its index — the number named outright,
+     because each sortie line now prints two. (amended 2026-11-21)
 6. **History.** Landed and scrubbed sorties from the last **28 days** (configurable), newest
    first, one block per sortie:
 
@@ -827,13 +828,14 @@ inline in the section they affect: what changed, when, and why.
   the coach writes prose, with the 0-based index beside it — `sortie 2 (index 1) — lift —
   pending` — the same pair on the `planning:` line and on the Task line, so a prompt no longer
   calls one sortie two numbers. The `This week` section ends with a line telling the coach to
-  name a sortie in its notes by the number printed beside it, or by its type and focus, and never
-  by its index. The rule is in the prompt rather than in `coach/COACH.md`, because `coach/` is a
-  template and the coach runs in a hand-made copy of it; Decision 9 already puts the app-owned
-  contract wording in the prompt. The reply schema's 0-based `index` (§7.5.1) is unchanged, so the
-  coach still echoes the index back and the validator's error lines still speak in it; only the
-  prose it writes in its notes changes. Notes stored from earlier weeks are left as the coach
-  wrote them.
+  name a sortie in its notes by its sortie number (as in `sortie 2`) or by its type and focus,
+  and never by its index — the number named outright rather than "the number printed beside it",
+  which two numbers per line leave ambiguous. The rule is in the prompt rather than in
+  `coach/COACH.md`, because `coach/` is a template and the coach runs in a hand-made copy of
+  it; Decision 9 already puts the app-owned contract wording in the prompt. The reply schema's
+  0-based `index` (§7.5.1) is unchanged, so the coach still echoes the index back and the
+  validator's error lines still speak in it; only the prose it writes in its notes changes.
+  Notes stored from earlier weeks are left as the coach wrote them.
 - **2026-11-02 — un-launch: an in-flight sortie can go back to PLANNED (§5.1, §6, §9).**
   In-Flight offered only Land and Scrub, so after Launch the only way to a different plan for
   that sortie was Scrub, which ended it. In-Flight now also offers **Back to Launchpad**: it

@@ -354,7 +354,7 @@ class CoachPromptBuilderTest {
                 "sortie 1 (index 0) — run — landed",
                 "sortie 2 (index 1) — lift — pending",
                 "sortie 3 (index 2) — run — pending",
-                "In your notes, name a sortie by the number printed beside it, or by its type and focus, never by its index.",
+                "In your notes, name a sortie by its sortie number (as in \"sortie 2\") or by its type and focus, never by its index.",
             ),
             sectionLines(prompt, "This week"),
         )
@@ -452,7 +452,7 @@ class CoachPromptBuilderTest {
                 "sortie 2 (index 1) — lift — pending — focus: Push + core",
                 "sortie 3 (index 2) — run — pending — focus: Tempo intervals",
                 "planning: sortie 2 (index 1) — lift",
-                "In your notes, name a sortie by the number printed beside it, or by its type and focus, never by its index.",
+                "In your notes, name a sortie by its sortie number (as in \"sortie 2\") or by its type and focus, never by its index.",
             ),
             sectionLines(prompt, "This week"),
         )
@@ -533,9 +533,9 @@ class CoachPromptBuilderTest {
     /**
      * The rule that fixes issue 61 is one line, in the section that holds the list, in every prompt
      * kind: a rule the coach is told in an outline prompt and not in a Flight Plan prompt is a rule the
-     * coach does not have. It points at the number printed beside each sortie, so it says nothing about
-     * the indices printed in the same parentheses — and the numbers it points at are the positions, 1…5,
-     * not the 0-based indices the coach replies with.
+     * coach does not have. Each sortie line prints two numbers, so the rule has to say which one the
+     * coach writes: it names the sortie number outright, and the example it quotes is a number this
+     * week's lines actually print — a position, not the 0-based index the coach replies with.
      */
     @Test
     fun everyCoachPromptTellsTheCoachToNameSortiesByTheirNumberNotTheirIndex() {
@@ -555,7 +555,22 @@ class CoachPromptBuilderTest {
             assertFalse("$label: the line uses the focus field's own wording: $line", line.contains("focus:"))
             assertFalse("$label: the line uses the planning field's own wording: $line", line.contains("planning:"))
             assertFalse("$label: the line names a numbered sortie, so it is another entry in the list: $line", NUMBER_AND_INDEX.containsMatchIn(line))
-            assertFalse("$label: the line carries a number of its own instead of pointing at the list's: $line", line.any { it.isDigit() })
+            // Each sortie line prints two numbers, so the rule must say which one it means; an example
+            // is the only number the rule may carry, and it must be a number the list really prints.
+            val example = EXAMPLE_NUMBER.find(line)
+            assertTrue("$label: the rule quotes no example of the number it means: $line", example != null)
+            assertTrue(
+                "$label: the rule's example is not a number this week's sortie lines print: $line",
+                printed.map { it.first }.contains(example!!.groupValues[1].toInt()),
+            )
+            assertFalse(
+                "$label: the rule carries a number outside its example: $line",
+                line.replace(EXAMPLE_NUMBER, "").any { it.isDigit() },
+            )
+            assertFalse(
+                "$label: the rule points at \"the number printed beside it\", which two numbers make ambiguous: $line",
+                line.contains("printed beside"),
+            )
             assertEquals("$label: the rule appears more than once in the prompt", 1, prompt.lines().count { it == line })
 
             assertEquals("$label: the numbers the coach is told to use are not 1..5", (1..5).toList(), printed.map { it.first })
@@ -721,6 +736,9 @@ class CoachPromptBuilderTest {
 
     /** `sortie 2 (index 1)` — the display number and the 0-based index, in the order the builder prints them. */
     private val NUMBER_AND_INDEX = Regex("sortie (\\d+) \\(index (\\d+)\\)")
+
+    /** The number the coach-facing rule quotes as its example, `"sortie 2"`. */
+    private val EXAMPLE_NUMBER = Regex("\"sortie (\\d+)\"")
 
     /** The two numbers one line prints for one sortie, as `display to index`; a line printing neither fails. */
     private fun numbersIn(line: String, label: String): Pair<Int, Int> {
