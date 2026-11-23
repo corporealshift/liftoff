@@ -30,7 +30,7 @@ Conventions (CLAUDE.md + map.md), for every task:
 - Commit style `area: lowercase summary`; stage named files only, never `git add -A`. HEAD is
   `9f04e65`; line numbers below are from HEAD and shift once a task lands, so re-read the file.
 
-- [ ] 1. Baseline the Room warning, then annotate `observeRaw`
+- [x] 1. Baseline the Room warning, then annotate `observeRaw`
   Covers plan steps 1–2. Production change only in
   `app/src/main/java/com/liftoff/app/data/MissionDao.kt`; nothing else in the DAO layer.
   First, on the untouched tree, run the forced KSP task (`:app:kspDebugKotlin --rerun-tasks
