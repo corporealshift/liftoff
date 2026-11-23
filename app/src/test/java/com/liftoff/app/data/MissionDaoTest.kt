@@ -92,4 +92,58 @@ class MissionDaoTest {
         assertEquals("MissionDao's deletes are import's draft delete and Reset week's", setOf("deleteDraft", "deleteWeek"), missionDeletes)
         assertEquals("SortieDao's only delete is the by-id one", setOf("deleteById"), sortieDeletes)
     }
+
+    // Room reads the mission row and its @Relation sorties in two SELECTs, so a land/advance write that
+    // lands between them emits a sortie still PLANNED next to a plan row already replaced. @Transaction on
+    // observeRaw is what brackets both reads in one transaction, so this case asks Room itself: its query
+    // callback sees every statement the DAO runs, and db.inTransaction() is read inside the callback because
+    // the transaction exists only while Room's callable runs. Room dispatches DAO work onto its own executor
+    // threads, so the recording list is copy-on-write; the case starts no threads of its own, and a Room +
+    // Robolectric test can hang (app/build.gradle.kts:42-51).
+    @Test
+    fun observeWeekReadsMissionAndSortiesInsideOneTransaction() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val reads = java.util.concurrent.CopyOnWriteArrayList<Pair<String, Boolean>>()
+        var watched: LiftoffDatabase? = null
+        val callback = object : androidx.room.RoomDatabase.QueryCallback {
+            override fun onQuery(sqlQuery: String, bindArgs: List<Any?>) {
+                val database = watched
+                if (database != null) reads.add(sqlQuery to database.inTransaction())
+            }
+        }
+        // This case's own database, so the callback is only ever installed here. allowMainThreadQueries
+        // stays: RoomDatabase.beginTransaction() calls assertNotMainThread(), which returns early only
+        // when that flag is set, and the annotation makes Room begin a transaction in this path.
+        val watchedDb = Room.inMemoryDatabaseBuilder(context, LiftoffDatabase::class.java)
+            .allowMainThreadQueries()
+            .setQueryCallback(callback, java.util.concurrent.Executor { it.run() })
+            .build()
+        watched = watchedDb
+        db.close()
+        db = watchedDb
+        missionDao = db.missionDao()
+        sortieDao = db.sortieDao()
+
+        // Room skips the relation SELECT when the parent query returns no rows, so the seeds come first.
+        val weekStart = java.time.LocalDate.of(2026, 1, 5)
+        val missionId = missionDao.insert(Mission(weekStart = weekStart, pattern = "push", status = MissionStatus.DRAFT, outlineNotes = null))
+        sortieDao.insert(Sortie(missionId = missionId, index = 0, type = SortieType.RUN, focus = null, focusRationale = null, state = SortieState.PENDING, launchedAt = null, landedAt = null, scrubReason = null, notes = null, runDistance = null, runMinutes = null))
+        sortieDao.insert(Sortie(missionId = missionId, index = 1, type = SortieType.RUN, focus = null, focusRationale = null, state = SortieState.PENDING, launchedAt = null, landedAt = null, scrubReason = null, notes = null, runDistance = null, runMinutes = null))
+
+        // The seeds reach this same callback, inside Room's own write transactions, and Room's invalidation
+        // tracker reaches it too: only the statements of this one collection are what the assertions read.
+        reads.clear()
+
+        val emission = missionDao.observeWeek(weekStart).first()
+        assertTrue("observeWeek emitted nothing", emission != null)
+        assertEquals(2, emission!!.sorties.size)
+
+        val parent = reads.indexOfFirst { it.first == "SELECT * FROM mission WHERE weekStart = ?" }
+        val relation = reads.indexOfFirst { it.first.startsWith("SELECT") && it.first.contains("FROM `sortie`") && it.first.contains("`missionId` IN (") }
+        assertTrue("the mission SELECT was not recorded: $reads", parent >= 0)
+        assertTrue("the @Relation sortie SELECT was not recorded: $reads", relation >= 0)
+        assertTrue("the mission SELECT did not come before the @Relation sortie SELECT: $reads", parent < relation)
+        assertTrue("the mission SELECT ran outside a transaction: $reads", reads[parent].second)
+        assertTrue("the @Relation sortie SELECT ran outside a transaction: $reads", reads[relation].second)
+    }
 }
