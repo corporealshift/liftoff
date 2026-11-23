@@ -111,7 +111,7 @@ Conventions (CLAUDE.md + map.md), for every task:
   results; if a consumer broke, commit the fix in the file this run owns plus the findings line that
   explains it.
 
-- [ ] 4. The whole gate, once, and the Room warning confirmation
+- [x] 4. The whole gate, once, and the Room warning confirmation
   Covers plan step 5. No new behaviour, no new test, no source change expected. Files: `findings.md`.
   Run `bash .rho/runs/issue-64-missiondao-observeraw-needs-qx2x/verify.sh` **once** on the tree the
   earlier tasks committed — the `findings.md` written afterwards cannot change a gate result — because it
