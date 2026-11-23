@@ -18,12 +18,6 @@ import kotlinx.coroutines.launch
 internal const val NOT_CONFIGURED_MESSAGE =
     "Mission Control isn't set up. Add the host and token in Mission Control."
 
-/** The coach's own sentences for a generation in flight: `PLANNING_LINE` is the draft card's planning line,
- * `OFFLINE_LINE` what the draft and PENDING cards both show when Mission Control is unreachable. The Mission
- * tab's draft block draws the same two, so one copy keeps the tabs saying the same thing about one row. */
-internal const val PLANNING_LINE = "Coach is planning the week…"
-internal const val OFFLINE_LINE = "Mission Control offline — retrying"
-
 /** Plain state holder for the Launchpad screen. */
 class LaunchpadViewModel(
     private val db: com.liftoff.app.data.LiftoffDatabase,
