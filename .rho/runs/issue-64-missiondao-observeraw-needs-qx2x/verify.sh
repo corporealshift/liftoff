@@ -445,7 +445,8 @@ timeout 900 "${RUNNER[@]}" :app:kspDebugKotlin --rerun-tasks --no-build-cache --
 if [ "$rc" -ne 0 ]; then
     bad "the KSP rerun: :app:kspDebugKotlin did not build (exit $rc)"
     tail -40 "$ksp_log" 2>/dev/null || true
-elif ! grep -qE '^> Task :app:kspDebugKotlin$' "$ksp_log" 2>/dev/null; then
+# End-anchored patterns need the trailing whitespace Gradle leaves on Windows console lines.
+elif ! grep -qE '^> Task :app:kspDebugKotlin[[:space:]]*$' "$ksp_log" 2>/dev/null; then
     bad "the KSP rerun: :app:kspDebugKotlin did not execute (it was up to date, cached or skipped, so its warnings were never printed)"
 else
     # `w:` is the whole warning surface of this task: today it is the one @Relation warning, and after
