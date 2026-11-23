@@ -1,7 +1,8 @@
 # Map — issue 64: MissionDao.observeRaw needs @Transaction
 
-Run dir: `.rho/runs/issue-64-missiondao-observeraw-needs-qx2x/`. HEAD `b434e83` (this run's plan
-outline); the brief's review was done at `9454f0f`.
+Run dir: `.rho/runs/issue-64-missiondao-observeraw-needs-qx2x/`. HEAD `4fb6d8f` (this run's plan,
+revised after the plan review); previous `b434e83` plan outline; the brief's review was done at
+`9454f0f`.
 Room 2.6.1, declared inline in `app/build.gradle.kts:73-75` (runtime, ktx, KSP compiler) plus
 `room-testing` at `:83`; there is no `gradle/libs.versions.toml` in this repo.
 
@@ -16,10 +17,25 @@ includes a POJO with a @Relation. It is usually desired to annotate this method 
 ```
 
 Room's message key is `ROOM_RELATION_QUERY_WITHOUT_TRANSACTION` (string in
-`room-compiler-2.6.1.jar`, `androidx/room/compiler/messages/RoomMessages.class`). Grep a gate log
-with `grep -n '^w:'` — that is the whole warning surface of the build. A rerun with
+`room-compiler-2.6.1.jar`, `androidx/room/compiler/messages/RoomMessages.class`). A rerun with
 `--rerun-tasks --no-build-cache` printed the same single warning, so it is not a cache artifact.
-Log from this session: gitignored `app/build/plan64/ksp.log` (not committed).
+Logs from the plan session: gitignored `app/build/plan64/ksp.log` (not committed).
+
+Three things a gate script has to know about this warning, measured on the untouched tree at
+`4fb6d8f`:
+
+- With `--console=plain` the line is `w: [ksp] /abs/path/MissionDao.kt:50: <message>` — `[ksp]`
+  prefix, no `file:///`, no column. `grep '^w:'` catches both shapes.
+- **A warm gate run prints no `w:` line at all**: `:app:kspDebugKotlin` is `UP-TO-DATE` there, so its
+  warnings are never printed whether or not the annotation is present. "The gate log has no `w:`" is
+  vacuous unless the task is forced; `:app:kspDebugKotlin --rerun-tasks --no-build-cache` is 14 tasks
+  in ~3s warm and always prints it.
+- `:app:compileDebugUnitTestKotlin`, when it executes (always in CI, not in a warm local run), prints
+  four pre-existing `w:` lines of its own: `SchemaExportTest.kt:114` and `:115` (Java type mismatch),
+  `MissionDaoTest.kt:89` (nullable receiver), `MissionDaoTest.kt:91` ×2 (condition always true). Those
+  are not Room's warnings, so a whole-gate-log `w:` grep would fail on unrelated code.
+- Full gate baseline: `:app:assembleDebug :app:testDebugUnitTest --no-build-cache` → BUILD SUCCESSFUL
+  in 1m10s warm, 93 test classes, 775 test records, 0 failures, 0 skipped.
 
 ## Files involved
 
@@ -98,19 +114,71 @@ Log from this session: gitignored `app/build/plan64/ksp.log` (not committed).
 - Both reads go through `androidx.room.util.DBUtil.query` → `RoomDatabase.query(...)` →
   `getOpenHelper().getWritableDatabase().query(...)`, which is what the query callback below
   intercepts.
-- Nesting is safe: the generated wrapper is guarded by `if (!db.inTransaction())`, so a flow read
-  reached from inside an existing transaction joins it instead of beginning a nested one.
+- Nesting, corrected: the generated wrapper for `observeRaw` calls `__db.beginTransaction()`
+  **unguarded** (measured in the annotated `MissionDao_Impl`), and `RoomDatabase.beginTransaction()`
+  → `internalBeginTransaction()` is `assertNotMainThread()` then
+  `getWritableDatabase().beginTransaction()` — no `inTransaction()` check in either. So the earlier
+  note here ("guarded by `if (!db.inTransaction())`") was wrong: collecting this Flow from *inside*
+  an already-open transaction on the same thread would hit SQLite's "cannot start a transaction
+  within a transaction". Nothing in this repo does that today — `MissionManager` and `DatabaseImport`
+  write inside `withTransaction` but do not collect `observeWeek` from inside it — and the whole unit
+  suite passed with the annotation (see "Measured on a scratch copy"), so the risk is real but
+  unexercised.
 - Test hook: `RoomDatabase.Builder.setQueryCallback(QueryCallback, Executor)` (Room 2.6.1). Setting
   it makes the builder wrap the helper in `QueryInterceptorOpenHelper`, whose
   `getWritableDatabase()/getReadableDatabase()` return `QueryInterceptorDatabase`, and that wrapper
   calls `queryCallback.onQuery(sql, args)` on the given executor **before** delegating the query.
+  Kotlin signature to override: `override fun onQuery(sqlQuery: String, bindArgs: List<Any?>)`.
   `DBUtil.query` reaches `RoomDatabase.query`, so DAO queries are seen. With a same-thread executor
   the callback runs on the querying thread, so `db.inTransaction()` read inside it reflects the
-  transaction Room just began. **Not verified at runtime under Robolectric** — plan Risks.
+  transaction Room just began. **Verified at runtime under Robolectric** — see "Measured on a scratch
+  copy" below. `RoomDatabase.inTransaction()` is
+  `getOpenHelper().getWritableDatabase().inTransaction()` (javap -c), and with a query callback
+  installed that helper is Room's own interceptor, so it reports the transaction Room began.
 - Room annotations (`@Query`, `@Transaction`, `@Relation`) have Java `CLASS` retention, not
   `RUNTIME` (checked with `javap -v` on the jars and a small probe). Runtime reflection on
   `MissionDao` cannot see `@Transaction`, so a reflection fallback must read the generated
   `MissionDao_Impl` source or behaviour, not the annotation.
+
+## Measured on a scratch copy (verify session, 2026-11-22)
+
+To check that `verify.sh` can pass, this tree was copied to `/tmp/probe64` (repo copy, `app/build`
+excluded; nothing in the repo was touched) and the change was made *there*:
+
+- `@Transaction` on `observeRaw` **silences the warning**: `:app:kspDebugKotlin` then prints zero `w:`
+  lines. It also compiles fine on a `Flow`-returning abstract `@Query`.
+- The annotated `MissionDao_Impl` is 817 lines (811 before). `observeRaw` at `:570` returns
+  `CoroutinesRoom.createFlow(__db, true, new String[]{"sortie","mission"}, callable)` — the second
+  argument is `true` where it was `false`. The callable is bracketed: `__db.beginTransaction();` …
+  `__db.setTransactionSuccessful(); return _result;` with `finally { _cursor.close(); }` and an outer
+  `finally { __db.endTransaction(); }`. Inside it, `DBUtil.query(__db, _statement, true, null)` — the
+  third argument (`enforceTransaction`) is now `true` — then `_cursor` is read into
+  `_missionWithSorties`, then `__fetchRelationshipsortieAscomLiftoffAppDataSortie(_collectionSorties)`
+  runs **inside** the same bracket. So both reads are inside one transaction, as the brief wants.
+  The relation statement is
+  `SELECT \`id\`, \`missionId\`, … FROM \`sortie\` WHERE \`missionId\` IN (?)`.
+- The query-callback test hook **works under Robolectric** — the plan's main risk, and its fallback
+  ladder is not needed. A case built as `Room.inMemoryDatabaseBuilder(...).setQueryCallback(cb,
+  Executor { it.run() }).build()`, seeding one mission + two sorties, clearing the recorded list, then
+  `observeWeek(...).first()`, recorded both SELECTs and `db.inTransaction()` was `true` for both with
+  the annotation. With the annotation removed the same case fails on the first assertion, reporting
+  the mission read outside a transaction. So the named case can fail, and does fail, for exactly the
+  reason the brief describes.
+- With the annotation in place the **whole** unit suite is green: `:app:assembleDebug
+  :app:testDebugUnitTest` → 776 test records (775 + the new case), 0 failures, and
+  `BackupImportRoomTest`, `LaunchpadStatesTest` and `MissionStatesTest` all pass untouched. The
+  consumers did not break.
+- API names the new case needs (the ones in this tree, which differ from what a guess would use):
+  `MissionDao.insert(Mission(...))` (there is no `insertDraftForTesting`), `SortieDao.insert(Sortie(...))`
+  (there is no `upsert`), `java.time.LocalDate.of(2026, 1, 5)` fully qualified (MissionDaoTest has no
+  LocalDate import), `Mission(weekStart, pattern, status, outlineNotes)` — `pattern` is required,
+  `id` defaults to 0 — and `Sortie(missionId, index, type, focus, focusRationale, state, launchedAt,
+  landedAt, scrubReason, notes, runDistance, runMinutes)` with `SortieType.RUN` / `SortieState.PENDING`;
+  `runDistance` and `runMinutes` have no defaults, so every argument must be named.
+  The probe used `.allowMainThreadQueries()` on the builder; whether it is needed is untested.
+- `verify.sh` itself was run in that copy: **exit 0**, 13 checks ok. On the untouched tree it exits 1
+  with exactly two failures: the named case "did not run at all", and the KSP rerun still printing the
+  `MissionDao.kt:50` warning.
 
 ## Gate / toolchain on this machine
 
@@ -139,3 +207,27 @@ Log from this session: gitignored `app/build/plan64/ksp.log` (not committed).
 - `MissionManager.kt` writes through `db.withTransaction` (`:85`, `:112`, and elsewhere) — that is
   the land/advance write the brief names as the racing writer. `DatabaseImport.kt:49` wraps an import
   the same way, which is the nesting case `BackupImportRoomTest` exercises.
+
+## verify.sh (this run's definition of done)
+
+- Scratch lives in gitignored `app/build/verify64/` and is **not** trap-deleted, so a work step can
+  read the failure text: `gate-1..3.log`, `ksp.log`, and the report index files (`raw`, `all`,
+  `methods`, `qualified`, `classes`).
+- Launcher order: `~/android-toolchain/gradle/bin/gradle` if it exists (with JAVA_HOME/ANDROID_HOME
+  exported only when unset and the directories exist) → `./gradlew` → `bash gradlew.sh`; Git Bash
+  (`uname` MINGW*/MSYS*/CYGWIN*) goes straight to `gradlew.sh`. Same order as issue-63's script;
+  issue-68's used `bash gradlew.sh` unconditionally, which cannot run in a rho worktree.
+  `LIFTOFF_TOOLCHAIN` overrides the toolchain root.
+- Gate: `:app:assembleDebug :app:testDebugUnitTest --no-build-cache --console=plain`, reports moved
+  aside before each attempt, up to 3 attempts, retried only for a Gradle-level breakage or a failure
+  in the recorded flaky classes `LiftoffShellTest`, `InFlightScreenTest`, `LaunchpadPendingTitleTest`.
+  A failure anywhere else, including anything in `MissionDaoTest`, is final.
+- Named cases it requires: `MissionDaoTest.observeWeekReadsMissionAndSortiesInsideOneTransaction`
+  (the new one, the only check that cannot pass today besides the warning check), the five existing
+  `MissionDaoTest` cases, and `BackupImportRoomTest.anImportThroughTheBackupActionReachesRoomsFlows`.
+  Class checks: `MissionDaoTest`, `BackupImportRoomTest`, `LaunchpadStatesTest`, `MissionStatesTest`.
+- Warning check: `:app:kspDebugKotlin --rerun-tasks --no-build-cache --console=plain` must print
+  `> Task :app:kspDebugKotlin` (executed, not UP-TO-DATE/FROM-CACHE/NO-SOURCE) and no `w:` line. Plus
+  a grep of the last gate log for `^w:.*@Relation`.
+- Measured verdicts: untouched tree → 11 ok / 2 FAIL, exit 1, identical across two runs. Scratch copy
+  with the annotation and a case of the named shape → 13 ok, exit 0.
