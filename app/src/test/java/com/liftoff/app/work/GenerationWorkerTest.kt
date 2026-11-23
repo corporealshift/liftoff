@@ -825,6 +825,319 @@ class GenerationWorkerTest {
     }
 
     /**
+     * a refused turn whose session had already ended is repaired on a session of its own: rho answers a
+     * prompt on a session it has ended with `INVALID_TRANSITION`, a permanent code, so the same-session
+     * repair of [anInvalidReplyIsRepairedInTheSameSessionAndThenTheGenerationSucceeds] would end the
+     * generation instead of fixing the reply. [CoachFixtures.BAD_JSON] then `completed` is the first turn;
+     * the second turn is [CoachFixtures.OUTLINE]. Two `rho.session.create` frames carry two different ids —
+     * the fake hands out one id until this test hands it another — the first prompt into the first session,
+     * the repair prompt into the second under client_id '<id>-1', and the second create carries the same
+     * workspace, labels and description as the first. A fresh session never had the refused turn's events, so
+     * the read that starts the repair carries no cursor at all; the fake shares one log between sessions, so
+     * the cursor is the one thing this test can prove was not carried over. The repair prompt is the whole
+     * exchange, because the new session was never given it. The generation then succeeds on attempt 1, and
+     * the session given up at the end of the store is the new one.
+     */
+    @Test
+    fun aRefusedTurnThatEndedCompletedRepairsOnANewSessionAndThenTheGenerationSucceeds() {
+        val firstSession = daemon.sessionId
+        val secondSession = "session-repair"
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.BAD_JSON)),
+            DaemonScript.State("completed"),
+            // The id the next `rho.session.create` will hand out, changed only once the turn that used the
+            // old one had finished: every push of the refused turn still names the session that made it.
+            DaemonScript.Act { daemon.sessionId = secondSession },
+        )
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.OUTLINE)),
+            DaemonScript.State("idle"),
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+        assertEquals(
+            "the mission this generation is for did not start as a draft",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertTrue(
+            "the mission this generation is for already had sorties",
+            runBlocking { container.database.sortieDao().getForMission(mission.id) }.isEmpty(),
+        )
+        assertNull(runBlocking { container.database.generationDao().get(generationId) }!!.nabuSessionId)
+        assertNull(runBlocking { container.database.generationDao().get(generationId) }!!.lastEventId)
+        val refusedErrors = CoachFixtures.errorsOf(CoachFixtures.BAD_JSON, CoachFixtures.OUTLINE_CONTEXT)
+        val refusedReply = CoachFixtures.fixture(CoachFixtures.BAD_JSON)
+
+        val result = runWorker(generationId)
+
+        assertTrue(
+            "the repair on a new session did not produce a valid reply: $result",
+            result is ListenableWorker.Result.Success,
+        )
+        val creates = daemon.framesFor("rho.session.create").map { frame ->
+            val params = RhoJson.decodeFromString(Rpc.serializer(), frame).params?.jsonObject
+            assertTrue("a rho.session.create frame carried no params: $frame", params != null)
+            params!!
+        }
+        assertEquals("the refused turn did not repair on a session of its own: $creates", 2, creates.size)
+        val firstCreate = creates.first()
+        val secondCreate = creates[1]
+        assertEquals(COACH_WORKSPACE, firstCreate["workspace"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            "the replacement session was created in another workspace",
+            COACH_WORKSPACE,
+            secondCreate["workspace"]?.jsonPrimitive?.contentOrNull,
+        )
+        val firstOptions = firstCreate.jsonObject("options")
+        val secondOptions = secondCreate.jsonObject("options")
+        assertEquals(
+            "the first session was not created with the outline's labels",
+            listOf("liftoff", "liftoff:outline"),
+            firstOptions["labels"]?.jsonArray?.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            "the replacement session carries labels the first did not: ${secondOptions["labels"]}",
+            firstOptions["labels"]?.jsonArray?.map { it.jsonPrimitive.content },
+            secondOptions["labels"]?.jsonArray?.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            "the replacement session carries a description the first did not: ${secondOptions["description"]}",
+            firstOptions["description"]?.jsonPrimitive?.contentOrNull,
+            secondOptions["description"]?.jsonPrimitive?.contentOrNull,
+        )
+
+        val prompts = promptsSent()
+        assertEquals("the refused reply was answered with $prompts", 2, prompts.size)
+        val firstPrompt = prompts.first()
+        val repairPrompt = prompts.last()
+        assertEquals(firstSession, firstPrompt["session_id"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            "the repair went back into the session rho had already ended: $repairPrompt",
+            secondSession,
+            repairPrompt["session_id"]?.jsonPrimitive?.contentOrNull,
+        )
+        assertEquals("$generationId-0", firstPrompt["client_id"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("$generationId-1", repairPrompt["client_id"]?.jsonPrimitive?.contentOrNull)
+
+        val reads = daemon.framesFor("rho.session.events_after").map { frame ->
+            val params = RhoJson.decodeFromString(Rpc.serializer(), frame).params?.jsonObject
+            assertTrue("a rho.session.events_after frame carried no params: $frame", params != null)
+            params!!
+        }
+        val freshReads = reads.filter { it["session_id"]?.jsonPrimitive?.contentOrNull == secondSession }
+        assertTrue("the repair turn never read the events of the session it created: $reads", freshReads.isNotEmpty())
+        for (read in freshReads) {
+            // A fresh session never had the refused turn's events, so there is nothing to read from: the cursor
+            // the refused turn ended on belongs to a log this session is not in.
+            assertNull("the repair read the new session from a cursor it cannot have: $read", read["last_event_id"])
+        }
+
+        val originalPrompt = firstPrompt["content"]?.jsonPrimitive?.contentOrNull
+        val repair = repairPrompt["content"]?.jsonPrimitive?.contentOrNull
+        assertEquals(
+            "the repair on a new session is not the prompt a fresh session is handed",
+            CoachPromptBuilder.freshSessionRepairPrompt(originalPrompt!!, refusedReply, refusedErrors),
+            repair,
+        )
+        assertTrue("the repair sent the same-session two-line prompt instead: $repair", repair != CoachPromptBuilder.repairPrompt(refusedErrors))
+        assertTrue("the repair prompt dropped the prompt it was answering: $repair", repair!!.contains(originalPrompt))
+        assertTrue("the repair prompt dropped the reply it refused: $repair", repair.contains(refusedReply))
+        for (line in refusedErrors) {
+            assertTrue("the repair prompt dropped an error line:\n$repair", repair.contains(line))
+        }
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.SUCCEEDED, row.status)
+        assertEquals("the repair on a new session left more than one bump on the row's attempt", 1, row.attempt)
+        assertEquals("the row points at the session that produced the accepted reply", secondSession, row.nabuSessionId)
+        assertNotNull(row.finishedAt)
+        val idles = daemon.log.filter { it["data"]?.jsonObject?.get("to")?.jsonPrimitive?.contentOrNull == "idle" }
+        assertEquals("the repair turn did not end idle: $idles", 1, idles.size)
+        assertEquals("the row's cursor is not the end of the repair turn", eventId(idles.single()), row.lastEventId)
+
+        val storedMission = runBlocking { container.database.missionDao().get(mission.id) }!!
+        assertEquals(MissionStatus.ACTIVE, storedMission.status)
+        val current = currentSortie(runBlocking { container.database.sortieDao().getForMission(mission.id) })
+        assertNotNull("the repaired outline left no current sortie", current)
+        // The session rho had already ended is not given up again; the one the repair created is.
+        assertSessionGivenUpOnce(secondSession)
+    }
+
+    /**
+     * running out of repairs on turns that each ended `completed` still spends the whole budget: the cap is the
+     * row's [Generation.attempt] and the worker's cap is 2, so this generation gets the same three
+     * prompts and no fourth, the same attempt 2 and the same 'invalid output' end as
+     * [afterTwoFailedRepairsTheGenerationFailsWithTheLastErrorsAndStoresNothing] — with a session of its own for
+     * every repair, because rho answers a prompt on a session it has already ended with `INVALID_TRANSITION`, a
+     * permanent code. [CoachFixtures.BAD_JSON] then [CoachFixtures.SCHEMA_VIOLATION] are scripted so the last
+     * turn's errors are distinguishable from the first's, and the fake replays its last scripted turn for the third
+     * prompt. Three `rho.session.create` frames carry three different ids — the fake hands out one id until this
+     * test hands it another — and one prompt goes into each. The row is FAILED with 'invalid output: ' plus the
+     * **last** turn's validator error lines joined with '; ': never the daemon's refusal text, never 'session has
+     * ended', never the first refused reply's errors. Nothing is stored: the mission is still DRAFT with no
+     * sorties, and the session that produced the last refused reply is the one given up.
+     */
+    @Test
+    fun aGenerationThatRunsOutOfRepairsOnCompletedTurnsFailsWithTheLastErrorsAndNotTheDaemonsRefusal() {
+        val firstSession = daemon.sessionId
+        val secondSession = "session-repair-1"
+        val thirdSession = "session-repair-2"
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.BAD_JSON)),
+            DaemonScript.State("completed"),
+            // The id the next `rho.session.create` will hand out, changed only once the turn that used the old one
+            // had finished: every push of a refused turn still names the session that produced it.
+            DaemonScript.Act { daemon.sessionId = secondSession },
+        )
+        daemon.script(
+            DaemonScript.Assistant(CoachFixtures.fixture(CoachFixtures.SCHEMA_VIOLATION)),
+            DaemonScript.State("completed"),
+            DaemonScript.Act { daemon.sessionId = thirdSession },
+        )
+
+        val mission = runBlocking { container.missionManager.onAppOpen() }
+        val generationId = insertOutlineGeneration(mission.id)
+        assertEquals(
+            "the mission this generation is for did not start as a draft",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertTrue(
+            "the mission this generation is for already had sorties",
+            runBlocking { container.database.sortieDao().getForMission(mission.id) }.isEmpty(),
+        )
+        val firstErrors = CoachFixtures.errorsOf(CoachFixtures.BAD_JSON, CoachFixtures.OUTLINE_CONTEXT)
+        val lastErrors = CoachFixtures.errorsOf(CoachFixtures.SCHEMA_VIOLATION, CoachFixtures.OUTLINE_CONTEXT)
+        val firstReply = CoachFixtures.fixture(CoachFixtures.BAD_JSON)
+        val lastReply = CoachFixtures.fixture(CoachFixtures.SCHEMA_VIOLATION)
+
+        val result = runWorker(generationId)
+
+        assertTrue("doWork() returned $result", result is ListenableWorker.Result.Failure)
+
+        val creates = daemon.framesFor("rho.session.create").map { frame ->
+            val params = RhoJson.decodeFromString(Rpc.serializer(), frame).params?.jsonObject
+            assertTrue("a rho.session.create frame carried no params: $frame", params != null)
+            params!!
+        }
+        assertEquals(
+            "a repair of a turn that ended completed opened no session of its own: $creates",
+            3,
+            creates.size,
+        )
+        for ((index, create) in creates.withIndex()) {
+            assertEquals(
+                "the ${index + 1}th session was created in another workspace",
+                COACH_WORKSPACE,
+                create["workspace"]?.jsonPrimitive?.contentOrNull,
+            )
+            val options = create.jsonObject("options")
+            assertEquals(
+                "the ${index + 1}th session was not created with the outline's labels",
+                listOf("liftoff", "liftoff:outline"),
+                options["labels"]?.jsonArray?.map { it.jsonPrimitive.content },
+            )
+            assertEquals(
+                "the ${index + 1}th session carries a description the first did not: ${options["description"]}",
+                "liftoff generation $generationId: outline for mission ${mission.id}",
+                options["description"]?.jsonPrimitive?.contentOrNull,
+            )
+        }
+
+        val prompts = promptsSent()
+        assertEquals("a third refused reply was answered with another prompt: $prompts", 3, prompts.size)
+        val sessions = listOf(firstSession, secondSession, thirdSession)
+        for ((index, prompt) in prompts.withIndex()) {
+            assertEquals(
+                "the ${index + 1}th prompt went into a session of another turn's",
+                sessions[index],
+                prompt["session_id"]?.jsonPrimitive?.contentOrNull,
+            )
+            assertEquals(
+                "the ${index + 1}th prompt was not sent under the attempt the row holds then",
+                "$generationId-$index",
+                prompt["client_id"]?.jsonPrimitive?.contentOrNull,
+            )
+        }
+        val promptSessions = prompts.map { it["session_id"]?.jsonPrimitive?.contentOrNull }
+        assertEquals("more than one prompt went into one session: $promptSessions", prompts.size, promptSessions.distinct().size)
+
+        val reads = daemon.framesFor("rho.session.events_after").map { frame ->
+            val params = RhoJson.decodeFromString(Rpc.serializer(), frame).params?.jsonObject
+            assertTrue("a rho.session.events_after frame carried no params: $frame", params != null)
+            params!!
+        }
+        for (session in listOf(secondSession, thirdSession)) {
+            val freshReads = reads.filter { it["session_id"]?.jsonPrimitive?.contentOrNull == session }
+            assertTrue("the repair on $session never read the session it created: $reads", freshReads.isNotEmpty())
+            for (read in freshReads) {
+                // A fresh session never had the refused turn's events, so there is nothing to read from.
+                assertNull("the repair read $session from a cursor it cannot have: $read", read["last_event_id"])
+            }
+        }
+
+        val originalPrompt = prompts[0]["content"]?.jsonPrimitive?.contentOrNull
+        val firstRepair = prompts[1]["content"]?.jsonPrimitive?.contentOrNull
+        val secondRepair = prompts[2]["content"]?.jsonPrimitive?.contentOrNull
+        assertEquals(
+            "the first repair is not the prompt a fresh session is handed",
+            CoachPromptBuilder.freshSessionRepairPrompt(originalPrompt!!, firstReply, firstErrors),
+            firstRepair,
+        )
+        assertEquals(
+            "the second repair is not the prompt a fresh session is handed",
+            CoachPromptBuilder.freshSessionRepairPrompt(originalPrompt, lastReply, lastErrors),
+            secondRepair,
+        )
+        assertFalse(
+            "the second repair carried the first refused reply instead of the last turn's: $secondRepair",
+            secondRepair!!.contains(firstReply),
+        )
+
+        val row = runBlocking { container.database.generationDao().get(generationId) }!!
+        assertEquals(GenerationStatus.FAILED, row.status)
+        assertEquals("the generation was asked to repair more than twice", 2, row.attempt)
+        val error = requireNotNull(row.error)
+        assertEquals("invalid output: " + lastErrors.joinToString("; "), error)
+        assertFalse(
+            "the row kept the first refused reply's errors instead of the last turn's: $error",
+            error == "invalid output: " + firstErrors.joinToString("; "),
+        )
+        for (line in lastErrors) {
+            assertTrue("the row's error dropped the line \"$line\": $error", error.contains(line))
+        }
+        // The one line only the first refused reply produced: a JSON that never parsed.
+        assertFalse("the row's error is the first refused reply's: $error", error.contains("not valid JSON"))
+        // What a refusal the daemon answers the same way every time would have left on the row instead.
+        for (refusal in listOf("INVALID_TRANSITION", "session has ended", "rho_cursor_unknown", "rho_protocol_mismatch")) {
+            assertFalse("the row's error carries the daemon's own refusal \"$refusal\": $error", error.contains(refusal))
+        }
+        assertNotNull(row.finishedAt)
+        assertEquals("the row points at a session other than the one that produced the last refused reply", thirdSession, row.nabuSessionId)
+
+        assertEquals(
+            "a generation that ran out of repairs stored something",
+            MissionStatus.DRAFT,
+            runBlocking { container.database.missionDao().get(mission.id) }!!.status,
+        )
+        assertEquals(
+            "a generation that ran out of repairs stored sorties: ",
+            emptyList<Any>(),
+            runBlocking { container.database.sortieDao().getForMission(mission.id) },
+        )
+
+        // A turn that ended `completed` is not handed back to the daemon to carry on, and only the last session is
+        // given up: the two rho had already ended are the daemon's to clean up.
+        assertTrue(
+            "a turn that ended completed was handed back to the daemon: ${daemon.framesFor("rho.session.resume")}",
+            daemon.framesFor("rho.session.resume").isEmpty(),
+        )
+        assertSessionGivenUpOnce(thirdSession)
+    }
+
+    /**
      * two failed repairs end the generation: three prompt frames and no fourth, attempt 2, row FAILED with
      * 'invalid output' and the last errors, nothing stored. [CoachFixtures.BAD_JSON] then
      * [CoachFixtures.SCHEMA_VIOLATION] are scripted so the errors the row ends with are the second reply's, not
