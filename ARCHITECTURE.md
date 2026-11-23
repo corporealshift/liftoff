@@ -66,7 +66,7 @@ All source lives under `com.liftoff.app`.
 | 5 | No dependency-injection framework; a single `AppContainer` builds everything. | §11 |
 | 6 | Generations are resumable from the `Generation` row (stored cursor). | §7.3 |
 | 7 | Session labels never start with `run:` (rho's runner acts on those). | §7.3 |
-| 8 | The phone validates every coach reply, with up to 2 in-session repairs. | §7.6 |
+| 8 | The phone validates every coach reply, with up to 2 repairs: in the refused turn's session when that turn ended `idle`, on a new session when it ended `completed`. | §7.3, §7.6 |
 
 ---
 

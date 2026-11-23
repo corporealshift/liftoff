@@ -37,8 +37,9 @@ import kotlin.time.Duration.Companion.minutes
 /**
  * One generation: the row named by [GENERATION_ID] is asked for a coach turn and, if that turn finishes
  * with a reply that passes validation, the reply is stored and the row is marked SUCCEEDED. A reply that
- * fails validation is put back to the same session with the validator's own error lines, up to
- * [MAX_REPAIRS] times for the generation.
+ * fails validation is put back with the validator's own error lines, up to [MAX_REPAIRS] times for the
+ * generation: on the session that produced it when that turn ended `idle`, on a session of its own handed the
+ * whole exchange when it ended `completed`, because rho answers a prompt on a session it has already ended.
  *
  * Everything about talking to the daemon is [runCoachTurn]'s; this owns the row, the schedule and the
  * storage. The plain `(context, params)` constructor is what lets WorkManager build it without a
@@ -144,31 +145,42 @@ class GenerationWorker(
         // The id this turn actually ran on, held here so the catch can give it up even when the turn threw
         // before it could report an outcome.
         var reportedSessionId: String? = null
+        // Every turn's session id, including a repair turn's, is reported back here: a repair that runs on a
+        // session of its own replaces the one this catch would give up, and giving up the id the generation
+        // started on would leave the new session running.
+        val onTurnSession: (String) -> Unit = { reportedSessionId = it }
         return try {
             val settings = container.settingsStore.settings.first()
-            // Held here because a repair turn runs on the same session, with the same labels and description.
+            // Held here because a repair that runs on a session of its own is created with the same labels and
+            // description.
             val options = CoachSessionOptions(
                 workspace = settings.coachWorkspacePath,
                 labels = labelsFor(row.kind),
                 description = descriptionOf(row, sortie),
             )
+            // Read once, here: a repair on a new session is handed this same text, and rebuilding it there would
+            // read Room again for a prompt that has already been sent.
+            val prompt = promptFor(container, row, sortie)
             val outcome = savingProgressTo(generations, row.id) { onSessionId, onCursor ->
                 runCoachTurn(
                     client = client,
                     sessionId = row.nabuSessionId,
                     options = options,
-                    prompt = promptFor(container, row, sortie),
+                    prompt = prompt,
                     clientId = "${row.id}-${row.attempt}",
                     cursor = row.lastEventId,
                     limit = TURN_LIMIT,
                     onSessionId = { id ->
-                        reportedSessionId = id
+                        onTurnSession(id)
                         onSessionId(id)
                     },
                     onCursor = onCursor,
                 )
             }
-            storeFinishedTurn(container, generations, client, row, mission, sortie, settings, options, outcome)
+            storeFinishedTurn(
+                container, generations, client, row, mission, sortie,
+                settings, options, prompt, outcome, onTurnSession,
+            )
         } catch (dropped: DaemonException) {
             // A refusal the daemon will give the same answer to every time is a generation that is over.
             // Anything else — a connection that went away, a call it might take next time — is a turn that
@@ -244,9 +256,18 @@ class GenerationWorker(
      * turn that stopped part-way hands the session back to the daemon and leaves the row where the turn stopped,
      * for the next attempt to pick up.
      *
-     * A reply that fails validation is handed back to the same session with the validator's own error
-     * lines (§7.3 step 5), and the turn that comes back is judged exactly like this one. The cap is the
-     * row's [Generation.attempt], so the repairs belong to the generation rather than to this run.
+     * A reply that fails validation is repaired with the validator's own error lines (§7.3 step 5), and the turn
+     * that comes back is judged exactly like this one: on the session that produced it when that turn ended
+     * `idle`, on a new session handed the prompt, the refused reply and the errors when it ended `completed`,
+     * because rho answers a prompt on a session it has already ended with a permanent code. The cap is the row's
+     * [Generation.attempt], so the repairs belong to the generation rather than to this run.
+     *
+     * [prompt] is the text this run sent its first turn, carried in rather than rebuilt here because a new
+     * session has to be handed the prompt the refused reply was answering. A run resuming a generation an
+     * earlier run started rebuilds it from the row's data as it reads now, so it can differ from the text
+     * that run sent; the repair quotes this run's text, which is the one the fresh session is answering.
+     * Every turn's session id goes to [onTurnSession], which is where the id a refusal has to be answered
+     * about is held.
      *
      * A valid reply is written only while the row is still the generation its target is waiting for
      * (§7.3's regeneration path): the currency check, the store and the mark share one transaction, so a
@@ -261,7 +282,9 @@ class GenerationWorker(
         sortie: Sortie?,
         settings: Settings,
         options: CoachSessionOptions,
+        prompt: String,
         outcome: TurnOutcome,
+        onTurnSession: (String) -> Unit,
     ): Result {
         val context = GenerationContext(
             kind = row.kind,
@@ -313,16 +336,30 @@ class GenerationWorker(
                     // the refused turn went out under would have played no turn at all.
                     val attempt = requireNotNull(generations.get(row.id)).attempt
                     val refused = turn
+                    // Which session a repair runs on is read off how the refused turn ended. A session rho ended
+                    // `completed` is closed to prompts — it answers INVALID_TRANSITION, a permanent code — so the
+                    // repair goes to one of its own, carrying the same workspace, labels and description; a fresh
+                    // session never had the refused turn's events, so it starts with no cursor at all. `idle`
+                    // keeps the same-session repair, where the reply the coach is being asked about is still in
+                    // that session's own history.
+                    val freshSession = refused.end == TurnEnd.Completed
                     turn = savingProgressTo(generations, row.id) { onSessionId, onCursor ->
                         runCoachTurn(
                             client = client,
-                            sessionId = refused.sessionId,
+                            sessionId = if (freshSession) null else refused.sessionId,
                             options = options,
-                            prompt = CoachPromptBuilder.repairPrompt(reply.errors),
+                            prompt = if (freshSession) {
+                                CoachPromptBuilder.freshSessionRepairPrompt(prompt, raw, reply.errors)
+                            } else {
+                                CoachPromptBuilder.repairPrompt(reply.errors)
+                            },
                             clientId = "${row.id}-$attempt",
-                            cursor = refused.cursor,
+                            cursor = if (freshSession) null else refused.cursor,
                             limit = TURN_LIMIT,
-                            onSessionId = onSessionId,
+                            onSessionId = { id ->
+                                onTurnSession(id)
+                                onSessionId(id)
+                            },
                             onCursor = onCursor,
                         )
                     }

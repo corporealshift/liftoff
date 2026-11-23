@@ -336,8 +336,15 @@ dies.
      validate it (§7.6).
      - **Valid:** store the result in one transaction and mark the generation `SUCCEEDED`.
      - **Invalid, with fewer than 2 repairs used:** increment `attempt` and send a repair
-       prompt in the **same session**: "Your reply was not valid: <list of errors>. Reply
-       again with only the corrected JSON object." Then return to step 4.
+       prompt. A turn that ended `idle` is repaired in the **same session**: "Your reply was
+       not valid: <list of errors>. Reply again with only the corrected JSON object." A turn
+       that ended `completed` is repaired on a **new session**: `completed` is a session nabu
+       has already ended, and it answers `nabu.session.send_prompt` with `INVALID_TRANSITION`, a
+       permanent code, so a repair sent there ends the generation instead of asking for a
+       better reply. The replacement is created with the same workspace, labels and
+       description as the session it replaces, with no cursor carried over, and is handed the
+       original prompt, the refused reply and the same list of errors: a session with no
+       history has no reply in it to be pointed at. Then return to step 4. (amended 2026-11-20)
      - **Invalid, with 2 repairs used:** mark the generation `FAILED`, reason "invalid
        output".
    - **`blocked`:** the coach asked a question or a gated call is waiting. Mark the
@@ -616,7 +623,7 @@ The visual design is direction B, "Space Age": colors, type, components and mock
 |---|---|
 | Daemon unreachable (PC off, Tailscale down) | The generation retries with backoff; the Launchpad says "Mission Control offline". Re-fly is available. |
 | Protocol major version mismatch | Permanent failure: "Liftoff speaks nabu protocol 1.x, the daemon speaks N.x". Not retried. |
-| Invalid output | Up to 2 in-session repairs, then FAILED with the last error list visible, plus Retry and Re-fly. |
+| Invalid output | Up to 2 repairs — in the **same session** when the refused turn ended `idle`, on a **new session** when it ended `completed` (§7.3 step 5) — then FAILED with the last error list visible, plus Retry and Re-fly. (amended 2026-11-20) |
 | Coach blocks on a question or permission | FAILED, reason "coach needed input"; the owner fixes COACH.md or the config. |
 | Phone worker killed mid-generation | Resumes the same nabu session from the stored cursor. |
 | Daemon restarted mid-generation | nabu pauses the session; the worker resumes it (§7.3 step 5). |
@@ -790,7 +797,7 @@ Each milestone ends with the project gate passing.
 | 7 | Logging | Pre-filled sets, one tap to check, edit only on deviation | Exercise-level checkboxes (no load data, no progression); full log with RPE (too much typing at the gym) |
 | 8 | Runs | Always in rotation; LLM run plans behind a toggle | Runs ignored (no fatigue awareness); always generated (owner wants it optional) |
 | 9 | Output contract | Lives in the prompt, owned and versioned by the app; COACH.md holds judgment only | Schema in COACH.md (app and workspace could disagree silently) |
-| 10 | Validation | On the phone, with in-session repair (≤2) | nabu `verify` gate on a written file (only runs on file changes; phone owns equipment and units) |
+| 10 | Validation | On the phone, with repair (≤2) — in the refused turn's session, or on a new session when that turn ended `completed` (amended 2026-11-20) | nabu `verify` gate on a written file (only runs on file changes; phone owns equipment and units) |
 | 11 | Source of truth | Phone (Room); every prompt carries the history it needs | History kept in the coach workspace (needs the PC to read your own log; not offline) |
 | 12 | nabu client code | Copy `DaemonClient` and protocol types | Shared Kotlin library (premature for two clients) |
 | 13 | Token storage | App-private DataStore, as nabu's client does | Keystore encryption (inconsistent with nabu; the daemon is only on loopback and Tailscale) |
@@ -836,6 +843,22 @@ inline in the section they affect: what changed, when, and why.
   0-based `index` (§7.5.1) is unchanged, so the coach still echoes the index back and the
   validator's error lines still speak in it; only the prose it writes in its notes changes.
   Notes stored from earlier weeks are left as the coach wrote them.
+- **2026-11-20 — §7.3 step 5: a repair of a turn that ended `completed` runs on a new session
+  (§7.3, §10, §15).** Step 5 sent every repair prompt to the session that produced the refused
+  reply. rho ends a session in `completed` for good, and answers `send_prompt` on it with
+  `INVALID_TRANSITION` — a permanent code, so Liftoff does not retry it — so a generation whose
+  turn ended that way failed with the daemon's message, "session has ended (completed); start a
+  new session instead", instead of the validator's errors, and never reached its second repair.
+  Step 5 now splits those two ends the way it splits `paused` and `error`: `idle` keeps the
+  same-session repair, whose prompt points at a reply still in that session's own history;
+  `completed` gets a session of its own, created with the same workspace, labels and description
+  as the one it replaces and with no cursor carried over, and is handed the original prompt, the
+  refused reply and the error list, because a session with no history has no reply to look at.
+  The budget is unchanged — it is counted on the `Generation` row, so a `completed` turn still
+  gets both rounds and a generation that runs out still ends FAILED with the last refused reply's
+  error list. The row's session id follows the turns, so it names the session that produced the
+  accepted reply: that is what the Launchpad's link into rho opens and what a cancel stops.
+  ARCHITECTURE.md's invariant 8 is reworded to match.
 - **2026-11-02 — un-launch: an in-flight sortie can go back to PLANNED (§5.1, §6, §9).**
   In-Flight offered only Land and Scrub, so after Launch the only way to a different plan for
   that sortie was Scrub, which ended it. In-Flight now also offers **Back to Launchpad**: it

@@ -13,6 +13,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** Band heights the stripes draw; a stripe's total height is the band times its band count. */
+internal val TriStripeBandHeightDp = 6.dp
+internal val DuoStripeBandHeightDp = 5.dp
+
 @Composable
 fun TriStripe(
     modifier: Modifier = Modifier,
@@ -21,9 +25,9 @@ fun TriStripe(
     teal: Color = Teal,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.height(6.dp).fillMaxWidth().background(red))
-        Box(modifier = Modifier.height(6.dp).fillMaxWidth().background(mustard))
-        Box(modifier = Modifier.height(6.dp).fillMaxWidth().background(teal))
+        Box(modifier = Modifier.height(TriStripeBandHeightDp).fillMaxWidth().background(red))
+        Box(modifier = Modifier.height(TriStripeBandHeightDp).fillMaxWidth().background(mustard))
+        Box(modifier = Modifier.height(TriStripeBandHeightDp).fillMaxWidth().background(teal))
     }
 }
 
@@ -34,8 +38,8 @@ fun DuoStripe(
     red: Color = Red,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.height(5.dp).fillMaxWidth().background(mustard))
-        Box(modifier = Modifier.height(5.dp).fillMaxWidth().background(red))
+        Box(modifier = Modifier.height(DuoStripeBandHeightDp).fillMaxWidth().background(mustard))
+        Box(modifier = Modifier.height(DuoStripeBandHeightDp).fillMaxWidth().background(red))
     }
 }
 

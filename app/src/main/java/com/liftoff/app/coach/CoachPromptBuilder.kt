@@ -49,6 +49,37 @@ object CoachPromptBuilder {
         (listOf("Your reply was not valid:") + errors + "Reply again with only the corrected JSON object.")
             .joinToString(separator = "\n")
 
+    /**
+     * §7.3 step 5 / §7.6: the repair prompt for a refused turn whose session had already ended.
+     *
+     * [repairPrompt] points at the reply in the session's own history, so it only works where that history
+     * is still open. A replacement session has no reply to look at, so it is given the whole exchange
+     * instead — the prompt that was answered, the reply that was refused, and the validator's lines — in
+     * that order, and under the same two sentences §7.3 words a repair with, so the coach corrects the
+     * reply it cannot see rather than writing a new one from the prompt again.
+     */
+    fun freshSessionRepairPrompt(
+        originalPrompt: String,
+        refusedReply: String,
+        errors: List<String>,
+    ): String =
+        buildList {
+            add("This is a new session. Your previous reply was not valid, and the session that produced it had ended.")
+            add("The prompt you were answering, that reply and what was wrong with it are repeated here in full.")
+            add("")
+            add("The prompt you were answering:")
+            add("")
+            add(originalPrompt)
+            add("")
+            add("The reply that was not valid:")
+            add("")
+            add(refusedReply)
+            add("")
+            addAll(listOf("Your reply was not valid:") + errors)
+            add("")
+            add("Reply again with only the corrected JSON object.")
+        }.joinToString(separator = "\n")
+
     // ─── 1. Task ────────────────────────────────────────────────────────────────
 
     private fun task(input: CoachPromptInput): String =

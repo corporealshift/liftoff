@@ -4,9 +4,15 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.liftoff.app.data.*
+import com.liftoff.app.domain.CoachStatus
 import com.liftoff.app.settings.SettingsStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -18,6 +24,8 @@ import java.io.File
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -28,9 +36,17 @@ class MissionStatesTest {
     private lateinit var missionDao: MissionDao
     private lateinit var sortieDao: SortieDao
     private lateinit var flightPlanDao: FlightPlanDao
+    private lateinit var generationDao: GenerationDao
     private lateinit var settingsStore: SettingsStore
+    private lateinit var settingsFile: File
     private lateinit var manager: MissionManager
     private lateinit var states: MissionStates
+
+    /** Everything the one subscription of a live-follow case has emitted, in the order it arrived. */
+    private val emissions = CopyOnWriteArrayList<MissionTabState>()
+
+    /** The instant the fixture's clock reads; a generation row's createdAt is written later than this. */
+    private val seededAt = Instant.parse("2026-01-12T00:00:00Z").toEpochMilli()
 
     @Before
     fun setUp() {
@@ -40,11 +56,11 @@ class MissionStatesTest {
         missionDao = db.missionDao()
         sortieDao = db.sortieDao()
         flightPlanDao = db.flightPlanDao()
+        generationDao = db.generationDao()
 
-        val dataStore = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
-            java.io.File(context.cacheDir, "settings.preferences_pb")
-        }
-        settingsStore = SettingsStore(dataStore)
+        // A file of its own per test, so a host or token written here reaches no other case or class.
+        settingsFile = File(context.cacheDir, "mission-states-${UUID.randomUUID()}.preferences_pb")
+        settingsStore = SettingsStore(androidx.datastore.preferences.core.PreferenceDataStoreFactory.create { settingsFile })
 
         manager = MissionManager(
             db, settingsStore,
@@ -57,8 +73,60 @@ class MissionStatesTest {
     @After
     fun tearDown() {
         db.close()
-        File(context.cacheDir, "settings.preferences_pb").delete()
+        settingsFile.delete()
     }
+
+    // ── The draft's coach status, as the DRAFT arm derives it ──────────
+
+    /** Mission Control has a host and a token: the state every case below but one is read against. */
+    private suspend fun coachIsSetUp() {
+        settingsStore.setDaemonHost("127.0.0.1")
+        settingsStore.setDaemonToken("coach-token")
+    }
+
+    /** The tab's current week, read once the fixture has finished writing. */
+    private suspend fun draftWeek(): MissionTabState.Week =
+        states.observe().first { it is MissionTabState.Week } as MissionTabState.Week
+
+    /** A generation row of the kind Confirm writes: an OUTLINE row for [missionId]. */
+    private fun outlineRow(
+        missionId: Long,
+        status: GenerationStatus,
+        createdAt: Long,
+        finishedAt: Long? = null,
+    ) = Generation(
+        kind = GenerationKind.OUTLINE,
+        missionId = missionId,
+        sortieId = null,
+        status = status,
+        createdAt = createdAt,
+        finishedAt = finishedAt,
+    )
+
+    /** Rows are ordered by createdAt, so each write in a case gets its own later instant. */
+    private fun at(step: Int): Long = seededAt + step * 1_000L
+
+    // ── The one subscription a live-follow case reads from ─────────────
+    // draftWeek() above calls observe() again, so it reads whatever Room holds at the moment of the read: enough
+    // for a status assertion, but it proves nothing about a subscription staying live across a write. A follow
+    // case opens observe() once, before its writes, and takes every emission out of [emissions].
+
+    /** Opens observe() once, into [emissions], and returns the job that keeps it open. */
+    private fun CoroutineScope.openSubscription(): Job =
+        launch { states.observe().collect { emissions.add(it) } }
+
+    private fun weeks(): List<MissionTabState.Week> = emissions.filterIsInstance<MissionTabState.Week>()
+
+    /** A Week this same collection has already emitted; bounded so a status that never arrives fails. */
+    private suspend fun awaitWeek(where: (MissionTabState.Week) -> Boolean): MissionTabState.Week =
+        withTimeout(AWAIT_MS) {
+            var found: MissionTabState.Week? = null
+            while (found == null) {
+                found = weeks().firstOrNull(where)
+                if (found == null) delay(POLL_MS)
+            }
+            found!!
+        }
 
     // ── Pattern chips from mixed sortie states ────────────────────────
 
@@ -408,5 +476,170 @@ class MissionStatesTest {
         // planExerciseCount must be total sets (8), not exercise count (2).
         assertEquals(8, scrubbed.planExerciseCount)
         assertEquals(3, scrubbed.planLandedCount)
+    }
+
+    // ── A draft with an open outline generation reports planning ───────
+    // The brief's case: the draft was confirmed, so its QUEUED OUTLINE row is in Room and the coach is set up.
+    // The week says the coach is planning, the status the Launchpad's draft says, not the one the tab's
+    // "Not confirmed yet" line is drawn from.
+
+    @Test
+    fun theMissionTabReportsPlanningWhileItsDraftHasAnOpenOutlineGeneration() = runBlocking {
+        coachIsSetUp()
+        val mission = manager.onAppOpen()
+
+        val row = generationDao.insert(outlineRow(mission.id, GenerationStatus.QUEUED, at(1)))
+
+        val week = draftWeek()
+        assertEquals(MissionStatus.DRAFT, week.status)
+        assertEquals(mission.id, week.missionId)
+        assertEquals(CoachStatus.Planning, week.coachStatus)
+        assertFalse("the ask is already out, so Confirm is not offered", week.coachStatus.offersConfirm)
+        assertFalse("nothing has failed to retry", week.coachStatus.offersRetry)
+        assertTrue(week.coachStatus.offersContinueWithoutOutline)
+        assertFalse("the tab gains no button while the coach works", week.canReset)
+
+        // The same open generation one step further along: a RUNNING row is still planning, not a new status.
+        assertEquals(1, generationDao.markRunning(row))
+        assertEquals(GenerationStatus.RUNNING, generationDao.get(row)!!.status)
+        assertEquals(CoachStatus.Planning, draftWeek().coachStatus)
+    }
+
+    // ── The open row carries the coach-offline mark ────────────────────
+    // The mark travels on error alone while the row is still QUEUED, so this is an open generation waiting on a
+    // Mission Control it cannot reach — not a failure wearing an offline label.
+
+    @Test
+    fun theMissionTabReportsOfflineWhenItsOpenOutlineRowCarriesTheCoachOfflineMark() = runBlocking {
+        coachIsSetUp()
+        val mission = manager.onAppOpen()
+
+        val row = generationDao.insert(outlineRow(mission.id, GenerationStatus.QUEUED, at(1)))
+        generationDao.setCoachOfflineMark(row, Generation.COACH_OFFLINE)
+
+        val stored = generationDao.get(row)!!
+        assertEquals(GenerationStatus.QUEUED, stored.status)
+        assertEquals(Generation.COACH_OFFLINE, stored.error)
+
+        val week = draftWeek()
+        assertEquals(MissionStatus.DRAFT, week.status)
+        assertEquals(CoachStatus.Offline, week.coachStatus)
+        assertFalse(week.coachStatus.offersConfirm)
+        assertFalse(week.coachStatus.offersRetry)
+        assertTrue(week.coachStatus.offersContinueWithoutOutline)
+        assertFalse(week.canReset)
+    }
+
+    // ── The row failed: the week carries its reason word for word ──────
+    // A FAILED row is not open, but it is the newest outline the draft has, so the tab reports it rather than
+    // falling back on "Not confirmed yet". Retry and Continue belong to the status, not to this tab: DESIGN.md §9
+    // gives the Mission tab no action beyond Reset week, and a draft has no week to reset.
+
+    @Test
+    fun theMissionTabReportsFailedWithTheReasonItsOutlineRowCarriesAndOffersRetryAndContinue() = runBlocking {
+        coachIsSetUp()
+        val mission = manager.onAppOpen()
+
+        val row = generationDao.insert(outlineRow(mission.id, GenerationStatus.QUEUED, at(1)))
+        // A validator's reason: punctuation and inner spacing, so a rewrite or a trim is caught.
+        val reason = "reply rejected: 3 of 5 sets name a barbell the owner does not own"
+        generationDao.markFailed(row, reason, at(2))
+        assertEquals(reason, generationDao.get(row)!!.error)
+
+        val week = draftWeek()
+        assertEquals(MissionStatus.DRAFT, week.status)
+        assertTrue(week.coachStatus is CoachStatus.Failed)
+        assertEquals(reason, (week.coachStatus as CoachStatus.Failed).reason)
+        assertTrue(week.coachStatus.offersRetry)
+        assertTrue(week.coachStatus.offersContinueWithoutOutline)
+        assertFalse(week.coachStatus.offersConfirm)
+        assertFalse("the tab gains no button for the actions it offers", week.canReset)
+    }
+
+    // ── Nothing in flight keeps the tab's own sentence ─────────────────
+    // The status "Not confirmed yet. Confirm this Mission on the Launchpad." is drawn from, for a draft nobody
+    // has confirmed and for one whose only outline row was cancelled behind it (work/AppOpenSweep cancels such a
+    // row and leaves the mission DRAFT). A cancelled row is no row.
+
+    @Test
+    fun theMissionTabKeepsTheUnconfirmedDraftStatusWhenNoOutlineGenerationIsOpen() = runBlocking {
+        coachIsSetUp()
+        val mission = manager.onAppOpen()
+
+        val nothingInFlight = draftWeek()
+        assertEquals(MissionStatus.DRAFT, nothingInFlight.status)
+        assertEquals(CoachStatus.Editable, nothingInFlight.coachStatus)
+        assertTrue("Confirm is still the way on", nothingInFlight.coachStatus.offersConfirm)
+        assertFalse(nothingInFlight.coachStatus.offersRetry)
+        assertFalse(nothingInFlight.coachStatus.offersContinueWithoutOutline)
+        assertFalse(nothingInFlight.canReset)
+
+        val cancelled = generationDao.insert(
+            outlineRow(mission.id, GenerationStatus.CANCELLED, at(1), finishedAt = at(1))
+        )
+        assertEquals(GenerationStatus.CANCELLED, generationDao.get(cancelled)!!.status)
+
+        val after = draftWeek()
+        assertEquals(MissionStatus.DRAFT, after.status)
+        assertEquals(CoachStatus.Editable, after.coachStatus)
+        assertTrue(after.coachStatus.offersConfirm)
+        assertFalse(after.coachStatus.offersRetry)
+        assertFalse(after.coachStatus.offersContinueWithoutOutline)
+        assertFalse(after.canReset)
+    }
+
+    // ── The tab follows its own row on the subscription it opened first ─
+    // One observe(), opened before the draft has any outline row, read through the two writes that a Confirm and
+    // a rejected reply make: unconfirmed, then planning, then failed carrying the row's own reason. Every status
+    // below is a value this one collection received, so a status only a fresh subscription could see fails here.
+
+    @Test
+    fun theMissionTabFollowsItsOwnOutlineRowFromQueuedToFailedWithoutReSubscribing() = runBlocking {
+        coachIsSetUp()
+        val mission = manager.onAppOpen()
+
+        val collecting = openSubscription()
+        try {
+            val unconfirmed = awaitWeek { it.coachStatus is CoachStatus.Editable }
+            assertEquals(MissionStatus.DRAFT, unconfirmed.status)
+            assertEquals(mission.id, unconfirmed.missionId)
+            assertTrue("nothing is open yet, so Confirm is the way on", unconfirmed.coachStatus.offersConfirm)
+
+            val beforeRow = emissions.size
+            val row = generationDao.insert(outlineRow(unconfirmed.missionId, GenerationStatus.QUEUED, at(1)))
+
+            val planning = awaitWeek { it.coachStatus is CoachStatus.Planning }
+            assertTrue("one new emission out of the one collection", emissions.size > beforeRow)
+            assertEquals("the same draft week, not a re-subscribed one", unconfirmed.missionId, planning.missionId)
+            assertEquals(MissionStatus.DRAFT, planning.status)
+            assertFalse("the ask is already out, so Confirm is gone", planning.coachStatus.offersConfirm)
+            assertFalse("the tab gains no button while the coach works", planning.canReset)
+            assertEquals(GenerationStatus.QUEUED, generationDao.get(row)!!.status)
+
+            // A validator's reason: punctuation and inner spacing, so a rewrite or a trim is caught.
+            val reason = "reply rejected: 3 of 5 sets name a barbell the owner does not own"
+            generationDao.markFailed(row, reason, at(2))
+
+            val beforeFailure = emissions.size
+            val failed = awaitWeek { it.coachStatus is CoachStatus.Failed }
+            assertTrue("the same subscription carried this one too", emissions.size > beforeFailure)
+            assertTrue("failed arrived after planning in the same collection",
+                emissions.indexOf(planning) < emissions.indexOf(failed))
+            assertEquals(unconfirmed.missionId, failed.missionId)
+            assertEquals(MissionStatus.DRAFT, failed.status)
+            assertEquals(reason, (failed.coachStatus as CoachStatus.Failed).reason)
+            assertTrue(failed.coachStatus.offersRetry)
+            assertTrue(failed.coachStatus.offersContinueWithoutOutline)
+            assertFalse(failed.coachStatus.offersConfirm)
+            assertFalse("the tab gains no button as its row changes", failed.canReset)
+            assertEquals(reason, generationDao.get(row)!!.error)
+        } finally {
+            collecting.cancel()
+        }
+    }
+
+    private companion object {
+        const val AWAIT_MS = 5_000L
+        const val POLL_MS = 25L
     }
 }
