@@ -54,7 +54,7 @@ Conventions (CLAUDE.md + map.md), for every task:
   0 skipped** — the annotation changed nothing the Flow emits. Commit `MissionDao.kt` alone, with the
   baseline warning line, the KSP command and the generated-code proof in the body.
 
-- [ ] 2. The behaviour test, and the proof that it bites
+- [x] 2. The behaviour test, and the proof that it bites
   Test only: `app/src/test/java/com/liftoff/app/data/MissionDaoTest.kt`, one new case named exactly
   **`observeWeekReadsMissionAndSortiesInsideOneTransaction`** — the name `verify.sh` §2 looks for, and
   the only test this run has to write. Covers plan steps 3–4. `verify.sh` §2's comment is the spec;
