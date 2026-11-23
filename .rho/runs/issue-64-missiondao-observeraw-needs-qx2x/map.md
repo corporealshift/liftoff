@@ -1,8 +1,9 @@
 # Map — issue 64: MissionDao.observeRaw needs @Transaction
 
-Run dir: `.rho/runs/issue-64-missiondao-observeraw-needs-qx2x/`. HEAD `4fb6d8f` (this run's plan,
-revised after the plan review); previous `b434e83` plan outline; the brief's review was done at
-`9454f0f`.
+Run dir: `.rho/runs/issue-64-missiondao-observeraw-needs-qx2x/`. HEAD `9f04e65` ("run: verify"); the
+line numbers below were taken at `4fb6d8f` and `git diff --stat 4fb6d8f 9f04e65` touches only this run's
+`map.md` and `verify.sh`, so every `app/` line number here is still HEAD's. Re-read before quoting: a
+`read` in this repo has returned content that is not in the tree.
 Room 2.6.1, declared inline in `app/build.gradle.kts:73-75` (runtime, ktx, KSP compiler) plus
 `room-testing` at `:83`; there is no `gradle/libs.versions.toml` in this repo.
 
@@ -231,3 +232,50 @@ excluded; nothing in the repo was touched) and the change was made *there*:
   a grep of the last gate log for `^w:.*@Relation`.
 - Measured verdicts: untouched tree → 11 ok / 2 FAIL, exit 1, identical across two runs. Scratch copy
   with the annotation and a case of the named shape → 13 ok, exit 0.
+
+## Measured at the tasks step (2026-11-23)
+
+- `verify.sh`'s named cases cross-checked against HEAD's tree: every one exists except
+  `observeWeekReadsMissionAndSortiesInsideOneTransaction`. `MissionDaoTest.kt` cases at `:40
+  observeWeekReturnsSortiesInIndexOrder`, `:53 observeWeekIsNullForWeekWithoutMission`, `:59
+  duplicateWeekStartReturnsOneMission`, `:75 noWipeLeavesTheMissionAndSortieRowsInPlace`, `:89
+  observeRawCarriesTheGeneratedTransactionWrapper` (the reflection case; its `@Transaction` assertion is
+  `:92-93`, so the annotation itself is already half-proven today — what the new case adds is that the
+  two reads run *inside* the wrapper). `BackupImportRoomTest.kt:186
+  anImportThroughTheBackupActionReachesRoomsFlows`. `LaunchpadStatesTest.kt` and `MissionStatesTest.kt`
+  are under `ui/launchpad/` and `ui/mission/`; `ui/landed/` holds `LandedStatesTest.kt`. A green run
+  prints `BRIEF DONE` with **13 checks ok** (gate, 7 named `MissionDaoTest` cases, 4 class checks,
+  `BackupImportRoomTest`'s named case, the forced-KSP warning check).
+- `MissionDaoTest.kt` fixture, for whoever writes the new case: `@RunWith(AndroidJUnit4::class)
+  @Config(sdk = [34])`; fields `db`, `missionDao`, `sortieDao`; `createDb` at `:26-32` (in-memory,
+  `allowMainThreadQueries()`, no `fallbackToDestructiveMigration` — issue 60's point); `@After closeDb`
+  at `:34-37` closes `db`. `@Before` runs for every case, so a case that builds its own database either
+  reassigns `db` (then `closeDb` closes it and the plain one stays open for the process) or holds a
+  local one and closes it itself. Appending the new case after `:94` leaves the four pre-existing
+  test-compile `w:` lines where they are recorded above.
+- Room's main-thread rule, from `javap -c` on `room-runtime-2.6.1`'s `classes.jar`:
+  `RoomDatabase.beginTransaction()` (public — what the generated wrapper calls) →
+  `internalBeginTransaction()` → `assertNotMainThread()`, which returns at once when
+  `allowMainThreadQueries` is set and otherwise throws `IllegalStateException` naming the main thread.
+  So the new case's builder must keep `.allowMainThreadQueries()` the way `createDb` does: the
+  annotation makes Room begin a transaction in this path, and without the flag the case would fail for
+  the wrong reason. Production is unaffected — both consumers read this Flow under
+  `flowOn(Dispatchers.IO)`.
+- Same jar: `QueryInterceptorDatabase` implements `query(...)`, `beginTransaction()`,
+  `setTransactionSuccessful()`, `endTransaction()` and `inTransaction()`, all by delegation, and
+  `QueryInterceptorOpenHelper` implements `SupportSQLiteOpenHelper`. So with a query callback installed
+  `getOpenHelper()` is the interceptor helper, `RoomDatabase.inTransaction()` is
+  `getOpenHelper().getWritableDatabase().inTransaction()`, and `db.inTransaction()` read inside `onQuery`
+  reports Room's own transaction state — which is what the new case asserts on.
+- Annotation placement: no DAO method in `app/src/main` carries both `@Query` and `@Transaction`.
+  `ExerciseDao.kt:26` and `FlightPlanDao.kt:125, :150` put `@Transaction` on its own line immediately
+  above the declaration, after the KDoc. That is the shape for `MissionDao.kt:49`.
+- Who reads this Flow (grep at HEAD): in `app/src/main`, only `MissionDao.kt:50`/`:52` and the two
+  consumers `ui/launchpad/LaunchpadState.kt:101` and `ui/mission/MissionState.kt:112`. Nothing in
+  `app/src/main` collects `observeWeek`/`observeRaw` from inside a transaction — `MissionManager.kt`
+  opens them at `:85, :112, :137, :169, :200, :235` and `DatabaseImport.kt` at `:49`, and none reads
+  this Flow inside one. That is the code half of the nesting check; the generated wrapper still has no
+  `inTransaction()` guard, so a future caller could trip it.
+- Who reads it in tests: `MissionDaoTest.kt:46, :54, :68`, `BackupImportRoomTest.kt:208` (watched across
+  an import), and `LaunchpadStatesTest.kt`'s comments at `:277, :348, :369` name the `@Relation`
+  re-emissions the class depends on.
