@@ -167,7 +167,7 @@ such a guard would not match Room's behaviour for any other DAO method.
 
 ---
 
-## 4. Two corrections for later sessions of this run
+## 4. Two corrections for later sessions of this run (written by task 3)
 
 1. **plan.md §Risks "Nesting" is wrong as written.** It says "Room's generated wrapper is guarded by
    `if (!db.inTransaction())`, so a flow read reached from inside an already-open transaction joins that
@@ -180,3 +180,166 @@ such a guard would not match Room's behaviour for any other DAO method.
    :345, :385, :429, :452`), and `DatabaseExport.kt:21`, `AppOpenSweep.kt:46`, `GenerationCanceller.kt:37`
    and `GenerationWorker.kt:336` are not listed either. The nesting sweep here ran against all 19
    `withTransaction` call sites in `app/src/main`, not the six.
+
+---
+
+## Task 4 — the whole gate, once, and the Room warning confirmation
+
+Tree this task ran on: `HEAD = 4b48191` ("run: task 3 done"), i.e. `01f732d` (task 3's findings) on top
+of `d574f9b`/`08f11f2` (task 2's test) on top of `e8e8b06`/`bf0924a` (task 1's annotation). `git status
+--short` was empty before the run and after it, and it is still empty apart from this file: **this task
+changed no file under `app/`** and wrote no test. The only file it writes is this one.
+
+One command, run once:
+
+```
+bash .rho/runs/issue-64-missiondao-observeraw-needs-qx2x/verify.sh
+```
+
+Its stdout is saved at gitignored `app/build/task4-64/verify-run.log`; the logs it leaves are under
+`app/build/verify64/` (`gate-1.log`, `ksp.log`, and the report index `raw`/`all`/`methods`/`qualified`/
+`classes`). `verify.sh` was not edited.
+
+**Verdict: `BRIEF DONE` — `=== Result: 13 passed, 0 failed ===`, exit 0, one gate attempt, no retry,
+1m16s wall.**
+
+## 5. The Room warning: the baseline against the clean forced rerun
+
+| | command | task line | `w:` lines | build |
+|---|---|---|---|---|
+| Baseline, untouched tree (task 1, `app/build/task1-64/ksp-baseline.log`) | `:app:kspDebugKotlin --rerun-tasks --no-build-cache --console=plain` | `> Task :app:kspDebugKotlin` — executed; `14 actionable tasks: 14 executed` | **1** | `BUILD SUCCESSFUL in 6s` |
+| This run, committed tree (`app/build/verify64/ksp.log`) | the same command, run by `verify.sh` §5 | `> Task :app:kspDebugKotlin` — executed; `14 actionable tasks: 14 executed` | **0** | `BUILD SUCCESSFUL in 4s` |
+
+The baseline line, in full, is the brief's "the one warning the gate prints":
+
+```
+w: [ksp] <worktree>/app/src/main/java/com/liftoff/app/data/MissionDao.kt:50: The return value includes a
+POJO with a @Relation. It is usually desired to annotate this method with @Transaction to avoid
+possibility of inconsistent results between the POJO and its relations. …
+```
+
+The forced rerun on the committed tree printed no `w:` line at all, and it *executed* — the log's task
+line carries no `UP-TO-DATE`, `FROM-CACHE` or `NO-SOURCE` suffix, which is what `verify.sh` §5 checks
+before it looks at warnings. Because Room prints `ROOM_RELATION_QUERY_WITHOUT_TRANSACTION` per method,
+that empty warning surface is also the brief's "any other `@Relation` query in the DAOs" sweep: no DAO
+method anywhere in the main sources returns a POJO with an un-annotated `@Relation`.
+
+**Why the gate log cannot carry this check.** In this warm gate `> Task :app:kspDebugKotlin UP-TO-DATE`
+(`gate-1.log`), so Room's processor printed nothing there whether or not the annotation is present —
+map.md's "a warm gate run prints no `w:` line at all". The forced rerun is the check that carries the
+brief, and it is the one that flipped from 1 warning to 0.
+
+**The gate-log grep.** `grep -n '^w:.*@Relation' app/build/verify64/gate-1.log` matched nothing, so the
+second warning check passed. In fact `gate-1.log` holds **zero** `w:` lines: `:app:compileDebugUnitTestKotlin`
+executed but printed none of the four pre-existing lines map.md records (`SchemaExportTest.kt:114`,
+`:115`, `MissionDaoTest.kt:89`, `MissionDaoTest.kt:91` ×2), because the incremental compile only
+recompiled the files that changed since the previous run — in CI, on a cold tree, that task compiles
+everything and prints them. Either way those four are not Room's warnings and not this issue's business,
+which is why the check is scoped to `@Relation` rather than to `^w:` over the gate log.
+
+## 6. The gate: green on the first attempt, and what it ran
+
+From `app/build/verify64/gate-1.log` (`:app:assembleDebug :app:testDebugUnitTest --no-build-cache
+--console=plain`, the two tasks `ci.yml` runs, through `~/android-toolchain/gradle/bin/gradle`):
+
+- `> Task :app:testDebugUnitTest` — **executed**, no `FROM-CACHE`/`UP-TO-DATE`/`NO-SOURCE` suffix. The
+  script's own cache guard is what would have caught a served run; it did not fire.
+- `> Task :app:assembleDebug` — executed. The tasks that actually ran were `dexBuilderDebug`,
+  `mergeProjectDexDebug`, `packageDebug`, `assembleDebug`, `kspDebugUnitTestKotlin`,
+  `compileDebugUnitTestKotlin`, `testDebugUnitTest`; `46 actionable tasks: 6 executed, 40 up-to-date`;
+  `BUILD SUCCESSFUL in 1m 11s`.
+- **Totals: 776 test records in 93 classes** — the script's own line is `… 776 test records, 93 classes
+  indexed`. That is map.md's baseline of 775 records in the same 93 classes plus task 2's new case, which
+  is what tasks.md predicts. `verify.sh` prints the count rather than asserting one, so it is recorded
+  here as measured: **776**.
+- **0 failures / 0 errors / 0 skipped.** The 93 report XMLs under `app/build/test-results/testDebugUnitTest/`
+  sum to `tests="776" skipped="0" failures="0" errors="0"`, and every one of the 776 records in the
+  script's index reads `pass`. The per-class `time` attributes sum to 65.6s, which is most of the gate's 1m11s, so the
+  suite really ran rather than being read out of a cache.
+- One attempt. `transient_failure` never ran, so no retry was used and the recorded flaky classes
+  (`LiftoffShellTest`, `InFlightScreenTest`, `LaunchpadPendingTitleTest`) never failed and needed no
+  chasing.
+- `verify.sh` moved the previous results directory to `app/build/verify-old-results-1` before the run —
+  that directory held task 3's scratch probe report, not a gate run — so the 93 reports now under
+  `app/build/test-results/testDebugUnitTest/` are this gate's, and every named case below is read from
+  them.
+
+## 7. The named cases, all 13
+
+| check | verdict |
+|---|---|
+| gate: `:app:assembleDebug :app:testDebugUnitTest` | ok |
+| `MissionDaoTest.observeWeekReadsMissionAndSortiesInsideOneTransaction` | ok |
+| `MissionDaoTest.observeWeekReturnsSortiesInIndexOrder` | ok |
+| `MissionDaoTest.observeWeekIsNullForWeekWithoutMission` | ok |
+| `MissionDaoTest.missionAndSortieUpdatesAreVisible` | ok |
+| `MissionDaoTest.duplicateWeekStartIsRejected` | ok |
+| `MissionDaoTest.noWipeForMissionsAndOnlyTheByIdDeleteForSorties` | ok |
+| class `MissionDaoTest` — every test in it passed | ok |
+| `BackupImportRoomTest.anImportThroughTheBackupActionReachesRoomsFlows` | ok |
+| class `BackupImportRoomTest` — every test in it passed | ok |
+| class `LaunchpadStatesTest` — every test in it passed | ok |
+| class `MissionStatesTest` — every test in it passed | ok |
+| the gate prints no Room warnings: `:app:kspDebugKotlin` executed and printed no warning | ok |
+
+The class counts behind those four class checks, from this gate's own reports: `MissionDaoTest` **6**
+tests (`0 failures, 0 errors, 0 skipped`; the new name recorded as a passing testcase at 0.025s),
+`BackupImportRoomTest` **1**, `LaunchpadStatesTest` **10**, `MissionStatesTest` **12**. `MissionDaoTest`
+is at 6 because of task 2's case; the five pre-existing cases still run and pass, which is what proves
+the annotation left the emission's content unchanged.
+
+## 8. Consumers and nesting, as they landed in the gate
+
+Task 3 ran the six consumer suites cold in one invocation and all 41 records passed untouched (§1), and
+its sweep found no reader of `observeWeek`/`observeRaw` inside an open transaction in `app/src/main` or
+in `app/src/test` (§2), with the nesting behaviour itself measured by a scratch probe rather than argued
+(§3): `android.database.sqlite.SQLiteSession`'s transaction stack absorbs one nesting level on the same
+connection, so the consequence would be semantic, not an exception. This gate run is the same verdict at
+full scale — the Flow's consumers are green inside the whole-suite run, `BackupImportRoomTest`'s
+`anImportThroughTheBackupActionReachesRoomsFlows` (the case that watches `observeWeek` across an import
+`DatabaseImport.kt` wraps in `withTransaction`) among them, and nothing else in the 776 records moved.
+No consumer broke in any task of this run, so no fix commit exists.
+
+## 9. Which test shape landed, and why
+
+**The first rung of plan.md §Risks' ladder: Room's query callback with `db.inTransaction()` read inside
+it.** `MissionDaoTest.observeWeekReadsMissionAndSortiesInsideOneTransaction` (`MissionDaoTest.kt:103-148`)
+builds its own in-memory `LiftoffDatabase` with
+`Room.inMemoryDatabaseBuilder(…).allowMainThreadQueries().setQueryCallback(callback, Executor { it.run() })`,
+seeds a mission with two sorties, starts recording after the seeds, takes one emission with `first()`, and
+asserts the parent read (`SELECT * FROM mission WHERE weekStart = ?`) was recorded, Room's batched
+`@Relation` read over `sortie` with `` `missionId` IN (`` was recorded, the parent came first, and both
+were recorded while `database.inTransaction()` was true.
+
+Why this shape and not a later rung:
+
+- It was measured to work. Task 2's mutation proof: with the `@Transaction` line deleted from
+  `MissionDao.kt` the same case failed at `MissionDaoTest.kt:146` with
+  `java.lang.AssertionError: the mission SELECT ran outside a transaction` — Room's parent read outside
+  any transaction, which is the brief's bug — and it went green again when the byte-copy was `cp`'d back.
+  A case that can be turned red by exactly the annotation under test is what makes the later rungs
+  unnecessary: no `RoomDatabase.Callback` commit count was needed, and the generated `MissionDao_Impl`
+  bracket was read as task 1's confirmation, not used as the test.
+- The callback is the only place on this path where the transaction state is observable at all. Room
+  begins the transaction on its own `arch_disk_io` executor while the generated callable runs
+  (`MissionDao_Impl.java:585` `beginTransaction()`, `:587` the mission SELECT, `:603` the batched relation
+  fetch, `:641` `setTransactionSuccessful()`, `:647` `endTransaction()`), so an assertion made from the
+  test thread after `first()` returns sees a transaction that has already closed.
+- `allowMainThreadQueries()` stays on this case's builder because `RoomDatabase.beginTransaction()` calls
+  `assertNotMainThread()`, which returns early only when that flag is set, and the annotation makes Room
+  begin a transaction in this path.
+- Reflection was ruled out before it was tried: Room's annotations have Java `CLASS` retention, so a
+  reflection test on `MissionDao` cannot see `@Transaction` at all. The file's one reflection-shaped case
+  (`noWipeForMissionsAndOnlyTheByIdDeleteForSorties`) is about the delete surface and is untouched.
+- No threads and no concurrency in the case, per plan §Risks' hang warning
+  (`app/build.gradle.kts:42-51` fails a unit test at 5 minutes for exactly this reason); the recording
+  list is a `CopyOnWriteArrayList` because Room dispatches DAO work onto its own executor threads.
+
+## 10. State left behind
+
+Nothing under `app/` changed and nothing was pushed. `app/build/verify64/` holds this run's gate and KSP
+logs and its report index; `app/build/verify-old-results-1/` holds the results directory `verify.sh` moved
+aside (task 3's scratch probe report); `app/build/task4-64/verify-run.log` holds the script's stdout. The
+scratch probe under `app/build/task3-64/` is gitignored and only compiles when
+`-I app/build/task3-64/init.gradle` is passed, so a gate run never sees it — which this run's gate confirms:
+93 classes, no probe class among them.
