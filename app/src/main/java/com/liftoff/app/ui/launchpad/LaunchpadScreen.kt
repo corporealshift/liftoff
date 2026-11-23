@@ -252,6 +252,9 @@ private fun PendingContent(
 @Composable
 private fun PendingTitleBlock(eyebrow: String, title: String) {
     val ladder = pendingTitleSizes()
+    // Keyed on the title alone because nothing can change the width this title is laid out in without recreating
+    // the activity — MainActivity declares no android:configChanges. If that stops being true the width belongs
+    // in this key, because the ladder only ever steps down.
     var rung by remember(title) { mutableIntStateOf(0) }
     TitleBlock(
         eyebrow = eyebrow,

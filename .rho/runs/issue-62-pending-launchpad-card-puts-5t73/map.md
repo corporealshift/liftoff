@@ -183,3 +183,24 @@ CLAUDE.md's rules for every commit here: message `area: lowercase summary` (no t
 stage only the files the task names — never `git add -A`, because `.rho/` is untracked scratch; LF endings
 everywhere (`* text=auto eol=lf`); `:app:assembleDebug :app:testDebugUnitTest` green before a task is called
 done.
+
+## After the PR #83 review (2026-11-23)
+
+The review raised the ladder's two known limits. Measured in the harness, one pumped frame at a time
+(`mainClock.autoAdvance = false`, w411dp, NATIVE graphics, scratch probe under `app/build/scratch-pr83/`), the
+PENDING card with the 41-character focus:
+
+- frame 0: title 143 dp (2 lines at 68 sp, ellipsized), status line top 249 dp
+- frame 1: title 92 dp (2 lines at 44 sp, ellipsized), status line top 198 dp
+- frame 2 onward: title 71 dp (2 lines at 34 sp, ellipsized), status line top 177 dp
+
+So the card is laid out at the too-big sizes for two frames before it settles. Gating the title's *draw* until it
+settles would hide the wrong sizes but leave the 72 dp of motion in the chips row and the status line, and would
+blank the card's only identifying text for those two frames.
+
+**Why `remember(title)` is keyed on the title alone.** The width this title is laid out in changes only with a
+configuration change the activity does not handle — orientation, window size, display size, font scale — and
+`app/src/main/AndroidManifest.xml` declares no `android:configChanges` on `MainActivity`, so each of those
+destroys and recreates it and the plain `remember` goes with the composition: the ladder starts over at 68 sp.
+The step-down-only limit becomes reachable the day the app handles those changes itself, and then the width
+belongs in the key.
