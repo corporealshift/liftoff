@@ -160,3 +160,87 @@ Line numbers from `grep -n` / `sed -n` on the tree at `HEAD = 4bea6e8`.
   the UI; `LaunchpadPlannedActionsTest.kt` (301) pins the Planned card's actions.
 - `data/PromptInputLoaderTest.kt` (477) — builds prompt inputs from real Room rows.
 - `data/DatabaseExportTest.kt` (306) — asserts exported rows.
+- The Launchpad UI suites that exist (there is **no** `LaunchpadScreenTest.kt`, and no test named
+  `launchpadIsDrawn`): `LaunchpadCoachStatusTest`, `LaunchpadConfirmTest`, `LaunchpadDraftControlsTest`,
+  `LaunchpadDraftGuardsTest`, `LaunchpadDraftStatusTest`, `LaunchpadPendingStatusTest`,
+  `LaunchpadPlannedActionsTest`, `LaunchpadReFlyTest`, `LaunchpadRegenerateTest`, `LaunchpadScrubTest`,
+  `LaunchpadSortieStatusTest`, `LaunchpadStatesTest`, `LaunchpadViewInRhoTest`.
+- `LaunchpadRegenerateTest.kt` case names, the shape a swap UI test copies:
+  `regenerateOnAPendingSortieCancelsItsOpenRowAndEnqueuesTheNewQueuedRow` (279),
+  `regenerateAfterAFailedFlightPlanQueuesAFreshRowAndLeavesTheFailedRowAlone` (326),
+  `regenerateOnAPlannedSortieKeepsItsPlanAndStaysPlanned` (362),
+  `regenerateWithoutAHostOrTokenIsRefusedAndWritesNothing` (405),
+  `regenerateOnAnInFlightSortieIsRefusedAndWritesNothing` (422),
+  `regenerateOnASortieThatIsNotCurrentIsRefusedAndWritesNothing` (453),
+  `regenerateOnASortieOfAWeekThatIsNotCurrentIsRefusedAndWritesNothing` (472),
+  `regenerateOnARunSortieFollowsTheGenerateRunPlansToggle` (496),
+  `regenerateOnAMissionThatIsNotActiveIsRefusedAndWritesNothing` (525),
+  `regenerateIsAvailableOnPendingAndPlannedAndNullOnEveryOtherState` (547).
+- `MissionManagerTest.kt` regenerate cases (the manager-level gates):
+  `regenerateQueuesFlightPlanGenerationAndSupersedesOpenRows` (317),
+  `regenerateRefusesWhenCoachNotConfigured` (344), `regenerateRefusesWhenRunGenerationIsOff` (356),
+  `regenerateRefusesForScrubbedSortie` (368), `regenerateRefusesForLandedSortie` (381),
+  `regenerateFlightPlanIsAcceptedAfterUnlaunch` (1134).
+- `SortiesTest.kt` illegal list is 53-72 and asserts `assertEquals(18, illegalPairs.size)`; adding
+  `PLANNED → PENDING` to `SortieTransitions` means that count moves in the same commit.
+
+## Running the gate on this machine (measured)
+
+- `.github/workflows/ci.yml` runs exactly `./gradlew :app:assembleDebug :app:testDebugUnitTest`.
+- `gradlew.sh` is the owner's shortcut and hardcodes `C:/Users/corpo/android-toolchain/...`, so it only
+  works under Git Bash. `./gradlew` and `java` are not usable on this Linux box without exporting
+  `JAVA_HOME` / `ANDROID_HOME`; plain `gradle` is not on `PATH`.
+- Working launcher here: `~/android-toolchain/gradle/bin/gradle` with `JAVA_HOME=~/android-toolchain/jdk`
+  and `ANDROID_HOME=~/android-toolchain/sdk` exported only when they are unset and the directories exist.
+  `LIFTOFF_TOOLCHAIN` overrides that root. Gradle 8.11.1, JVM 17. No `local.properties`.
+- JUnit XML lands in `app/build/test-results/testDebugUnitTest/TEST-<fqn>.xml`; a green untouched gate
+  writes 93 files / 775 test records. Scratch for a run's gate logs goes under `app/build/` (gitignored),
+  never `app/src/test`.
+- Gradle's `--tests` filter fails the task with "No tests found for given includes" when nothing
+  matches, so a gate that filters by name cannot tell "the case failed" from "the case does not exist".
+  The run's verify.sh instead runs the whole suite once and reads the names out of the XML index.
+- Known flakes on this machine (memory `liftoff-shelltest-full-suite-flake`): `LiftoffShellTest`
+  (expired `waitFor`) and a `CalledFromWrongThreadException` family that hit `InFlightScreenTest` and
+  the now-gone `LaunchpadPendingTitleTest`.
+
+## This run's verify.sh (shape and measured result)
+
+- Modelled on `issue-64`'s verify.sh, which is the harness that has gone green on this machine: one
+  gate run of the two CI tasks (up to 3 attempts), then every named case read out of the JUnit XML
+  index. Scratch dir `app/build/verify78`; previous reports are **moved** to
+  `app/build/verify-old-results-<attempt>`, never deleted.
+- `RUNNER` is a bash **array** (`(bash gradlew.sh)` on MINGW/MSYS/CYGWIN, otherwise the toolchain
+  gradle). It must stay an array: `GRADLE_CMD="bash gradlew.sh"` used as `"$GRADLE_CMD"` is one
+  command name and fails.
+- `index_reports` emits three keyed views of the XML — `M` method, `Q` `class.method`, `C` class — each
+  keeping the worst outcome, in `$WORK/methods`, `$WORK/qualified`, `$WORK/classes`. Verified against
+  synthetic reports (pass / failure-on-its-own-line / inline `<skipped/>` / empty suite / the same
+  method recorded twice with different outcomes / a CRLF copy of every file): the worst outcome wins per
+  method and per class, and CRLF reads identically to LF. The one shape it does not read is a
+  `<testcase>` written on the same line as its `<testsuite>` — Gradle does not write that (checked
+  against 93 real reports: `<testsuite …>` then `<properties/>` then one self-closing `<testcase/>` per
+  line), and making the parser fall through there produced a garbage record named after the suite, so
+  it is deliberately left as is.
+- `t <Class> <method>` passes only if that `class.method` appears in `$WORK/qualified` with status
+  `pass`; a missing name reports "did not run at all". `c <Class>` requires the class to have run and
+  every test in it to have passed. Both match by suffix, so the simple class name is enough, and a
+  longer method name that merely starts with the wanted one is **not** matched.
+- `t <Class> <method>` passes only if that `class.method` appears in `$WORK/qualified` with status
+  `pass`; a missing name reports "did not run at all". `c <Class>` requires the class to have run and
+  every test in it to have passed. Both match by suffix, so the simple class name is enough.
+- `transient_failure` retries the gate only when Gradle itself broke, or when the **only** failing
+  `class.method` records are in `LiftoffShellTest` / `InFlightScreenTest`. A failure anywhere else stops
+  the retry, so a case this run is supposed to create cannot be retried into green.
+- Measured on the untouched tree: gate green, 775 records / 93 classes, 37 checks ok, **18 failed —
+  every one of them a named case reporting "did not run at all"**, exit 1.
+- The 18 named cases live in the four new files the plan names: `SortieSwapTest` (3),
+  `MissionManagerSwapTest` (7), `PromptInputLoaderSwapTest` (1), `LaunchpadSwapTest` (7). The 36 `c`
+  classes are all existing classes, each matched by exactly one indexed class. **Derive every `c` class
+  name from `app/build/verify78/classes` after a real gate run** — four Launchpad class names written
+  from memory (`LaunchpadPendingActionsTest`, `LaunchpadPendingGuardsTest`, `LaunchpadPlannedStatusTest`,
+  `LaunchpadDraftActionsTest`) do not exist and produced four failures that had nothing to do with the
+  brief.
+- Not checked by the script, on purpose (see its header): the DESIGN.md §4.1 / §13 amendment (a design
+  document can only be checked by wording, and a wording grep dictates the wording), a separate export
+  case (`DatabaseExportTest` run unchanged instead), and any Mission-tab action (the brief names the
+  Launchpad; plan Files leaves `MissionScreen.kt` alone).
