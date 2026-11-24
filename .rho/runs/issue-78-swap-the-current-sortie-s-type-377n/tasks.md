@@ -59,7 +59,7 @@ not QUEUED or RUNNING; `SortiesTest` pins the illegal-transition count).
   passing, and SortiesTest's count assertion still equals the size of the list it just lost a pair
   from. Commit.
 
-- [ ] 3. `MissionManager.swapSortieType` and what the swap writes
+- [x] 3. `MissionManager.swapSortieType` and what the swap writes
   `data/MissionManager.kt` (539 lines): a new suspend action beside `regenerateFlightPlan` (379-418);
   see plan.md for what it takes and returns. Gates copied from
   `regenerateFlightPlan` (388-396): this week's ACTIVE Mission, the current sortie, PENDING or PLANNED
