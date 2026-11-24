@@ -16,6 +16,7 @@ import com.liftoff.app.domain.land
 import com.liftoff.app.domain.markPlanned
 import com.liftoff.app.domain.newDraft
 import com.liftoff.app.domain.overridePattern
+import com.liftoff.app.domain.Preparation
 import com.liftoff.app.domain.prepareCurrent
 import com.liftoff.app.domain.requireNoneInFlight
 import com.liftoff.app.domain.scrub
@@ -412,6 +413,76 @@ class MissionManager(
                 )
             )
             toCancel
+        }
+        queued?.let(onQueued)
+        return supersededIds
+    }
+
+    /**
+     * Swap the current sortie's type mid-week (DESIGN.md §4.1, §5.1, §9, amended 2026-11-23): a run day becomes
+     * a lift day, or a lift day a run day. The Mission keeps its id, its length and every other letter — only the
+     * letter at the swapped sortie's own index moves, so the week is still the same week.
+     *
+     * The gates are [regenerateFlightPlan]'s, plus a state gate: a swap needs a sortie that has not flown, because
+     * IN_FLIGHT, LANDED and SCRUBBED already have a history row saying what actually happened. `PLANNED → PENDING`
+     * is legal for the swap alone (Sorties.kt:12); no other action takes a planned sortie back to pending.
+     *
+     * The plan the sortie held is deleted, not rewritten: a lift plan's exercises and a run plan's segments are not
+     * the same shape, and the coach's rawJson describes the type it was asked for. After the flip the sortie is
+     * prepared the way [advance] prepares a current PENDING sortie — the simple "Run" draft when run generation is
+     * off, otherwise a FLIGHT_PLAN generation, but only when the coach is configured. A swap that needs a coach
+     * that is not configured still swaps and leaves the sortie PENDING, exactly as activation leaves it.
+     *
+     * Returns the FLIGHT_PLAN generations that were open for this sortie before the swap, for the caller to cancel
+     * after this commits (GenerationCanceller.kt:70). They are read before anything is written because [advance]
+     * hands back an already-open row instead of queueing a second one, and none is marked CANCELLED here:
+     * GenerationCanceller skips a row that is not QUEUED or RUNNING.
+     */
+    suspend fun swapSortieType(sortieId: Long, onQueued: (Long) -> Unit = {}): List<Long> {
+        val settings = settingsStore.settings.first()
+        var queued: Long? = null
+        val supersededIds = db.withTransaction {
+            val sortie = db.sortieDao().get(sortieId)!!
+            val mission = db.missionDao().get(sortie.missionId)!!
+            check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
+            check(mission.weekStart == currentWeekOf(clock, zone)) {
+                "Can only swap a sortie of the current week"
+            }
+            val current = currentSortie(db.sortieDao().getForMission(mission.id))
+            check(current != null && current.id == sortieId) { "Sortie must be current" }
+            check(sortie.state == SortieState.PENDING || sortie.state == SortieState.PLANNED) {
+                "Sortie must be PENDING or PLANNED"
+            }
+
+            val openIds = db.generationDao().getOpenFlightPlanForSortie(sortieId).map { it.id }
+
+            db.flightPlanDao().deleteForSortie(sortieId)
+
+            val (swappedMission, swappedSortie) =
+                com.liftoff.app.domain.swapSortieType(mission, sortie)
+            db.missionDao().update(swappedMission)
+            db.sortieDao().update(swappedSortie)
+
+            when (val preparation = prepareCurrent(swappedSortie, settings.generateRunPlans)) {
+                is Preparation.SimplePlan -> {
+                    db.flightPlanDao().writePlan(sortieId, preparation.draft)
+                    db.sortieDao().update(markPlanned(swappedSortie))
+                }
+                is Preparation.AwaitGeneration -> {
+                    if (coachIsConfigured(settings.daemonHost, settings.daemonToken)) {
+                        queued = db.generationDao().insert(
+                            Generation(
+                                kind = GenerationKind.FLIGHT_PLAN,
+                                missionId = mission.id,
+                                sortieId = sortieId,
+                                status = GenerationStatus.QUEUED,
+                                createdAt = clock.instant().toEpochMilli()
+                            )
+                        )
+                    }
+                }
+            }
+            openIds
         }
         queued?.let(onQueued)
         return supersededIds
