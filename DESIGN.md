@@ -114,7 +114,9 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
 - Its **pattern** is an ordered list of sortie types, `R` or `L`, between 1 and 7 long.
 - The **default pattern** is set in Mission Control and starts as `R L R L R`.
 - Each Mission's pattern can be **overridden** while the Mission is a draft, for example
-  `L R L R L` for an alternate week. Once confirmed, the pattern is frozen.
+  `L R L R L` for an alternate week. Once confirmed the pattern is frozen, except that the
+  current sortie's type can be swapped mid-week while it is `PENDING` or `PLANNED`, which
+  rewrites the letter at its index (§9). (amended 2026-11-23)
 
 ### 4.2 Lifecycle
 
@@ -153,7 +155,9 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
 - A missed Tuesday does not skip anything. The next sortie is simply done on Wednesday.
 - The owner can scrub the current sortie. The next sortie then becomes current, and its
   Flight Plan generation is queued if it isn't already planned.
-- Sorties cannot be reordered within a Mission (v1).
+- Sorties cannot be reordered within a Mission (v1). A swap changes one sortie's type and the
+  letter at its own index; the count and the order are untouched, so the rolling order above
+  still holds. (amended 2026-11-23)
 
 ---
 
@@ -162,10 +166,10 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
 ### 5.1 Sortie states
 
 ```
-                                  ┌────────────────────┐
-                                  │ un-launch          │
-                                  │ (nothing recorded) │
-                                  ▼                    │
+   ┌───────────────────────────┐  ┌────────────────────┐
+   │ swap — current sortie,    │  │ un-launch          │
+   │  PENDING or PLANNED       │  │ (nothing recorded) │
+   ▼                           │  ▼                    │
 PENDING ──generation stored──► PLANNED ──launch──► IN_FLIGHT ──land──► LANDED
    │                              │                    │
    └──────────────scrub───────────┴────────scrub───────┴──► SCRUBBED
@@ -174,7 +178,8 @@ PENDING ──generation stored──► PLANNED ──launch──► IN_FLIGHT
 - **PENDING:** the sortie has no Flight Plan yet. Its generation may be queued, running or
   failed.
 - **PLANNED:** the Flight Plan is stored and the sortie can be launched. The owner can
-  regenerate it from here, which replaces the plan.
+  regenerate it from here, which replaces the plan. Swapping its type from here returns it to
+  `PENDING` and deletes the plan it held (§4.1, §9). (amended 2026-11-23)
 - **IN_FLIGHT:** at most one sortie, across all Missions, is in flight at a time.
   Scrubbing a sortie that is in flight keeps the sets already checked as a partial record.
   Un-launching it returns it to PLANNED with `launchedAt` cleared and its Flight Plan
@@ -581,12 +586,16 @@ The visual design is direction B, "Space Age": colors, type, components and mock
 
 - **Launchpad** (home). The current sortie, shown according to its state:
   - **PLANNED:** the plan summary (title, the exercise list or run summary, estimated time),
-    with **Launch**, Regenerate and Scrub.
+    with **Launch**, Regenerate, Scrub and **Swap to run** / **Swap to lift**.
   - **PENDING:** generation status ("Coach is planning…", "Mission Control offline —
-    retrying", or a failure with its reason). Retry, **Re-fly** and Scrub are available,
-    plus "View in nabu", which shows the nabu session id so it can be opened in nabu's app.
+    retrying", or a failure with its reason). Retry, **Re-fly**, Scrub and **Swap to run** /
+    **Swap to lift** are available, plus "View in nabu", which shows the nabu session id so it
+    can be opened in nabu's app.
   - **IN_FLIGHT:** a Resume button.
   - **No Mission this week:** the draft, with editable pattern chips and **Confirm**.
+  - **Swap to run / Swap to lift** is offered only on the current sortie of an ACTIVE Mission
+    while it is `PENDING` or `PLANNED`, and on no other card; it asks for confirmation only
+    when the Flight Plan it would delete was generated. (amended 2026-11-23)
 - **In-Flight.** The checklist described in §6, with **Land**, **Back to Launchpad** and
   **Scrub** in its footer, in that order; Back to Launchpad is drawn only while nothing on the
   sortie is recorded, absent rather than dimmed (amended 2026-11-02).
@@ -694,7 +703,8 @@ It MUST pass before any piece of work is called done.
 
 - **Missions:**
   - A draft is created with the default pattern.
-  - The pattern can be overridden while a draft and is frozen on confirm.
+  - The pattern can be overridden while a draft and is frozen on confirm; the swap of the
+    current sortie's type is the one override on an ACTIVE week (§4.1). (amended 2026-11-23)
   - Rollover at the week boundary scrubs open sorties with "week ended".
   - No carry-over between weeks.
   - Time-zone handling of the Monday boundary.
@@ -776,7 +786,7 @@ Each milestone ends with the project gate passing.
 | 1 | Audience | One owner, installed directly on one phone | Multi-user / Play Store (several times the scope; no need) |
 | 2 | Platform | Native Kotlin + Compose, matching nabu's client | Flutter (no reuse of nabu's Kotlin client, cross-platform not needed); PWA (weaker offline and storage; owner asked for Android) |
 | 3 | LLM | Local model via a nabu session in a coach workspace | Claude API (billed separately from Pro); llama-server direct (no tools, memory or inspectability; kept as M0 fallback); on-device model (too weak) |
-| 4 | Schedule | Weekly pattern (default `RLRLR`, overridable per week before confirm), rolling order within the week | Fixed weekday calendar (a missed day loses a session); strict alternation across weeks (owner wants explicit weekly control); asking each day (no structure) |
+| 4 | Schedule | Weekly pattern (default `RLRLR`, overridable per week before confirm), rolling order within the week, and the current sortie's type swappable mid-week (amended 2026-11-23) | Fixed weekday calendar (a missed day loses a session); strict alternation across weeks (owner wants explicit weekly control); asking each day (no structure) |
 | 5 | Carry-over | Unfinished sorties are scrubbed at week end | Carrying them into next week (pattern stops meaning anything) |
 | 6 | Generation timing | Outline on confirm, then each Flight Plan when the previous sortie lands | Whole week up front (weights can't adapt mid-week); one at a time with no outline (nothing balances the week) |
 | 7 | Logging | Pre-filled sets, one tap to check, edit only on deviation | Exercise-level checkboxes (no load data, no progression); full log with RPE (too much typing at the gym) |
@@ -802,6 +812,11 @@ Each milestone ends with the project gate passing.
   in the app. If the owner wants a fixed split, that is a COACH.md edit, not an app change.
 - **Time-based logging of runs** (live GPS, timers) is out of scope. Runs record an optional
   distance and duration at landing.
+- **A swapped sortie takes the new type's default focus.** Swapping to a run gives it "easy",
+  swapping to a lift gives it "full body" — the same defaults "Continue without outline" uses
+  (§4.2) — and clears any focus rationale it held, because a lift's focus says nothing useful
+  about a run day. The week's outline notes are left as they are: they still describe the rest
+  of the week. (amended 2026-11-23)
 
 ---
 
@@ -810,6 +825,27 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
+- **2026-11-23 — swap: the current sortie's type can be flipped mid-week (§4.1, §4.3, §5.1, §9,
+  §13, §15, §16).** Once a Mission was confirmed its pattern was frozen, so turning a lift day
+  into a run meant scrubbing the lift or resetting the whole week. The Launchpad now offers
+  **Swap to run** / **Swap to lift** on the current sortie: it flips that sortie's type and the
+  letter at the same index of this week's Mission pattern — `R [L] R L R` becomes `R [R] R L R`
+  — leaving the sortie count, the order and every other letter as they were. It applies to
+  the same sortie Regenerate does: the current sortie of this week's ACTIVE Mission, while it
+  is `PENDING` or `PLANNED`. An `IN_FLIGHT` sortie uses Back to Launchpad first; a landed or
+  scrubbed sortie is never swapped. The swapped sortie returns to `PENDING` and is prepared the
+  way the current sortie is prepared anyway: a simple "Run" plan when **Generate run plans** is
+  off, otherwise a Flight Plan generation, which a coach that cannot be reached leaves at
+  `PENDING` with Re-fly still available. Its focus becomes the new type's "Continue without
+  outline" default — "easy" for a run, "full body" for a lift — and its focus rationale is
+  cleared. The Flight Plan it held is deleted and its open generations are cancelled, so a
+  generated plan is lost: that is the one case asking for a confirmation, matching the rule that
+  a confirmation is required only where an action destroys work already done. A swap with
+  nothing generated to lose runs without a dialog, and a re-flown plan is a copy of one that
+  still sits in history. The flip is this week's only: a new week's draft is built from the
+  default pattern, so a swapped letter does not carry forward and the default pattern is not
+  touched. Reset week rebuilds the draft from the Mission's own pattern, so a reset after a
+  swap keeps the swapped letter — the week as it now stands, to edit and confirm again.
 - **2026-11-02 — un-launch: an in-flight sortie can go back to PLANNED (§5.1, §6, §9).**
   In-Flight offered only Land and Scrub, so after Launch the only way to a different plan for
   that sortie was Scrub, which ended it. In-Flight now also offers **Back to Launchpad**: it
