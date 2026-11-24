@@ -42,7 +42,7 @@ not QUEUED or RUNNING; `SortiesTest` pins the illegal-transition count).
   Done when: `git show --stat` for this commit lists `DESIGN.md` and nothing else, the new entry is
   the first in that section, and §5.1's diagram carries the new edge. Commit.
 
-- [ ] 2. The flip in the domain, and the transition it needs
+- [x] 2. The flip in the domain, and the transition it needs
   `domain/Sorties.kt` (66 lines): the flip — LIFT <-> RUN, PENDING or PLANNED in, PENDING out, the
   new type's default focus, the rationale cleared, the pattern letter at `sortie.index` flipped and
   every other letter and the length unchanged — plus `PLANNED to PENDING` in `legalTransitions` (19-23)
