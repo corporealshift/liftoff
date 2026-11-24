@@ -26,7 +26,7 @@ directory before any run whose report you intend to read. Scratch tests and gate
 (`MissionManager.advance` reuses an open generation row; `GenerationCanceller` skips a row that is
 not QUEUED or RUNNING; `SortiesTest` pins the illegal-transition count).
 
-- [ ] 1. The DESIGN.md amendment, before any code
+- [x] 1. The DESIGN.md amendment, before any code
   `DESIGN.md` only. One entry at the top of "Amendments after approval" (section at 808, first entry
   at 813), newest first, in the shape the newest entry actually uses: `- **<date> — <title>
   (§refs).**` followed by prose. DESIGN.md carries no `**Rule:**` / `**Reason:**` labels anywhere, and
