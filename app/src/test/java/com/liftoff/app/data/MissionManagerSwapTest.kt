@@ -342,4 +342,114 @@ class MissionManagerSwapTest {
         assertTrue(toCancel.isEmpty())
         assertEquals("no host and no token, so nothing was queued", 0, generationDao.countAll())
     }
+
+    /**
+     * Run the swap on [sortieId], show it refused with [expectedMessage], and show it wrote nothing: the Mission
+     * row, every sortie row, the Flight Plan counts and every Generation row are the ones that were there before.
+     * The counts rather than the plan rows because a refused swap must not have deleted the plan its sortie held,
+     * and the rows of a plan are exactly what a swap is supposed to delete.
+     */
+    private suspend fun assertRefused(
+        what: String,
+        missionId: Long,
+        sortieId: Long,
+        expectedMessage: String
+    ) {
+        val missionBefore = missionDao.get(missionId)!!
+        val sortiesBefore = sortieDao.getForMission(missionId).sortedBy { it.index }
+        val plansBefore = flightPlanDao.countPlans()
+        val exercisesBefore = flightPlanDao.countPlannedExercises()
+        val segmentsBefore = flightPlanDao.countRunSegments()
+        val generationsBefore = generationDao.getAll()
+        val queued = mutableListOf<Long>()
+
+        try {
+            manager.swapSortieType(sortieId) { queued.add(it) }
+            throw AssertionError("$what: the swap should have been refused")
+        } catch (expected: IllegalStateException) {
+            assertEquals("$what: which gate refused", expectedMessage, expected.message)
+        }
+
+        assertEquals("$what: the Mission row", missionBefore, missionDao.get(missionId)!!)
+        assertEquals("$what: the sortie rows", sortiesBefore, sortieDao.getForMission(missionId).sortedBy { it.index })
+        assertEquals("$what: the Flight Plans", plansBefore, flightPlanDao.countPlans())
+        assertEquals("$what: the planned exercises", exercisesBefore, flightPlanDao.countPlannedExercises())
+        assertEquals("$what: the run segments", segmentsBefore, flightPlanDao.countRunSegments())
+        assertEquals("$what: the Generations", generationsBefore, generationDao.getAll())
+        assertTrue("$what: nothing was queued", queued.isEmpty())
+    }
+
+    // Must show: a sortie that is not the current one, a sortie of a Mission that is not ACTIVE, and a sortie of
+    // a Mission that is not the current week's are each refused, and nothing is written.
+    @Test
+    fun swapRefusesASortieThatIsNotCurrentOrNotInTheCurrentWeeksActiveMission() = runBlocking {
+        // Mission Control configured and run generation on, so a swap that got past the gates would queue
+        // something: each refusal below is a gate refusing, not the absence of a coach.
+        configureCoach()
+        settingsStore.setGenerateRunPlans(true)
+
+        // One Mission, because the schema holds one per week (Mission.kt:11), moved through each refusal in turn.
+        // Index 0 is PENDING throughout, so it is the current sortie and index 1 is a later day of the same week.
+        val weekId = insertMission(LocalDate.of(2026, 1, 12), "RLR", MissionStatus.ACTIVE)
+        insertSortie(weekId, 0, SortieType.RUN, "easy")
+        val laterDay = insertSortie(weekId, 1, SortieType.LIFT, "full body")
+        insertSortie(weekId, 2, SortieType.RUN, "easy")
+        assertEquals(SortieState.PENDING, sortieAt(weekId, 0).state)
+        assertRefused("a later day of the current week", weekId, laterDay, "Sortie must be current")
+
+        // Not ACTIVE: the same current-week Mission made Draft and then Closed, so it is the status gate refusing
+        // and not the week gate. Index 0 is still its current sortie.
+        for (status in listOf(MissionStatus.DRAFT, MissionStatus.CLOSED)) {
+            missionDao.update(missionDao.get(weekId)!!.copy(status = status))
+            assertRefused("a $status Mission of the current week", weekId, sortieAt(weekId, 0).id, "Mission must be ACTIVE")
+        }
+
+        // Not this week's: ACTIVE again, but its weekStart moved to the week before the clock's week.
+        missionDao.update(
+            missionDao.get(weekId)!!.copy(status = MissionStatus.ACTIVE, weekStart = LocalDate.of(2026, 1, 5))
+        )
+        assertRefused(
+            "an ACTIVE Mission that is not the current week's",
+            weekId,
+            sortieAt(weekId, 0).id,
+            "Can only swap a sortie of the current week"
+        )
+    }
+
+    // Must show: an IN_FLIGHT, LANDED or SCRUBBED sortie is refused, and nothing is written.
+    @Test
+    fun swapRefusesAnInFlightLandedOrScrubbedSortie() = runBlocking {
+        configureCoach()
+        settingsStore.setGenerateRunPlans(true)
+        val missionId = insertMission(LocalDate.of(2026, 1, 12), "RLR", MissionStatus.ACTIVE)
+        val sortieId = insertSortie(missionId, 0, SortieType.RUN, "tempo, 20 minutes", SortieState.PLANNED)
+        insertSortie(missionId, 1, SortieType.LIFT, "full body")
+        insertSortie(missionId, 2, SortieType.RUN, "easy")
+
+        // In flight the way the Launchpad puts it there: a PLANNED current sortie, launched. An in-flight sortie is
+        // still the current one, so this is the swap's own state gate refusing and not the current-sortie gate.
+        manager.launch(sortieId)
+        assertEquals(SortieState.IN_FLIGHT, sortieDao.get(sortieId)!!.state)
+        assertRefused("an IN_FLIGHT sortie", missionId, sortieId, "Sortie must be PENDING or PLANNED")
+
+        manager.land(sortieId)
+        assertEquals(SortieState.LANDED, sortieDao.get(sortieId)!!.state)
+        // A landed sortie is never the current one — the domain's currentSortie skips LANDED and SCRUBBED — so the
+        // refusal here is the current-sortie gate, as in unlaunchIsRefusedForASortieThatIsNotInFlight.
+        assertRefused("a LANDED sortie", missionId, sortieId, "Sortie must be current")
+
+        // The same for a scrubbed row: index 1 became the current sortie when index 0 landed, so it can be
+        // scrubbed, and the row the scrub left is then refused a swap.
+        val scrubbedId = sortieAt(missionId, 1).id
+        manager.scrub(scrubbedId, "weather")
+        assertEquals(SortieState.SCRUBBED, sortieDao.get(scrubbedId)!!.state)
+        assertRefused("a SCRUBBED sortie", missionId, scrubbedId, "Sortie must be current")
+
+        // The week moved on instead of being swapped: index 2 is the current sortie, its type is still the one the
+        // pattern says, and the pattern never changed.
+        val current = sortieAt(missionId, 2)
+        assertEquals(SortieType.RUN, current.type)
+        assertEquals("the swap never reached it", SortieState.PENDING, current.state)
+        assertEquals("RLR", missionDao.get(missionId)!!.pattern)
+    }
 }
