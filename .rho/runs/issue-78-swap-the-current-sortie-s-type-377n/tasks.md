@@ -102,7 +102,7 @@ not QUEUED or RUNNING; `SortiesTest` pins the illegal-transition count).
   `--tests "com.liftoff.app.data.PromptInputLoaderSwapTest"` is green with its one name; `git show
   --stat` lists only those two test files plus `MissionManager.kt` if a gate was found. Commit.
 
-- [ ] 5. The action on the Launchpad, and the confirm dialog
+- [x] 5. The action on the Launchpad, and the confirm dialog
   `ui/launchpad/LaunchpadState.kt` (326 lines): `Pending` (53-67) has no `sortieType`, so the label
   cannot be built on the PENDING card until it carries one — the three places that construct a
   `Pending` (233, 257, 309) all have the sortie in hand. The card already shows the flip without new
