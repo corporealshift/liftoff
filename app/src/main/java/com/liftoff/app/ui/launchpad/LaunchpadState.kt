@@ -56,6 +56,8 @@ sealed interface LaunchpadState {
         val chips: List<com.liftoff.app.ui.theme.PatternChip>,
         val sortieId: Long,
         val sortieIndex: Int,
+        /** The swap's label is built from this: it names the type the sortie would become, not the one it has. */
+        val sortieType: SortieType,
         /** What this sortie's newest non-cancelled generation row says, derived live from Room and the settings. */
         val generationStatus: SortieGenerationStatus,
         /** The rho session id this sortie's newest non-cancelled generation row carries, if it carries one. */
@@ -236,6 +238,7 @@ class LaunchpadStates(
                 chips = chips,
                 sortieId = current.id,
                 sortieIndex = current.index,
+                sortieType = current.type,
                 generationStatus = pending.status,
                 rhoSessionId = pending.rhoSessionId,
                 reFlyAvailable = pending.offersReFly,
@@ -260,6 +263,7 @@ class LaunchpadStates(
             chips = chips,
             sortieId = current.id,
             sortieIndex = current.index,
+            sortieType = current.type,
             generationStatus = answer.status,
             rhoSessionId = answer.rhoSessionId,
             reFlyAvailable = answer.offersReFly,
@@ -312,6 +316,7 @@ class LaunchpadStates(
                     chips = chips,
                     sortieId = current.id,
                     sortieIndex = current.index,
+                    sortieType = current.type,
                     // currentSortie never returns a LANDED or SCRUBBED sortie, and refly refuses them anyway.
                     // Nothing is open for one either, so the card reports no regeneration rather than guessing at
                     // a row and a settings read this arm does not join.
@@ -324,3 +329,16 @@ class LaunchpadStates(
         }
     }
 }
+
+/**
+ * §9: the type a swap moves this sortie to, in the words its label and its confirmation name it by. It is the
+ * flip domain swapSortieType writes into the pattern, so the card and the write can't disagree.
+ */
+internal fun swappedTypeName(type: SortieType): String =
+    if (type == SortieType.RUN) "lift" else "run"
+
+/**
+ * §9: the swap's label names the type the sortie would become, not the one it has. UnderlinedTextButton draws it
+ * uppercased, so "Swap to run" reaches the owner as "SWAP TO RUN".
+ */
+internal fun swapLabel(type: SortieType): String = "Swap to ${swappedTypeName(type)}"

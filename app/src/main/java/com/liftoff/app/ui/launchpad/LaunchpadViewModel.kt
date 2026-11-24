@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.liftoff.app.data.ConfirmOutcome
+import com.liftoff.app.data.FlightPlanSource
 import com.liftoff.app.data.MissionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +31,10 @@ class LaunchpadViewModel(
 ) {
     /** Scrub confirmation dialog state. The reason lives in the dialog, not here. */
     var scrubbing by mutableStateOf(false)
+        private set
+
+    /** Swap confirmation dialog state. Only [swapSortieType] opens it, and only over a generated plan. */
+    var swapping by mutableStateOf(false)
         private set
 
     /** Set by a Confirm or Retry that found Mission Control unconfigured, cleared by the next attempt. */
@@ -247,4 +252,55 @@ class LaunchpadViewModel(
             }
         }
     }
+
+    // ── Swap the current sortie's type ───────────────────────────────────
+
+    /**
+     * Swap the current sortie's type (DESIGN.md §9), offered on the Pending and Planned cards and on no other.
+     * Returns null when this card offers no swap. A Planned card whose plan the coach generated opens the
+     * confirmation and writes nothing until [confirmSwap]; every other card runs the swap in the returned Job,
+     * which hands each superseded open generation to [cancelGeneration] in the same shape [regenerate] uses.
+     */
+    fun swapSortieType(): Job? {
+        val target = swapTarget() ?: return null
+        if (target.needsConfirmation) {
+            swapping = true
+            return null
+        }
+        return runSwap(target.sortieId)
+    }
+
+    /** The confirmation's yes. Closes the dialog and runs the swap it was opened for. */
+    fun confirmSwap(): Job? {
+        if (!swapping) return null
+        swapping = false
+        val target = swapTarget() ?: return null
+        return runSwap(target.sortieId)
+    }
+
+    /** The confirmation's no. Closes the dialog and writes nothing. */
+    fun cancelSwap() {
+        swapping = false
+    }
+
+    /** The card the swap acts on, and whether the plan it holds is one the swap would have to delete. */
+    private fun swapTarget(): SwapTarget? =
+        when (val s = state.value) {
+            is LaunchpadState.Pending -> SwapTarget(s.sortieId, needsConfirmation = false)
+            is LaunchpadState.Planned -> SwapTarget(s.sortieId, s.plan.plan.source == FlightPlanSource.GENERATED)
+            else -> null
+        }
+
+    private fun runSwap(sortieId: Long): Job = scope.launch {
+        try {
+            val supersededIds = manager.swapSortieType(sortieId) { queueGeneration(it) }
+            for (generationId in supersededIds) {
+                cancelGeneration(generationId)
+            }
+        } catch (_: IllegalStateException) {
+            runCatching { manager.onAppOpen() }
+        }
+    }
+
+    private class SwapTarget(val sortieId: Long, val needsConfirmation: Boolean)
 }

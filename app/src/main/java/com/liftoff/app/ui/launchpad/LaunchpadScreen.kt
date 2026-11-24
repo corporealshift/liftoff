@@ -105,6 +105,7 @@ internal fun LaunchpadContent(
                 onRequestScrub = { viewModel.requestScrub() },
                 onRefly = { viewModel.refly() },
                 onRegenerate = { viewModel.regenerate() },
+                onSwap = { viewModel.swapSortieType() },
                 rhoSessionRevealed = rhoSessionRevealed,
                 onRevealRhoSession = { rhoSessionRevealed = true },
             )
@@ -130,6 +131,18 @@ internal fun LaunchpadContent(
             sortieNumber = sortieIndex + 1,
             onConfirm = { viewModel.confirmScrub(it) },
             onDismiss = { viewModel.cancelScrub() },
+        )
+    }
+
+    // Swap confirmation dialog. Only a Planned card can open one: a Pending card has no plan for the swap to
+    // delete, and viewModel.swapSortieType is what decides between the dialog and the write.
+    val swapState = s
+    if (swapState is LaunchpadState.Planned && viewModel.swapping) {
+        SwapDialog(
+            sortieNumber = swapState.sortieIndex + 1,
+            currentType = swapState.sortieType,
+            onConfirm = { viewModel.confirmSwap() },
+            onDismiss = { viewModel.cancelSwap() },
         )
     }
 }
@@ -300,6 +313,7 @@ private fun ActionButtons(
     onRequestScrub: () -> Unit,
     onRefly: () -> Unit,
     onRegenerate: () -> Unit,
+    onSwap: () -> Unit,
     rhoSessionRevealed: Boolean = false,
     onRevealRhoSession: () -> Unit = {},
 ) {
@@ -319,9 +333,9 @@ private fun ActionButtons(
                 onRetry,
                 onContinueWithoutOutline,
             )
-            is LaunchpadState.Planned -> PlannedActions(state, onLaunch, onRequestScrub, onRegenerate)
+            is LaunchpadState.Planned -> PlannedActions(state, onLaunch, onRequestScrub, onRegenerate, onSwap)
             is LaunchpadState.Pending -> PendingActions(
-                state, onRequestScrub, onRefly, onRegenerate, rhoSessionRevealed, onRevealRhoSession,
+                state, onRequestScrub, onRefly, onRegenerate, onSwap, rhoSessionRevealed, onRevealRhoSession,
             )
             is LaunchpadState.InFlight -> InFlightActions(onLaunch)
             is LaunchpadState.Closed -> Unit
@@ -425,6 +439,7 @@ private fun PlannedActions(
     onLaunch: () -> Unit,
     onRequestScrub: () -> Unit,
     onRegenerate: () -> Unit,
+    onSwap: () -> Unit,
 ) {
     PrimaryButton(
         text = "Launch",
@@ -445,6 +460,9 @@ private fun PlannedActions(
     } else {
         UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub)
     }
+    Spacer(Modifier.height(12.dp))
+    // §9: offered on every Planned card. Whether it asks first is the view model's call, not this row's.
+    UnderlinedTextButton(text = swapLabel(planned.sortieType), onClick = onSwap)
 }
 
 @Composable
@@ -453,6 +471,7 @@ private fun PendingActions(
     onRequestScrub: () -> Unit,
     onRefly: () -> Unit,
     onRegenerate: () -> Unit,
+    onSwap: () -> Unit,
     rhoSessionRevealed: Boolean,
     onRevealRhoSession: () -> Unit,
 ) {
@@ -481,6 +500,10 @@ private fun PendingActions(
         Spacer(Modifier.height(12.dp))
     }
     UnderlinedTextButton(text = "Scrub", onClick = onRequestScrub)
+    Spacer(Modifier.height(12.dp))
+    // §9: offered on every Pending card, and a card with no plan on it has nothing for the swap to delete, so
+    // this one never asks first.
+    UnderlinedTextButton(text = swapLabel(pending.sortieType), onClick = onSwap)
 }
 
 @Composable
