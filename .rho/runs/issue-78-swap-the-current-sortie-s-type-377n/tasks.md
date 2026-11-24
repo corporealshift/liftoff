@@ -88,7 +88,7 @@ not QUEUED or RUNNING; `SortiesTest` pins the illegal-transition count).
   five names in its report, and `MissionManagerTest`, `MissionManagerPlanTest`,
   `MissionManagerReFlyTest` and `MissionManagerResetTest` are still green. Commit.
 
-- [ ] 4. The swap's refusals, and the swapped rows reaching the coach's prompt
+- [x] 4. The swap's refusals, and the swapped rows reaching the coach's prompt
   Tests only, against task 3's action — no production change expected, and if a refusal case exposes
   a gate task 3 left out, fix the gate in this same commit. `data/MissionManagerSwapTest.kt` gains the
   two remaining names: `swapRefusesASortieThatIsNotCurrentOrNotInTheCurrentWeeksActiveMission` (a
