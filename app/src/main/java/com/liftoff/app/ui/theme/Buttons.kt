@@ -24,6 +24,16 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** The dimensions the three buttons draw with. */
+internal val PrimaryButtonHeightDp = 72.dp
+internal val InkButtonHeightDp = 64.dp
+internal val ButtonBorderWidthDp = 2.dp
+internal val ButtonIconSizeDp = 26.dp
+internal val ButtonIconLabelGapDp = 12.dp
+internal val TextButtonMinHeightDp = 44.dp
+internal val TextButtonUnderlineWidthDp = 1.dp
+internal val TextButtonUnderlineGapDp = 4.dp
+
 @Composable
 fun PrimaryButton(
     text: String,
@@ -31,7 +41,7 @@ fun PrimaryButton(
     modifier: Modifier = Modifier,
     icon: Painter? = null,
     iconAtEnd: Boolean = false,
-    height: Dp = 72.dp,
+    height: Dp = PrimaryButtonHeightDp,
     labelStyle: TextStyle = LiftoffType.launchLabel(),
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -39,7 +49,7 @@ fun PrimaryButton(
 
     OffsetShadowBox(
         color = Ink,
-        offset = 4.dp,
+        offset = OffsetShadowDefaultOffsetDp,
         modifier = modifier
             .fillMaxWidth()
             .height(height),
@@ -48,7 +58,7 @@ fun PrimaryButton(
             modifier = Modifier
                 .fillMaxSize()
                 .background(if (isPressed.value) RedPressed else Red, ButtonShape)
-                .border(BorderStroke(2.dp, Ink), ButtonShape)
+                .border(BorderStroke(ButtonBorderWidthDp, Ink), ButtonShape)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
@@ -65,21 +75,21 @@ fun PrimaryButton(
                     Icon(
                         painter = icon,
                         contentDescription = null,
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(ButtonIconSizeDp),
                         tint = White,
                     )
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(ButtonIconLabelGapDp))
                 }
                 Text(
                     text = text.uppercase(),
                     style = labelStyle.copy(color = White),
                 )
                 if (icon != null && iconAtEnd) {
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(ButtonIconLabelGapDp))
                     Icon(
                         painter = icon,
                         contentDescription = null,
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(ButtonIconSizeDp),
                         tint = White,
                     )
                 }
@@ -95,14 +105,14 @@ fun InkButton(
     modifier: Modifier = Modifier,
     icon: Painter? = null,
     iconAtEnd: Boolean = false,
-    height: Dp = 64.dp,
+    height: Dp = InkButtonHeightDp,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed = interactionSource.collectIsPressedAsState()
 
     OffsetShadowBox(
         color = if (isPressed.value) RedPressed else Red,
-        offset = 4.dp,
+        offset = OffsetShadowDefaultOffsetDp,
         modifier = modifier
             .fillMaxWidth()
             .height(height),
@@ -111,7 +121,7 @@ fun InkButton(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Ink, ButtonShape)
-                .border(BorderStroke(2.dp, Ink), ButtonShape)
+                .border(BorderStroke(ButtonBorderWidthDp, Ink), ButtonShape)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
@@ -128,21 +138,21 @@ fun InkButton(
                     Icon(
                         painter = icon,
                         contentDescription = null,
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(ButtonIconSizeDp),
                         tint = Cream,
                     )
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(ButtonIconLabelGapDp))
                 }
                 Text(
                     text = text.uppercase(),
                     style = LiftoffType.landLabel().copy(color = Cream),
                 )
                 if (icon != null && iconAtEnd) {
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(ButtonIconLabelGapDp))
                     Icon(
                         painter = icon,
                         contentDescription = null,
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(ButtonIconSizeDp),
                         tint = Cream,
                     )
                 }
@@ -163,7 +173,7 @@ fun UnderlinedTextButton(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 44.dp)
+            .heightIn(min = TextButtonMinHeightDp)
             .padding(horizontal = 8.dp)
             .clickable(
                 interactionSource = interactionSource,
@@ -179,11 +189,11 @@ fun UnderlinedTextButton(
             text = text.uppercase(),
             style = LiftoffType.textButton().copy(color = if (isPressed.value) Red else Ink),
             modifier = Modifier.drawBehind {
-                val y = baselinePx + 4.dp.toPx()
+                val y = baselinePx + TextButtonUnderlineGapDp.toPx()
                 if (baselinePx > 0) {
                     drawLine(
                         color = if (isPressed.value) Red else Ink,
-                        strokeWidth = 1.dp.toPx(),
+                        strokeWidth = TextButtonUnderlineWidthDp.toPx(),
                         start = Offset(0f, y),
                         end = Offset(size.width, y),
                     )

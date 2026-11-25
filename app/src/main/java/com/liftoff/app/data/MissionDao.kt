@@ -46,6 +46,9 @@ abstract class MissionDao {
     @Query("DELETE FROM mission WHERE id = :id")
     abstract suspend fun deleteWeek(id: Long)
 
+    // Both reads — the mission row and its @Relation sorties — inside one transaction, so a land or
+    // advance write cannot land between them and emit a stale pair.
+    @Transaction
     @Query("SELECT * FROM mission WHERE weekStart = :weekStart")
     protected abstract fun observeRaw(weekStart: java.time.LocalDate): Flow<MissionWithSorties?>
 

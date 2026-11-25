@@ -1,75 +1,185 @@
 package com.liftoff.app.ui.theme
 
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasParent
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
+/**
+ * PatternTrack's chip diameters, the track it renders, and the widths and colours it draws with.
+ *
+ * `PatternTrack(chips, modifier)` takes no colour parameters, so the colours it draws with are the
+ * package-level tokens it reads directly — Ink, Red, Cream, White, Sand, Muted — which are also
+ * what [LiftoffColorScheme] installs in the theme. The colour assertions below read those tokens
+ * against the hex values `design/README.md` gives them; [ColorTokensTest] pins the tokens
+ * themselves.
+ *
+ * Only a chip that draws its letter in a `Text` reaches the semantics tree: a Landed chip is a
+ * `Canvas` circle plus `Icon(contentDescription = null)`, which carries no node of its own.
+ */
+@RunWith(AndroidJUnit4::class)
+@Config(qualifiers = "w411dp-h2000dp")
 class PatternTrackTest {
 
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    // chipSizeFollowsChipState — chipSizeDp returns 52 dp for Current and 44 dp for Landed,
+    // Upcoming and Scrubbed, each one read from the constant named for that state, and Current is
+    // the larger of the four.
     @Test
-    fun drawsOneChipPerLetterInItsStateStyle() {
-        // PatternTrack renders one chip per letter in landed, current or upcoming style.
-        val stateString = "RLRL"
-        assertEquals("Should draw one chip per letter", 4, stateString.length)
+    fun chipSizeFollowsChipState() {
+        assertEquals("a Landed chip is 44 dp", 44.dp, ChipSizeLandedDp)
+        assertEquals("a Current chip is 52 dp", 52.dp, ChipSizeCurrentDp)
+        assertEquals("an Upcoming chip is 44 dp", 44.dp, ChipSizeUpcomingDp)
+        assertEquals("a Scrubbed chip is 44 dp", 44.dp, ChipSizeScrubbedDp)
 
-        // Chip sizes: Landed/Upcoming=44dp, Current=52dp.
-        assertEquals("Landed chip size should be 44dp", 44f, 44f, 0.001f)
-        assertEquals("Current chip size should be 52dp", 52f, 52f, 0.001f)
-        assertTrue("Current chip (52dp) should be larger than Landed/Upcoming (44dp)", 52f > 44f)
+        assertEquals("chipSizeDp(Landed) is ChipSizeLandedDp", ChipSizeLandedDp, chipSizeDp(ChipState.Landed))
+        assertEquals("chipSizeDp(Current) is ChipSizeCurrentDp", ChipSizeCurrentDp, chipSizeDp(ChipState.Current))
+        assertEquals("chipSizeDp(Upcoming) is ChipSizeUpcomingDp", ChipSizeUpcomingDp, chipSizeDp(ChipState.Upcoming))
+        assertEquals("chipSizeDp(Scrubbed) is ChipSizeScrubbedDp", ChipSizeScrubbedDp, chipSizeDp(ChipState.Scrubbed))
 
-        // Chip colors match state styles.
-        val inkColor = androidx.compose.ui.graphics.Color(0xFF1D1B19)
-        val redColor = androidx.compose.ui.graphics.Color(0xFFC23F14)
-        val creamColor = androidx.compose.ui.graphics.Color(0xFFF2EADB)
-
-        assertEquals("Landed chip fill should be Ink", inkColor.value, Ink.value)
-        assertEquals("Current chip fill should be Red", redColor.value, Red.value)
-        assertEquals("Upcoming chip fill should be Cream", creamColor.value, Cream.value)
-
-        // Checkmark for landed state is Cream.
-        assertEquals("Landed chip checkmark should be Cream", creamColor.value, Cream.value)
-
-        // Letter colors: Current=White, Upcoming=Ink.
-        val whiteColor = androidx.compose.ui.graphics.Color.White
-        assertEquals("Current chip letter should be White", whiteColor.value, androidx.compose.ui.graphics.Color.White.value)
-        assertEquals("Upcoming chip letter should be Ink", inkColor.value, Ink.value)
+        assertTrue(
+            "Current is larger than Landed: current=$ChipSizeCurrentDp landed=$ChipSizeLandedDp",
+            ChipSizeCurrentDp > ChipSizeLandedDp,
+        )
+        assertTrue(
+            "Current is larger than Upcoming: current=$ChipSizeCurrentDp upcoming=$ChipSizeUpcomingDp",
+            ChipSizeCurrentDp > ChipSizeUpcomingDp,
+        )
+        assertTrue(
+            "Current is larger than Scrubbed: current=$ChipSizeCurrentDp scrubbed=$ChipSizeScrubbedDp",
+            ChipSizeCurrentDp > ChipSizeScrubbedDp,
+        )
+        assertEquals("Landed and Upcoming are the same size", ChipSizeLandedDp, ChipSizeUpcomingDp)
+        assertEquals("Landed and Scrubbed are the same size", ChipSizeLandedDp, ChipSizeScrubbedDp)
     }
 
+    // trackDrawsOneChipPerLetterAndMeasuresItsHeight — a rendered track of "D" (landed), "R"
+    // (current), "L" (upcoming) and "S" (scrubbed) shows one semantics node per letter the tree
+    // can see, and measures PatternTrackHeightDp tall. That height is a Current chip's diameter by
+    // construction (PatternTrack.kt), and chipSizeFollowsChipState pins that at 52 dp.
     @Test
-    fun strokeWidthsAreDensityIndependent() {
-        // Stroke widths are derived from dp via LocalDensity.toPx(), not hard-coded px.
-        val threeDpValue = 3f
-        val twoDpValue = 2f
+    fun trackDrawsOneChipPerLetterAndMeasuresItsHeight() {
+        val chips = listOf(
+            PatternChip(LANDED_LETTER, ChipState.Landed),
+            PatternChip(CURRENT_LETTER, ChipState.Current),
+            PatternChip(UPCOMING_LETTER, ChipState.Upcoming),
+            PatternChip(SCRUBBED_LETTER, ChipState.Scrubbed),
+        )
+        lateinit var density: Density
 
-        assertEquals("Landed chip stroke should be 3dp", 3f, threeDpValue, 0.001f)
-        assertEquals("Current chip stroke should be 2dp", 2f, twoDpValue, 0.001f)
+        composeRule.setContent {
+            density = LocalDensity.current
+            PatternTrack(chips = chips, modifier = Modifier.testTag(TRACK_TAG))
+        }
 
-        // At density 3 (xhdpi), 3dp = 9px and 2dp = 6px.
-        assertEquals("3dp stroke should be 9px at density 3", 9f, threeDpValue * 3, 0.001f)
-        assertEquals("2dp stroke should be 6px at density 3", 6f, twoDpValue * 3, 0.001f)
+        // What is being counted: the semantics nodes the track itself carries. Current, Upcoming
+        // and Scrubbed each draw their letter in a Text, so they contribute one node each; a
+        // Landed chip is a Canvas circle plus Icon(contentDescription = null), which carries no
+        // semantics at all, so four chips put three letters in the tree.
+        composeRule.onAllNodes(hasParent(hasTestTag(TRACK_TAG))).assertCountEquals(3)
 
-        // At density 4 (xxhdpi), 3dp = 12px and 2dp = 8px.
-        assertEquals("3dp stroke should be 12px at density 4", 12f, threeDpValue * 4, 0.001f)
-        assertEquals("2dp stroke should be 8px at density 4", 8f, twoDpValue * 4, 0.001f)
+        // One node per letter: assertExists fails on no match and on more than one.
+        composeRule.onNodeWithText(CURRENT_LETTER, substring = false).assertExists()
+        composeRule.onNodeWithText(UPCOMING_LETTER, substring = false).assertExists()
+        composeRule.onNodeWithText(SCRUBBED_LETTER, substring = false).assertExists()
+        composeRule.onNodeWithText(LANDED_LETTER, substring = false).assertDoesNotExist()
+
+        val heightPx = with(density) { PatternTrackHeightDp.roundToPx() }
+        val track = composeRule.onNodeWithTag(TRACK_TAG).fetchSemanticsNode()
+        assertEquals(
+            "PatternTrack renders PatternTrackHeightDp ($PatternTrackHeightDp) tall " +
+                "(${heightPx}px at density ${density.density})",
+            heightPx,
+            track.size.height,
+        )
     }
 
+    // chipRingsAndConnectorAreTheDesignWidths — the rings are 3 dp (Current) and 2 dp (Upcoming,
+    // Scrubbed), the connector line is 2 dp wide and inset 22 dp from each end, and the check mark
+    // inside a Landed chip is 20 dp — all read from the values PatternTrack.kt draws with.
     @Test
-    fun chipTextUsesBigShouldersFontFamily() {
-        // Chip letters must use Big Shoulders Display font family, not Work Sans.
-        val expectedWeights = setOf(700, 800, 900)
+    fun chipRingsAndConnectorAreTheDesignWidths() {
+        val currentRing = ChipRingCurrentWidthDp
+        val upcomingRing = ChipRingUpcomingWidthDp
+        val scrubbedRing = ChipRingScrubbedWidthDp
+        val connector = ConnectorWidthDp
 
-        assertEquals("Big Shoulders has 3 weights", 3, expectedWeights.size)
-        assertTrue("Contains bold 700", expectedWeights.contains(700))
-        assertTrue("Contains extrabold 800", expectedWeights.contains(800))
-        assertTrue("Contains black 900", expectedWeights.contains(900))
+        assertEquals("the Current ring is the 3 dp the design gives it", 3.dp, currentRing)
+        assertEquals("the Upcoming ring is 2 dp", 2.dp, upcomingRing)
+        assertEquals("the Scrubbed ring is 2 dp", 2.dp, scrubbedRing)
+        assertEquals("the connector line is 2 dp", 2.dp, connector)
 
-        // Current chip uses weight 900 (black), upcoming uses 800 (extrabold).
-        assertEquals("Current chip letter style uses Big Shoulders 900", 900, 900)
-        assertEquals("Upcoming chip letter style uses Big Shoulders 800", 800, 800)
+        assertTrue("Current's ring is thicker than Upcoming's: current=$currentRing upcoming=$upcomingRing",
+            currentRing > upcomingRing)
+        assertTrue("Current's ring is thicker than Scrubbed's: current=$currentRing scrubbed=$scrubbedRing",
+            currentRing > scrubbedRing)
+        assertTrue("the connector is thinner than the Current ring it runs into: connector=$connector current=$currentRing",
+            connector < currentRing)
+        // The connector is the same width as the two thinner rings today, so it is no thicker than
+        // either of them rather than thinner than both.
+        assertTrue("the connector is no thicker than Upcoming's ring: connector=$connector upcoming=$upcomingRing",
+            connector <= upcomingRing)
+        assertTrue("the connector is no thicker than Scrubbed's ring: connector=$connector scrubbed=$scrubbedRing",
+            connector <= scrubbedRing)
+        assertEquals("the connector is the same width as Upcoming's ring", upcomingRing, connector)
 
-        // Work Sans is NOT used for chip letters.
-        val workSansWeights = setOf(400, 500, 600)
-        assertTrue("Work Sans has different weights than Big Shoulders",
-            expectedWeights != workSansWeights)
+        assertEquals("the connector inset is 22 dp", 22.dp, ConnectorInsetDp)
+        assertEquals(
+            "the inset is half a non-Current chip's diameter, so the line starts at that chip's edge",
+            ChipSizeLandedDp / 2,
+            ConnectorInsetDp,
+        )
+        assertEquals("the check mark is 20 dp", 20.dp, LandedCheckSizeDp)
+        assertTrue(
+            "the check mark is smaller than the chip it sits in: check=$LandedCheckSizeDp chip=$ChipSizeLandedDp",
+            LandedCheckSizeDp < ChipSizeLandedDp,
+        )
+    }
+
+    // chipColoursAreTheTokensPatternTrackDrawsWith — the six colours PatternTrack.kt draws with
+    // are the theme's tokens: Ink for the connector, every ring, the Landed fill and the Upcoming
+    // letter; Red for the Current fill; Cream for the Upcoming fill and the Landed check mark;
+    // White for the Current letter; Sand for the Scrubbed fill; Muted for the Scrubbed letter.
+    @Test
+    fun chipColoursAreTheTokensPatternTrackDrawsWith() {
+        assertEquals("the connector, the rings and the Landed fill are Ink", Color(0xFF1D1B19), Ink)
+        assertEquals("the Current fill is Red", Color(0xFFC23F14), Red)
+        assertEquals("the Upcoming fill and the Landed check mark are Cream", Color(0xFFF2EADB), Cream)
+        assertEquals("the Current letter is White", Color(0xFFFFFFFF), White)
+        assertEquals("the Scrubbed fill is Sand", Color(0xFFE8DFCD), Sand)
+        assertEquals("the Scrubbed letter is Muted", Color(0xFF5E5850), Muted)
+
+        // The chip states are distinguishable from each other, computed from the tokens rather
+        // than from the hex values above.
+        assertTrue("the Landed fill is not the Current fill: ink=$Ink red=$Red", Ink != Red)
+        assertTrue("the Current letter is not the fill behind it: white=$White ink=$Ink", White != Ink)
+        assertTrue("the Upcoming fill is not the Scrubbed fill: cream=$Cream sand=$Sand", Cream != Sand)
+        assertTrue("the Scrubbed letter is not the Ink every other letter uses: muted=$Muted ink=$Ink", Muted != Ink)
+        assertTrue("the Scrubbed fill is not the Current fill: sand=$Sand red=$Red", Sand != Red)
+    }
+
+    private companion object {
+        const val TRACK_TAG = "pattern-track"
+        const val LANDED_LETTER = "D"
+        const val CURRENT_LETTER = "R"
+        const val UPCOMING_LETTER = "L"
+        const val SCRUBBED_LETTER = "S"
     }
 }
