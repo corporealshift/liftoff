@@ -362,6 +362,39 @@ class InFlightRunTest {
         assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
     }
 
+    // The same write with the Seconds field filled in: the two duration fields add up to the one
+    // number the sortie stores, so 27 min 34 s lands as 27 + 34/60 minutes — the seconds survive the
+    // trip through the column rather than being rounded into 27 or 28 whole minutes.
+    @Test
+    fun runLandWithMinutesAndSecondsStoresTheCombinedDuration() = runBlocking {
+        val mission = seedMission()
+        val sortie = sortie0(mission.id)
+        manager.launch(sortie.id)
+
+        val vm = viewModel(sortie.id)
+        awaitRun(vm)
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        assertTrue(
+            "landRun refused minutes with seconds",
+            vm.landRun("5.2", "27", "34") { onDoneRuns++; done.complete(Unit) }
+        )
+        withTimeout(5_000) { done.await() }
+
+        assertEquals(1, onDoneRuns)
+        val landed = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.LANDED, landed.state)
+        assertEquals(5.2, landed.runDistance!!, 0.0)
+        assertEquals(27.0 + 34.0 / 60.0, landed.runMinutes!!, 0.0)
+        assertNotEquals(27.0, landed.runMinutes!!, 0.0)
+        assertNotEquals(28.0, landed.runMinutes!!, 0.0)
+        assertEquals(fixedInstant.toEpochMilli(), landed.landedAt)
+        assertNull(vm.runErrors.value)
+        assertNull(vm.message.value)
+        assertTrue("something escaped the view model: $escaped", escaped.isEmpty())
+    }
+
     // Both fields optional: a run landed with nothing typed is LANDED with no distance and no
     // duration invented for it.
     @Test
