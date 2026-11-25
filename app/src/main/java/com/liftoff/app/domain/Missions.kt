@@ -53,7 +53,7 @@ fun confirmWithoutOutline(mission: Mission): Pair<Mission, List<Sortie>> {
             missionId = 0, // set by DAO insert
             index = index,
             type = if (ch == 'R') SortieType.RUN else SortieType.LIFT,
-            focus = if (ch == 'R') "easy" else "full body",
+            focus = if (ch == 'R') DEFAULT_RUN_FOCUS else DEFAULT_LIFT_FOCUS,
             focusRationale = null,
             state = SortieState.PENDING,
             launchedAt = null,

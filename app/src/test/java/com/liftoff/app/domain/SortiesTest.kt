@@ -46,7 +46,8 @@ class SortiesTest {
     fun illegalTransitionsAreRejected() {
         var caught = 0
 
-        // All 25 from/to pairs: 7 legal are tested above; verify the remaining 18 throw.
+        // All 25 from/to pairs: 8 are legal — the 7 tested above, plus PLANNED → PENDING, which the
+        // type swap added (amended 2026-11-23) and SortieSwapTest tests. Verify the remaining 17 throw.
         val allStates = SortieState.values()
         val illegalPairs = listOf(
             // Same-state (5)
@@ -58,8 +59,7 @@ class SortiesTest {
             // PENDING → (IN_FLIGHT, LANDED) — not PLANNED or SCRUBBED (those are legal)
             SortieState.PENDING to SortieState.IN_FLIGHT,
             SortieState.PENDING to SortieState.LANDED,
-            // PLANNED → (PENDING, LANDED, SCRUBBED) — IN_FLIGHT is legal; SCRUBBED is legal
-            SortieState.PLANNED to SortieState.PENDING,
+            // PLANNED → LANDED — PENDING, IN_FLIGHT and SCRUBBED are legal
             SortieState.PLANNED to SortieState.LANDED,
             // IN_FLIGHT → PENDING — PLANNED, LANDED and SCRUBBED are legal
             SortieState.IN_FLIGHT to SortieState.PENDING,
@@ -75,7 +75,7 @@ class SortiesTest {
             SortieState.SCRUBBED to SortieState.LANDED,
         )
 
-        assertEquals(18, illegalPairs.size)
+        assertEquals(17, illegalPairs.size)
 
         for ((from, to) in illegalPairs) {
             try {
@@ -87,7 +87,7 @@ class SortiesTest {
             throw AssertionError("Should have thrown for $from → $to")
         }
 
-        assertEquals(18, caught)
+        assertEquals(17, caught)
     }
 
     @Test

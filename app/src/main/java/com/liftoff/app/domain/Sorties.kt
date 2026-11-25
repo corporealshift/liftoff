@@ -1,12 +1,15 @@
 package com.liftoff.app.domain
 
+import com.liftoff.app.data.Mission
 import com.liftoff.app.data.Sortie
 import com.liftoff.app.data.SortieState
+import com.liftoff.app.data.SortieType
 
 object SortieTransitions {
     private val legalTransitions = setOf(
         SortieState.PENDING to SortieState.PLANNED,
         SortieState.PENDING to SortieState.SCRUBBED,
+        SortieState.PLANNED to SortieState.PENDING,
         SortieState.PLANNED to SortieState.IN_FLIGHT,
         SortieState.PLANNED to SortieState.SCRUBBED,
         SortieState.IN_FLIGHT to SortieState.LANDED,
@@ -63,4 +66,35 @@ fun scrub(sortie: Sortie, reason: String?): Sortie {
 fun markPlanned(sortie: Sortie): Sortie {
     SortieTransitions.requireTransition(sortie.state, SortieState.PLANNED)
     return sortie.copy(state = SortieState.PLANNED)
+}
+
+// DESIGN.md §4.2's "Continue without outline" defaults. Named once so a swap and a confirm can't drift apart.
+const val DEFAULT_RUN_FOCUS = "easy"
+const val DEFAULT_LIFT_FOCUS = "full body"
+
+/**
+ * DESIGN.md §4.1, §5.1, §9 (amended 2026-11-23): swap the current sortie's type mid-week.
+ * The letter at [Sortie.index] flips in [Mission.pattern] and no other letter or length changes,
+ * so the sortie count and the rolling order of §4.3 are untouched.
+ */
+fun swapSortieType(mission: Mission, sortie: Sortie): Pair<Mission, Sortie> {
+    // A PENDING sortie stays PENDING; only a PLANNED one moves, and that move is the swap's own edge.
+    if (sortie.state != SortieState.PENDING) {
+        SortieTransitions.requireTransition(sortie.state, SortieState.PENDING)
+    }
+    require(sortie.index in mission.pattern.indices) {
+        "Sortie ${sortie.index} has no letter in pattern '${mission.pattern}'"
+    }
+    val type = if (sortie.type == SortieType.RUN) SortieType.LIFT else SortieType.RUN
+    // The letter is written from the new type, so the pattern and the sortie can't end up disagreeing.
+    val letter = if (type == SortieType.RUN) 'R' else 'L'
+    val pattern = mission.pattern.mapIndexed { index, ch ->
+        if (index == sortie.index) letter else ch
+    }.joinToString("")
+    return mission.copy(pattern = pattern) to sortie.copy(
+        type = type,
+        focus = if (type == SortieType.RUN) DEFAULT_RUN_FOCUS else DEFAULT_LIFT_FOCUS,
+        focusRationale = null,
+        state = SortieState.PENDING,
+    )
 }

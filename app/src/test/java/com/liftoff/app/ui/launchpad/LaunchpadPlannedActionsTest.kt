@@ -48,9 +48,11 @@ import java.time.ZoneOffset
  * The lift card is the one where Regenerate is offered: it is drawn beside Scrub in one row, not stacked under it,
  * and neither button takes the row for itself. The run card is the other half of the same rule — an unavailable
  * Regenerate is absent, not dimmed, which is the rule PendingActions already follows — so Scrub is drawn alone and
- * full width. The re-planning line is absent from the two render-only cases: a PLANNED card's status is only ever
- * RePlanning or Idle, and here each card's newest row is closed or there is no row at all. The third case taps
- * Regenerate and reads the line back, with the plan the card already held still drawn.
+ * full width. Both cards draw the swap (§9) on its own line under that row, labelled for the type the sortie would
+ * become, so the swap is not tied to Regenerate being offered. The re-planning line is absent from the two
+ * render-only cases: a PLANNED card's status is only ever RePlanning or Idle, and here each card's newest row is
+ * closed or there is no row at all. The third case taps Regenerate and reads the line back, with the plan the card
+ * already held still drawn.
  *
  * The lift fixture has to close the QUEUED FLIGHT_PLAN row continueWithoutOutline queued, with markSucceeded,
  * before it stores the plan: storePlan leaves that row alone, so a freshly-stored PLANNED card would otherwise be
@@ -181,8 +183,9 @@ class LaunchpadPlannedActionsTest {
     // across the top, then Regenerate and Scrub as two underlined buttons in one row under it. "In one row" is what
     // the bounds show — the two overlap vertically, so neither is stacked under the other — and neither spans the
     // row on its own, which is what a weighted pair looks like against the full-width Launch above them. Regenerate
-    // is the left-hand one. No re-planning line, because this card's only generation row was closed before the plan
-    // was stored.
+    // is the left-hand one. The swap is the card's third action, on its own line below that pair, and its label
+    // names the type this lift day would become. No re-planning line, because this card's only generation row was
+    // closed before the plan was stored.
     @Test
     fun plannedLiftCardShowsRegenerateBesideScrubAndNoRePlanningLine() {
         val viewModel = runBlocking { plannedLift() }
@@ -209,6 +212,15 @@ class LaunchpadPlannedActionsTest {
         assertTrue(
             "neither button spans the row on its own: launch=$rowWidth regenerate=${regenerate.width} scrub=${scrub.width}",
             regenerate.width < rowWidth / 2f && scrub.width < rowWidth / 2f,
+        )
+
+        // The swap is this card's third action, on its own line under the pair — which is why the pair's geometry
+        // above is what it was before it. Its label names the type this lift day would become.
+        composeRule.onNodeWithText("SWAP TO RUN").assertIsDisplayed().assertIsEnabled()
+        val swap = composeRule.onNodeWithText("SWAP TO RUN").fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "the swap is under the Regenerate/Scrub row rather than beside it: swap=$swap regenerate=$regenerate scrub=$scrub",
+            swap.top > regenerate.bottom && swap.top > scrub.bottom,
         )
 
         composeRule.onNodeWithText(RE_PLANNING_LINE).assertDoesNotExist()
@@ -270,7 +282,8 @@ class LaunchpadPlannedActionsTest {
     // plannedRunCardWithRunGenerationOffShowsScrubAndNoRegenerate — DESIGN.md §7.2's other half on the card that
     // already has its plan: a RUN sortie prepared while 'Generate run plans' is off is PLANNED with the simple plan
     // advance wrote for it, so asking the coach again would be refused and the card draws no Regenerate at all —
-    // absent, not dimmed. Scrub is drawn alone, and no re-planning line, because advance queued no row for it.
+    // absent, not dimmed. Scrub is drawn alone, and no re-planning line, because advance queued no row for it. The
+    // swap is drawn here too, which is what shows it is not offered only where Regenerate is.
     @Test
     fun plannedRunCardWithRunGenerationOffShowsScrubAndNoRegenerate() {
         val viewModel = runBlocking { week("RLL") }
@@ -280,6 +293,9 @@ class LaunchpadPlannedActionsTest {
 
         composeRule.onNodeWithText("SCRUB").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithText("REGENERATE").assertDoesNotExist()
+        // The swap is offered on this card too, so it is not tied to Regenerate being offered. This run day would
+        // become a lift day, and that is what its label says.
+        composeRule.onNodeWithText("SWAP TO LIFT").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithText(RE_PLANNING_LINE).assertDoesNotExist()
 
         runBlocking {
