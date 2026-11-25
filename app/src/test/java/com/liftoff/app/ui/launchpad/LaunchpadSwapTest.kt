@@ -494,6 +494,8 @@ class LaunchpadSwapTest {
         val planned = awaitPlanned(vm, sortie)
         assertEquals(FlightPlanSource.GENERATED, planned.plan.plan.source)
         assertEquals("Swap to lift", swapLabel(planned.sortieType))
+        // The card's chips are the Mission row's letters, so this is the card whose letter is about to flip.
+        assertEquals(listOf("R", "L", "L"), planned.chips.map { it.letter })
 
         joinAction(vm.regenerate(), vm)
         val open = openPlanRowsFor(sortie.id).single()
@@ -521,7 +523,8 @@ class LaunchpadSwapTest {
         assertEquals(missionId, freshRow.missionId)
 
         // The card the owner is left looking at is the swapped one: the same sortie row, now a lift day, with the
-        // eyebrow and the label built from the type it became.
+        // eyebrow and the label built from the type it became, and the chips showing the flipped letter at the
+        // current index with the other two letters unchanged.
         val swapped = sortieDao.get(sortie.id)!!
         assertEquals(SortieType.LIFT, swapped.type)
         assertEquals(SortieState.PENDING, swapped.state)
@@ -532,6 +535,7 @@ class LaunchpadSwapTest {
         } as LaunchpadState.Pending
         assertTrue("the eyebrow: ${card.eyebrow}", card.eyebrow.endsWith("· LIFT"))
         assertEquals("Swap to run", swapLabel(card.sortieType))
+        assertEquals(listOf("L", "L", "L"), card.chips.map { it.letter })
         assertEquals(0, escaped.size)
     }
 

@@ -229,7 +229,9 @@ class LaunchpadReFlyTest {
     }
 
     // The PENDING screen with no source shows no Re-fly control at all — not a disabled one — and shows a
-    // short line saying why. Scrub is still there.
+    // short line saying why. Scrub and the swap are still there — the swap is asserted here because this is the
+    // class the gate reads that renders a PENDING card through LaunchpadContent, and LaunchpadSwapTest is view
+    // model and DAO only.
     // Decision 5 (no source plan): a short line in the action row where the button would have been.
     @Test
     fun pendingScreenShowsAMutedLineAndNoReFlyWhenNoSourceExists() {
@@ -251,6 +253,14 @@ class LaunchpadReFlyTest {
             composeRule.onNodeWithText("No earlier plan to re-fly.").assertIsDisplayed()
             composeRule.onNodeWithText("SCRUB").assertIsDisplayed()
             composeRule.onNodeWithText("SCRUB").assertIsEnabled()
+            // The Re-fly gate does not reach the swap: it is this card's last action whatever the source looks like.
+            composeRule.onNodeWithText("SWAP TO RUN").assertIsDisplayed()
+            val swap = composeRule.onNodeWithText("SWAP TO RUN").fetchSemanticsNode()
+            val scrub = composeRule.onNodeWithText("SCRUB").fetchSemanticsNode()
+            assertTrue(
+                "the swap sits on its own line below Scrub: swap=${swap.boundsInRoot} scrub=${scrub.boundsInRoot}",
+                swap.boundsInRoot.top > scrub.boundsInRoot.bottom,
+            )
 
             assertEquals(SortieState.PENDING, sortieDao.get(current.id)!!.state)
             assertNull(flightPlanDao.getPlan(current.id))
