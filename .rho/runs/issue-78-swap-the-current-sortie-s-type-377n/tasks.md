@@ -133,7 +133,7 @@ not QUEUED or RUNNING; `SortiesTest` pins the illegal-transition count).
   `LaunchpadScrubTest`, `LaunchpadReFlyTest` and `PatternTrackTest`, and the reports list all five
   names as passing. Commit.
 
-- [ ] 6. The gate, and the brief read back against the tests
+- [x] 6. The gate, and the brief read back against the tests
   Run `bash .rho/runs/issue-78-swap-the-current-sortie-s-type-377n/verify.sh` end to end and read its
   output line by line. Then read each bullet of `brief.md` and each "Must show" comment above a named
   case in verify.sh against the case that now proves it: the type and letter on the Launchpad card,
