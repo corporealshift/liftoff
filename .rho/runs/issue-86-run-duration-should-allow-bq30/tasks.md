@@ -106,7 +106,7 @@ whole gate once before reading them. Scratch tests and gate logs go under `app/b
   `LandScrubDialogTest`, `InFlightRunTest` and `InFlightViewModelTest` are green with the case counts
   they had before. Commit.
 
-- [ ] 5. The parser's seconds cases, and the Land card's Seconds field
+- [x] 5. The parser's seconds cases, and the Land card's Seconds field
   Tests only, against task 4's entry — no production change expected, and if a case exposes a rule
   task 4 left out, fix the rule in this same commit.
   Tests, in the existing files: `RunLandingTest.secondsOutsideZeroToFiftyNineAreRejectedWithTheSecondsError`
