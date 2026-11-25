@@ -124,7 +124,7 @@ whole gate once before reading them. Scratch tests and gate logs go under `app/b
   "com.liftoff.app.ui.inflight.LandScrubDialogTest"` is BUILD SUCCESSFUL with all three names in its
   report and every pre-existing case in both classes still green. Commit.
 
-- [ ] 6. Landing with seconds: the view model's refusal and the stored row
+- [x] 6. Landing with seconds: the view model's refusal and the stored row
   Tests only, against task 4's `landRun`.
   Tests, in the existing files: `InFlightViewModelTest.landRunRejectsInvalidSecondsWithoutTouchingTheManager`
   — a good distance and duration with a refused seconds returns false, raises the seconds error alone
