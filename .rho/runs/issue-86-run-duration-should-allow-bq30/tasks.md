@@ -24,7 +24,7 @@ those classes' reports, so clear that directory before any run whose reports you
 whole gate once before reading them. Scratch tests and gate logs go under `app/build/`, never
 `app/src/test`. Read `map.md` before writing: it records the traps.
 
-- [ ] 1. The recorded-duration formatter, with no callers yet
+- [x] 1. The recorded-duration formatter, with no callers yet
   `app/src/main/java/com/liftoff/app/ui/sortie/PlanFormat.kt` (119 lines) only, plus its test file:
   one formatter for a **recorded** duration — whole minutes plus whole seconds, a zero part dropped
   (`32 min`, `27 min 34 s`, `45 s`), the seconds taken through whole seconds **with rounding**, so
