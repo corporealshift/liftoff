@@ -378,7 +378,9 @@ Prompts are plain text in Markdown sections, built by a pure function: the same 
 produce the same text. Sections, in order:
 
 1. **Task.** One line: "Write the outline for this week" or "Write the Flight Plan for
-   sortie N of this week".
+   sortie 2 (index 1) of this week" — the sortie being planned named by the number the
+   screens print for it, its 1-based position, with its 0-based index beside it.
+   (amended 2026-11-21)
 2. **Instructions.** "Follow COACH.md in this workspace. Your final message must be only a
    JSON object matching the schema below."
 3. **Athlete profile.** Objectives (free text), constraints (free text), target session
@@ -387,9 +389,15 @@ produce the same text. Sections, in order:
    `db — dumbbells — pairs 5–50 lb in 5 lb steps`. Exercises may use only these ids.
    Bodyweight needs no id.
 5. **This week.**
-   - The pattern, with each sortie's index, type and state.
+   - The pattern, then each sortie named by the number the screens print for it — its
+     1-based position in the week, written plain, not the screens' zero-padded `02` — with
+     its 0-based index beside it, then its type and state:
+     `sortie 2 (index 1) — lift — pending`.
    - The outline, if it exists, with the focus of each sortie.
-   - For a Flight Plan, which sortie is being planned.
+   - For a Flight Plan, which sortie is being planned, under the same two numbers.
+   - One line telling the coach to name a sortie in its notes by its sortie number (as in
+     `sortie 2`) or by its type and focus, and never by its index — the number named outright,
+     because each sortie line now prints two. (amended 2026-11-21)
 6. **History.** Landed and scrubbed sorties from the last **28 days** (configurable), newest
    first, one block per sortie:
 
@@ -821,6 +829,24 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
+- **2026-11-21 — a prompt numbers a sortie the way the screens do (§7.4).** The coach's week
+  note had said "runs 0 and 2 stay easy … lift 3 is push/pull" about the same sorties the Mission
+  tab lists as 01–05, because every prompt line that named a sortie printed only its 0-based
+  index — `index 0 — run — pending` — and the Flight Plan's Task line read
+  `Write the Flight Plan for sortie 1 of this week` for the sortie the screens call 02. Each
+  sortie in a prompt now carries both numbers: the display number the screens print for it, its
+  1-based position in the week, written plain rather than the screens' zero-padded `02` because
+  the coach writes prose, with the 0-based index beside it — `sortie 2 (index 1) — lift —
+  pending` — the same pair on the `planning:` line and on the Task line, so a prompt no longer
+  calls one sortie two numbers. The `This week` section ends with a line telling the coach to
+  name a sortie in its notes by its sortie number (as in `sortie 2`) or by its type and focus,
+  and never by its index — the number named outright rather than "the number printed beside it",
+  which two numbers per line leave ambiguous. The rule is in the prompt rather than in
+  `coach/COACH.md`, because `coach/` is a template and the coach runs in a hand-made copy of
+  it; Decision 9 already puts the app-owned contract wording in the prompt. The reply schema's
+  0-based `index` (§7.5.1) is unchanged, so the coach still echoes the index back and the
+  validator's error lines still speak in it; only the prose it writes in its notes changes.
+  Notes stored from earlier weeks are left as the coach wrote them.
 - **2026-11-20 — §7.3 step 5: a repair of a turn that ended `completed` runs on a new session
   (§7.3, §10, §15).** Step 5 sent every repair prompt to the session that produced the refused
   reply. rho ends a session in `completed` for good, and answers `send_prompt` on it with

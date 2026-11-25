@@ -85,10 +85,10 @@ object CoachPromptBuilder {
     private fun task(input: CoachPromptInput): String =
         when (input.kind) {
             GenerationKind.OUTLINE -> section("Task", "Write the outline for this week")
-            // Plan decision 2: the stored 0-based index, which is the numbering the coach has to write
-            // in its reply and the validator already reports in.
+            // Plan decision 2 keeps the 0-based index the reply and the validator speak in; the display
+            // number rides along because this line names the sortie the coach is writing.
             GenerationKind.FLIGHT_PLAN ->
-                section("Task", "Write the Flight Plan for sortie ${input.sortieIndex} of this week")
+                section("Task", "Write the Flight Plan for ${sortieNumber(input.sortieIndex!!)} of this week")
         }
 
     // ─── 2. Instructions ────────────────────────────────────────────────────────
@@ -129,15 +129,17 @@ object CoachPromptBuilder {
     private fun thisWeek(input: CoachPromptInput): String {
         val lines = mutableListOf("pattern: ${input.week.pattern}")
         lines += input.week.sorties.map { sortie ->
-            val base = "index ${sortie.index} — ${word(sortie.type)} — ${word(sortie.state)}"
+            val base = "${sortieNumber(sortie.index)} — ${word(sortie.type)} — ${word(sortie.state)}"
             // Plan decision 0: an OUTLINE prompt shows no focus, because before the outline exists the
             // only focus a row can carry is the "Continue without outline" placeholder.
             val focus = sortie.focus?.takeIf { it.isNotBlank() }
             if (input.kind == GenerationKind.FLIGHT_PLAN && focus != null) "$base — focus: $focus" else base
         }
         input.plannedSortie?.let {
-            lines += "planning: index ${it.index} — ${word(it.type)}"
+            lines += "planning: ${sortieNumber(it.index)} — ${word(it.type)}"
         }
+        // Issue 61: the coach's own prose numbered sorties from 0 while every screen numbers them from 1.
+        lines += "In your notes, name a sortie by its sortie number (as in \"sortie 2\") or by its type and focus, never by its index."
         return section("This week", lines)
     }
 
@@ -162,7 +164,7 @@ object CoachPromptBuilder {
         return section("History", blocks.joinToString(separator = "\n\n"))
     }
 
-    /** The type is uppercase here so the header reads differently from a `index 0 — run — …` week line. */
+    /** The type is uppercase here so the header reads differently from a `sortie 2 (index 1) — lift — …` week line. */
     private fun header(sortie: PromptHistorySortie): String =
         "${sortie.date.format(DATE)} ${sortie.type.name} \"${sortie.title}\" — ${word(sortie.state)}" +
             // The reason is the one thing that says why this sortie is in the history at all.
@@ -301,6 +303,12 @@ object CoachPromptBuilder {
         }
 
     private fun blankToNone(text: String): String = if (text.isBlank()) NONE else text
+
+    /**
+     * `sortie 2 (index 1)` — the display number every screen prints for that sortie (its 1-based position
+     * in the week, unpadded because the coach writes prose) beside the 0-based index it replies with.
+     */
+    private fun sortieNumber(index: Int): String = "sortie ${index + 1} (index $index)"
 
     private fun number(value: Int?): String = value?.toString() ?: ""
 
