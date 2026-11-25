@@ -182,9 +182,6 @@ private fun draftStatusLine(status: CoachStatus, report: String?): DraftLine? =
 private val CoachStatus.patternEditable: Boolean
     get() = this != CoachStatus.Planning && this != CoachStatus.Offline
 
-private const val PLANNING_LINE = "Coach is planning the week…"
-private const val OFFLINE_LINE = "Mission Control offline — retrying"
-
 private const val RE_PLANNING_LINE = "Coach is re-planning…"
 
 @Composable

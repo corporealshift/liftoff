@@ -489,6 +489,87 @@ class InFlightScreenTest {
         )
     }
 
+    /** A LIFT sortie on a 2-set plan; [checkOneSet] records one set through the DAO before the screen is shown. */
+    private suspend fun insertLiftWithTwoOpenSets(missionId: Long, index: Int, checkOneSet: Boolean): Long {
+        val sortieId = container.database.sortieDao().insert(Sortie(
+            missionId = missionId, index = index, type = SortieType.LIFT,
+            focus = "Push", focusRationale = null, state = SortieState.IN_FLIGHT,
+            launchedAt = System.currentTimeMillis(), landedAt = null,
+            scrubReason = null, notes = null, runDistance = null, runMinutes = null
+        ))
+        container.database.flightPlanDao().writePlan(sortieId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Upper Push", estimatedMinutes = 40,
+            warmup = null, notes = null, runKind = null, targetDistance = null,
+            targetPace = null, rawJson = "{}",
+            exercises = listOf(
+                ExerciseDraft(name = "Bench Press", equipmentIds = emptyList(), restSeconds = null, notes = null, sets = listOf(
+                    SetDraft(reps = 10, seconds = null, weight = 35.0),
+                    SetDraft(reps = 10, seconds = null, weight = 35.0)
+                ))
+            ),
+            segments = emptyList()
+        ))
+        if (checkOneSet) {
+            val setId = container.database.flightPlanDao().getPlan(sortieId)!!.exercises.first().sets.first().id
+            container.database.flightPlanDao().checkSet(setId)
+        }
+        return sortieId
+    }
+
+    // ── footerOffersBackToLaunchpadOnlyWhileNothingIsRecorded ────────
+    // The footer offers Back to Launchpad while nothing on the plan is recorded and drops it once a set
+    // is. Two LIFT sorties on the same 2-set plan in one composition: the untouched one, then the one with
+    // a set checked off through the DAO. Land and Scrub are offered either way.
+
+    @Test
+    fun footerOffersBackToLaunchpadOnlyWhileNothingIsRecorded() {
+        runBlocking {
+            val settingsStore = com.liftoff.app.settings.SettingsStore(
+                androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
+                    File(context.cacheDir, "settings.preferences_pb")
+                }
+            )
+            val manager = MissionManager(container.database, settingsStore, clock = clock, zone = { ZoneOffset.UTC })
+            val mission = manager.onAppOpen()
+
+            val untouchedId = insertLiftWithTwoOpenSets(mission.id, index = 1, checkOneSet = false)
+            val recordedId = insertLiftWithTwoOpenSets(mission.id, index = 2, checkOneSet = true)
+
+            var sortieId by mutableStateOf(untouchedId)
+
+            composeRule.setContent {
+                com.liftoff.app.ui.theme.LiftoffTheme {
+                    key(sortieId) {
+                        InFlightScreen(
+                            sortieId = sortieId,
+                            container = container,
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("00/02\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("BACK TO LAUNCHPAD", ignoreCase = false).assertExists()
+            composeRule.onNodeWithText("BACK TO LAUNCHPAD", ignoreCase = false).assertIsDisplayed()
+
+            composeRule.runOnIdle { sortieId = recordedId }
+
+            composeRule.waitUntil(5_000) {
+                composeRule.onAllNodesWithText("01/02\nSETS", ignoreCase = false).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertTrue(
+                "a sortie with a recorded set must not offer Back to Launchpad",
+                composeRule.onAllNodesWithText("BACK TO LAUNCHPAD", ignoreCase = false).fetchSemanticsNodes().isEmpty(),
+            )
+            // The un-launch left the footer, not the rest of it.
+            composeRule.onNodeWithText("LAND", ignoreCase = false).assertExists()
+            composeRule.onNodeWithText("SCRUB", ignoreCase = false).assertExists()
+        }
+    }
+
     // ── footerAddSetAndSkipUnskip ────────────────────────────────────
     // Tapping '+ Add set' on the active card adds one more set to that exercise
     // and increases the counter total. Tapping 'Skip' then 'Unskip' on an

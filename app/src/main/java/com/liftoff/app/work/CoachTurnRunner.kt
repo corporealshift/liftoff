@@ -51,6 +51,11 @@ data class TurnOutcome(
     val sessionId: String,
     val cursor: String?,
     val end: TurnEnd,
+    /**
+     * What the daemon said the turn ended for, in its own words. Null for an end this call decided
+     * (its limit) and for a state_change that named no reason, so a caller can tell the two apart.
+     */
+    val endReason: String?,
     val lastAssistantText: String?,
 )
 
@@ -108,6 +113,7 @@ suspend fun runCoachTurn(
     var lastAssistantText: String? = null
     var end: TurnEnd? = null
     var endId = ""
+    var endReason: String? = null
     val seen = HashSet<String>()
     // Non-null only while re-reading from the prompt's own id.
     var actedOnAtOrBefore: String? = null
@@ -121,10 +127,17 @@ suspend fun runCoachTurn(
         }
     }
 
-    /** A paused or error the stored cursor had already reached was acted on by the attempt that read it. */
+    /**
+     * A paused the stored cursor had already reached was acted on by the attempt that read it, so reading
+     * it again must not end this turn a second time.
+     *
+     * Only paused: an error is never handed back to the daemon, so no earlier attempt can have acted on
+     * one, and a cursor sitting at an error has to meet that error rather than wait out its limit. If
+     * error ever becomes resumable again, this check has to come back for it.
+     */
     fun alreadyActedOn(target: TurnEnd, id: String): Boolean {
         val at = actedOnAtOrBefore ?: return false
-        return id <= at && (target == TurnEnd.Paused || target == TurnEnd.Error)
+        return id <= at && target == TurnEnd.Paused
     }
 
     /** Handles [event], and reports whether it is the end this turn stops at. */
@@ -142,13 +155,15 @@ suspend fun runCoachTurn(
             }
 
             EventType.STATE_CHANGE -> {
-                val target = event.payload<StateChangeData>()?.to?.let { TURN_ENDS[it] }
+                val change = event.payload<StateChangeData>()
+                val target = change?.to?.let { TURN_ENDS[it] }
                 // Compared against the prompt's own id, so a state_change from before it never ends this turn.
                 // Only the first one after the prompt is the end; a later one is a state the turn already left.
                 if (target != null && event.id > promptId && !alreadyActedOn(target, event.id)) {
                     if (end == null) {
                         end = target
                         endId = event.id
+                        endReason = change?.reason?.takeIf { it.isNotEmpty() }
                     }
                     return true
                 }
@@ -218,7 +233,7 @@ suspend fun runCoachTurn(
 
     // No end found inside the limit is the timeout, and the cursor that comes back is the furthest
     // event this attempt actually read, so a retry picks up here.
-    TurnOutcome(session, lastCursor, end ?: TurnEnd.TimedOut, lastAssistantText)
+    TurnOutcome(session, lastCursor, end ?: TurnEnd.TimedOut, endReason, lastAssistantText)
 }
 
 /** Ends a session. The runner never calls this, not even on a timeout: stopping is the caller's. */

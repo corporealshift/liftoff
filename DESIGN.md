@@ -164,6 +164,10 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
 ### 5.1 Sortie states
 
 ```
+                                  ┌────────────────────┐
+                                  │ un-launch          │
+                                  │ (nothing recorded) │
+                                  ▼                    │
 PENDING ──generation stored──► PLANNED ──launch──► IN_FLIGHT ──land──► LANDED
    │                              │                    │
    └──────────────scrub───────────┴────────scrub───────┴──► SCRUBBED
@@ -175,6 +179,8 @@ PENDING ──generation stored──► PLANNED ──launch──► IN_FLIGHT
   regenerate it from here, which replaces the plan.
 - **IN_FLIGHT:** at most one sortie, across all Missions, is in flight at a time.
   Scrubbing a sortie that is in flight keeps the sets already checked as a partial record.
+  Un-launching it returns it to PLANNED with `launchedAt` cleared and its Flight Plan
+  untouched, and is offered only while nothing on the sortie is recorded (amended 2026-11-02).
 - **LANDED:** stores the landed time and the actual sets. It cannot be edited after
   landing, apart from its notes.
 
@@ -221,6 +227,12 @@ actual ones, and the plan is marked `source = REFLY`. Re-fly works fully offline
   twinge".
 - **Land:** finishes the sortie. Sets left unchecked are recorded as not done. If there are
   any, the app asks for confirmation before landing.
+- **Back to Launchpad:** returns the sortie to PLANNED, so the Launchpad's existing Regenerate
+  can write a different plan for the same sortie. Offered only while nothing on the sortie is
+  recorded — no set checked off, edited or skipped, and no actual reps, seconds or weight —
+  and always on a run or a sortie with no checklist, whose distance and minutes are only
+  entered at Land. It clears `launchedAt` and leaves the Flight Plan and the notes as they
+  were. No confirmation, because nothing is lost (amended 2026-11-02).
 - **Every action is written to Room immediately.** If the process is killed, the In-Flight
   screen comes back exactly as it was left.
 - **No network is needed anywhere in this flow.**
@@ -326,8 +338,15 @@ dies.
      validate it (§7.6).
      - **Valid:** store the result in one transaction and mark the generation `SUCCEEDED`.
      - **Invalid, with fewer than 2 repairs used:** increment `attempt` and send a repair
-       prompt in the **same session**: "Your reply was not valid: <list of errors>. Reply
-       again with only the corrected JSON object." Then return to step 4.
+       prompt. A turn that ended `idle` is repaired in the **same session**: "Your reply was
+       not valid: <list of errors>. Reply again with only the corrected JSON object." A turn
+       that ended `completed` is repaired on a **new session**: `completed` is a session nabu
+       has already ended, and it answers `nabu.session.send_prompt` with `INVALID_TRANSITION`, a
+       permanent code, so a repair sent there ends the generation instead of asking for a
+       better reply. The replacement is created with the same workspace, labels and
+       description as the session it replaces, with no cursor carried over, and is handed the
+       original prompt, the refused reply and the same list of errors: a session with no
+       history has no reply in it to be pointed at. Then return to step 4. (amended 2026-11-20)
      - **Invalid, with 2 repairs used:** mark the generation `FAILED`, reason "invalid
        output".
    - **`blocked`:** the coach asked a question or a gated call is waiting. Mark the
@@ -335,8 +354,12 @@ dies.
      daemon sends a `nabu.rpc.ui.ask` or `nabu.rpc.permission.request` to Liftoff while it
      is subscribed, Liftoff answers with `"Decide yourself; there is nobody to ask."` or
      `deny` respectively, and keeps waiting.
-   - **`paused` or `error`:** a retryable failure, so return `Result.retry()`. Before the
-     retry, if the session is `paused`, call `nabu.session.resume`.
+   - **`paused`:** a retryable failure, so return `Result.retry()`. Before the retry, call
+     `nabu.session.resume`. (amended 2026-10-31)
+   - **`error`:** the daemon ended the session for good, so it is not a retryable failure.
+     Mark the generation `FAILED`, reason the `state_change`'s own `reason`, or
+     "coach turn failed" when it named none, and give the session up with
+     `nabu.session.stop`. (amended 2026-10-31)
 6. **Clean up.** On `SUCCEEDED` or permanent `FAILED`, call `nabu.session.stop`. Even if
    that call fails, nabu archives sessions untouched for 3 days on its own.
 
@@ -575,7 +598,9 @@ The visual design is direction B, "Space Age": colors, type, components and mock
   - **Mission closed:** the week's track and how many sorties landed, with **Start next
     week** (§4.2) while the closed week is the calendar week. (amended 2026-11-08)
   - **No Mission this week:** the draft, with editable pattern chips and **Confirm**.
-- **In-Flight.** The checklist described in §6.
+- **In-Flight.** The checklist described in §6, with **Land**, **Back to Launchpad** and
+  **Scrub** in its footer, in that order; Back to Launchpad is drawn only while nothing on the
+  sortie is recorded, absent rather than dimmed (amended 2026-11-02).
 - **Mission.** This week's pattern, the outline and its notes, and each sortie with its
   state. Tapping a sortie shows its plan, or for a landed sortie its record. A confirmed
   week offers **Reset week** (§4.2), behind a confirmation that says how many landed or
@@ -594,7 +619,7 @@ The visual design is direction B, "Space Age": colors, type, components and mock
 |---|---|
 | Daemon unreachable (PC off, Tailscale down) | The generation retries with backoff; the Launchpad says "Mission Control offline". Re-fly is available. |
 | Protocol major version mismatch | Permanent failure: "Liftoff speaks nabu protocol 1.x, the daemon speaks N.x". Not retried. |
-| Invalid output | Up to 2 in-session repairs, then FAILED with the last error list visible, plus Retry and Re-fly. |
+| Invalid output | Up to 2 repairs — in the **same session** when the refused turn ended `idle`, on a **new session** when it ended `completed` (§7.3 step 5) — then FAILED with the last error list visible, plus Retry and Re-fly. (amended 2026-11-20) |
 | Coach blocks on a question or permission | FAILED, reason "coach needed input"; the owner fixes COACH.md or the config. |
 | Phone worker killed mid-generation | Resumes the same nabu session from the stored cursor. |
 | Daemon restarted mid-generation | nabu pauses the session; the worker resumes it (§7.3 step 5). |
@@ -768,7 +793,7 @@ Each milestone ends with the project gate passing.
 | 7 | Logging | Pre-filled sets, one tap to check, edit only on deviation | Exercise-level checkboxes (no load data, no progression); full log with RPE (too much typing at the gym) |
 | 8 | Runs | Always in rotation; LLM run plans behind a toggle | Runs ignored (no fatigue awareness); always generated (owner wants it optional) |
 | 9 | Output contract | Lives in the prompt, owned and versioned by the app; COACH.md holds judgment only | Schema in COACH.md (app and workspace could disagree silently) |
-| 10 | Validation | On the phone, with in-session repair (≤2) | nabu `verify` gate on a written file (only runs on file changes; phone owns equipment and units) |
+| 10 | Validation | On the phone, with repair (≤2) — in the refused turn's session, or on a new session when that turn ended `completed` (amended 2026-11-20) | nabu `verify` gate on a written file (only runs on file changes; phone owns equipment and units) |
 | 11 | Source of truth | Phone (Room); every prompt carries the history it needs | History kept in the coach workspace (needs the PC to read your own log; not offline) |
 | 12 | nabu client code | Copy `DaemonClient` and protocol types | Shared Kotlin library (premature for two clients) |
 | 13 | Token storage | App-private DataStore, as nabu's client does | Keystore encryption (inconsistent with nabu; the daemon is only on loopback and Tailscale) |
@@ -796,6 +821,22 @@ Each milestone ends with the project gate passing.
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
 
+- **2026-11-20 — §7.3 step 5: a repair of a turn that ended `completed` runs on a new session
+  (§7.3, §10, §15).** Step 5 sent every repair prompt to the session that produced the refused
+  reply. rho ends a session in `completed` for good, and answers `send_prompt` on it with
+  `INVALID_TRANSITION` — a permanent code, so Liftoff does not retry it — so a generation whose
+  turn ended that way failed with the daemon's message, "session has ended (completed); start a
+  new session instead", instead of the validator's errors, and never reached its second repair.
+  Step 5 now splits those two ends the way it splits `paused` and `error`: `idle` keeps the
+  same-session repair, whose prompt points at a reply still in that session's own history;
+  `completed` gets a session of its own, created with the same workspace, labels and description
+  as the one it replaces and with no cursor carried over, and is handed the original prompt, the
+  refused reply and the error list, because a session with no history has no reply to look at.
+  The budget is unchanged — it is counted on the `Generation` row, so a `completed` turn still
+  gets both rounds and a generation that runs out still ends FAILED with the last refused reply's
+  error list. The row's session id follows the turns, so it names the session that produced the
+  accepted reply: that is what the Launchpad's link into rho opens and what a cancel stops.
+  ARCHITECTURE.md's invariant 8 is reworded to match.
 - **2026-11-08 — §4.2 and §9: next week can be started early.** §4.2 said a Mission is never
   created ahead of its week. The owner finished a week early and wanted to plan the next one
   on the Sunday, but a closed week left the Launchpad with nothing to do until Monday. Once the current week is `CLOSED`, the
@@ -806,12 +847,34 @@ inline in the section they affect: what changed, when, and why.
   the calendar. A sortie flown on the Sunday counts toward the new week, by the owner's
   choice over holding Launch until Monday. Never more than one week ahead, and there is no
   undo: the early draft is the one Monday would have made, and Reset week works on it.
+- **2026-11-02 — un-launch: an in-flight sortie can go back to PLANNED (§5.1, §6, §9).**
+  In-Flight offered only Land and Scrub, so after Launch the only way to a different plan for
+  that sortie was Scrub, which ended it. In-Flight now also offers **Back to Launchpad**: it
+  returns the current sortie of an ACTIVE Mission from IN_FLIGHT to PLANNED and clears
+  `launchedAt`, so the Launchpad's existing Launch, Regenerate and Scrub apply to the same
+  sortie and no new generation path is needed. It is offered only while nothing on the sortie
+  is recorded — no set checked off, edited or skipped, and no actual reps, seconds or weight
+  on any set of the plan — and always for a run or a sortie with no checklist, whose distance
+  and minutes are only entered at Land. The Flight Plan, its exercises, its sets and every note
+  are left exactly as they were, nothing is queued with the coach, and the sortie stays the
+  current one. No confirmation dialog, because nothing is lost; once anything is recorded the
+  action is absent rather than dimmed, matching the Launchpad's rule for unavailable actions.
 - **2026-10-31 — §4.2 and §9 add Reset week.** The owner set up equipment and objectives
   after the first week was confirmed, and wanted the whole week redone with them; nothing
   short of that redoes the outline. Resetting deletes the week rather than keeping its
   landed sorties, by the owner's choice: sorties live inside their week's Mission and there
   is one Mission per week, so keeping them would mean a second home for history. The
   deleted sorties leave the Landed history and the coach's prompts with it.
+- **2026-10-31 — §7.3 step 5: a turn that ends `error` is no longer retried.** rho treats
+  `error` as terminal: `rho.session.resume` takes only a paused session, so the resume
+  step 5 asked for was refused, the worker swallowed the refusal, and `Result.retry()` put
+  the same generation back in the queue. The next attempt sent its prompt under the same
+  `client_id`, which the daemon dedupes, and its stored cursor already sat past the `error`
+  event, so the turn waited for an ending that never came: the row stayed RUNNING and the
+  Launchpad said "Coach is planning…" forever. Step 5 now splits the two ends. `paused`
+  still retries, resuming the session first; `error` ends the generation FAILED with the
+  `state_change`'s own reason, and the session is stopped. Liftoff's own 20-minute turn
+  limit stays on the retry path: it is Liftoff's clock, not a verdict from the daemon.
 - **2026-10-20 — the harness was renamed: `nabu` is now `rho`.** The daemon, its sessions and
   its protocol methods are the same things under the new name, so every `nabu` in §1–§16 reads as
   `rho`. Its methods carry the `rho.` prefix (`rho.hello`, `rho.session.create`,

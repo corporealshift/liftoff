@@ -322,7 +322,9 @@ class LaunchpadSortieStatusTest {
 
             val before = emissions.size
             generationDao.insert(planRow(week.mission.id, week.current.id, GenerationStatus.QUEUED, at(2)))
-            val rePlanning = awaitPlanned { it.generationStatus is SortieGenerationStatus.RePlanning }
+            // from = before: storePlan left a Planned card behind while its row was still open, and that card was
+            // already re-planning, so only a card emitted after this write can answer for it.
+            val rePlanning = awaitPlanned(from = before) { it.generationStatus is SortieGenerationStatus.RePlanning }
             assertTrue("one new emission out of the one collection", emissions.size > before)
             assertEquals("the same sortie, not a re-subscribed card", week.current.id, rePlanning.sortieId)
             assertEquals(week.current.index, rePlanning.sortieIndex)

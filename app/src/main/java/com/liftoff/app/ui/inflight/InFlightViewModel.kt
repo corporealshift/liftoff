@@ -169,6 +169,29 @@ class InFlightViewModel(
         }
     }
 
+    /**
+     * Back to PLANNED with its launch time cleared, so the Launchpad offers Launch, Regenerate and Scrub
+     * again on the same sortie. The plan and its sets are untouched and nothing is queued.
+     */
+    fun unlaunch(onDone: () -> Unit) {
+        if (left.get()) return
+        if (busy) return
+        busy = true
+        message.value = null
+        scope.launch {
+            try {
+                missionManager.unlaunch(sortieId)
+                leaveOnce(onDone)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = "Couldn't un-launch this sortie."
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     // A generation the enqueue could not schedule stays QUEUED in Room; it is not a failed land or scrub.
     private fun enqueueQuietly(generationId: Long) {
         try {

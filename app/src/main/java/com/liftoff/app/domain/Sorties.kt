@@ -11,6 +11,7 @@ object SortieTransitions {
         SortieState.PLANNED to SortieState.SCRUBBED,
         SortieState.IN_FLIGHT to SortieState.LANDED,
         SortieState.IN_FLIGHT to SortieState.SCRUBBED,
+        SortieState.IN_FLIGHT to SortieState.PLANNED,
     )
 
     fun canTransition(from: SortieState, to: SortieState): Boolean =
@@ -39,6 +40,12 @@ fun requireNoneInFlight(inFlight: List<Sortie>) {
 fun launch(sortie: Sortie, at: Long): Sortie {
     SortieTransitions.requireTransition(sortie.state, SortieState.IN_FLIGHT)
     return sortie.copy(state = SortieState.IN_FLIGHT, launchedAt = at)
+}
+
+fun unlaunch(sortie: Sortie): Sortie {
+    // Not markPlanned: that copy leaves launchedAt set, and an un-launched sortie must read as never launched.
+    SortieTransitions.requireTransition(sortie.state, SortieState.PLANNED)
+    return sortie.copy(state = SortieState.PLANNED, launchedAt = null)
 }
 
 fun land(sortie: Sortie, at: Long): Sortie {

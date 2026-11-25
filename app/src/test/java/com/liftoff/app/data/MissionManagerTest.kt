@@ -4,12 +4,14 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.liftoff.app.coach.CoachFixtures
+import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.settings.SettingsStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -872,5 +874,291 @@ class MissionManagerTest {
         assertEquals(runningRow.id, reportedAgain)
         assertEquals(listOf(runningRow), flightPlanRowsFor(sortieAt(mId, 2).id))
         assertEquals(2, flightPlanRows(mId).size)
+    }
+
+    // ── un-launch ─────────────────────────────────────────────────────────────
+
+    /** A sortie already in flight, with its launch time on it: manager.launch would refuse a non-current one. */
+    private suspend fun seedSortieInFlight(missionId: Long, index: Int, type: SortieType): Long {
+        val id = insertSortie(missionId, index, type, "easy", SortieState.IN_FLIGHT)
+        sortieDao.update(sortieDao.get(id)!!.copy(launchedAt = 100L))
+        return id
+    }
+
+    /** Two cards, two OPEN sets on each — the checklist In-Flight shows before anything is recorded. */
+    private suspend fun seedOpenPlan(sortieId: Long, cards: Int = 2) {
+        flightPlanDao.writePlan(sortieId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Un-launch plan", estimatedMinutes = null,
+            warmup = null, notes = null, runKind = null, targetDistance = null,
+            targetPace = null, rawJson = "{}",
+            exercises = (0 until cards).map { card ->
+                com.liftoff.app.data.ExerciseDraft(
+                    name = "Card $card", equipmentIds = emptyList(), restSeconds = null, notes = null,
+                    sets = listOf(
+                        com.liftoff.app.data.SetDraft(reps = 10, seconds = null, weight = null),
+                        com.liftoff.app.data.SetDraft(reps = 8, seconds = null, weight = null)
+                    )
+                )
+            },
+            segments = emptyList()
+        ))
+    }
+
+    /** Its own ACTIVE Mission, its only sortie in flight holding an all-OPEN checklist. */
+    private suspend fun seedInFlightWithOpenPlan(weekStart: LocalDate, type: SortieType): Long {
+        val mId = insertMission(weekStart, "R", MissionStatus.ACTIVE)
+        val sId = seedSortieInFlight(mId, 0, type)
+        seedOpenPlan(sId)
+        return sId
+    }
+
+    /** An un-launch that must be refused, with every row of the four tables left exactly as it was. */
+    private suspend fun assertUnlaunchRefused(sortieId: Long, refusedAs: String) {
+        val sorties = sortieDao.getAll()
+        val plans = flightPlanDao.getAllPlans()
+        val exercises = flightPlanDao.getAllPlannedExercises()
+        val sets = flightPlanDao.getAllPlannedSets()
+        val generations = db.generationDao().getAll()
+
+        try {
+            manager.unlaunch(sortieId)
+            throw AssertionError("Should have thrown $refusedAs")
+        } catch (expected: IllegalStateException) {
+            // Expected.
+        }
+
+        assertEquals(sorties, sortieDao.getAll())
+        assertEquals(plans, flightPlanDao.getAllPlans())
+        assertEquals(exercises, flightPlanDao.getAllPlannedExercises())
+        assertEquals(sets, flightPlanDao.getAllPlannedSets())
+        assertEquals(generations, db.generationDao().getAll())
+    }
+
+    // The action's whole point: the same sortie back to PLANNED with no launch time on it, and the Flight Plan
+    // it holds left exactly as it was — same rows, same planned values, nothing added or removed.
+    @Test
+    fun unlaunchReturnsAnUntouchedInFlightLiftToPlannedWithLaunchedAtNull() = runBlocking {
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "L", MissionStatus.ACTIVE)
+        val sId = seedSortieInFlight(mId, 0, SortieType.LIFT)
+        seedOpenPlan(sId)
+        sortieDao.update(sortieDao.get(sId)!!.copy(notes = "shoulder is sore"))
+        val plan = flightPlanDao.getPlan(sId)!!
+        flightPlanDao.saveExerciseNote(plan.exercises[0].plannedExercise.id, "light weight today")
+        val addedSetId = flightPlanDao.addSet(plan.exercises[1].plannedExercise.id)
+
+        val detail = flightPlanDao.getPlan(sId)!!
+        val plans = flightPlanDao.getAllPlans()
+        val exercises = flightPlanDao.getAllPlannedExercises()
+        val sets = flightPlanDao.getAllPlannedSets()
+        assertEquals(100L, sortieDao.get(sId)!!.launchedAt)
+
+        manager.unlaunch(sId)
+
+        val after = sortieDao.get(sId)!!
+        assertEquals(SortieState.PLANNED, after.state)
+        assertNull("an un-launched sortie reads as never launched", after.launchedAt)
+        assertEquals("shoulder is sore", after.notes)
+        assertNull(after.landedAt)
+        assertNull(after.scrubReason)
+
+        assertEquals(plans, flightPlanDao.getAllPlans())
+        assertEquals(exercises, flightPlanDao.getAllPlannedExercises())
+        assertEquals(sets, flightPlanDao.getAllPlannedSets())
+        assertEquals(detail, flightPlanDao.getPlan(sId))
+        assertEquals("light weight today", flightPlanDao.getPlan(sId)!!.exercises[0].plannedExercise.userNotes)
+        val added = flightPlanDao.getAllPlannedSets().single { it.id == addedSetId }
+        assertEquals(SetStatus.OPEN, added.status)
+        assertNull(added.actualReps)
+
+        // Still the current sortie, and nothing was queued.
+        assertEquals(sId, currentSortie(sortieDao.getForMission(mId))!!.id)
+        assertEquals(0L, db.generationDao().countAll())
+    }
+
+    // Every way a set becomes training data refuses the un-launch, including a set recorded on a card In-Flight
+    // is not showing — the case the guard reads the whole plan for.
+    @Test
+    fun unlaunchIsRefusedOnceAnySetIsRecorded() = runBlocking {
+        val checked = seedInFlightWithOpenPlan(LocalDate.of(2026, 1, 5), SortieType.LIFT)
+        flightPlanDao.checkSet(flightPlanDao.getPlan(checked)!!.exercises[0].sets[0].id)
+        assertUnlaunchRefused(checked, "with a set checked off")
+
+        val edited = seedInFlightWithOpenPlan(LocalDate.of(2026, 1, 6), SortieType.LIFT)
+        flightPlanDao.saveSetEdit(flightPlanDao.getPlan(edited)!!.exercises[0].sets[1].id, 12, 30, 40.5)
+        assertUnlaunchRefused(edited, "with a set's actuals edited")
+
+        val skipped = seedInFlightWithOpenPlan(LocalDate.of(2026, 1, 7), SortieType.LIFT)
+        flightPlanDao.skipSet(flightPlanDao.getPlan(skipped)!!.exercises[0].sets[1].id)
+        assertUnlaunchRefused(skipped, "with a set skipped")
+
+        val laterCard = seedInFlightWithOpenPlan(LocalDate.of(2026, 1, 8), SortieType.LIFT)
+        flightPlanDao.checkSet(flightPlanDao.getPlan(laterCard)!!.exercises[1].sets[0].id)
+        assertUnlaunchRefused(laterCard, "with a set recorded on a later exercise")
+
+        val skippedCard = seedInFlightWithOpenPlan(LocalDate.of(2026, 1, 9), SortieType.LIFT)
+        flightPlanDao.skipExercise(flightPlanDao.getPlan(skippedCard)!!.exercises[1].plannedExercise.id)
+        assertEquals(SetStatus.OPEN, flightPlanDao.getPlan(skippedCard)!!.exercises[0].sets[0].status)
+        assertUnlaunchRefused(skippedCard, "with a later exercise skipped while the first card is all OPEN")
+
+        for (id in listOf(checked, edited, skipped, laterCard, skippedCard)) {
+            val sortie = sortieDao.get(id)!!
+            assertEquals(SortieState.IN_FLIGHT, sortie.state)
+            assertEquals(100L, sortie.launchedAt)
+        }
+    }
+
+    @Test
+    fun unlaunchIsRefusedForANonCurrentSortieOrANonActiveMission() = runBlocking {
+        // The in-flight sortie is not the current one: sortie 0 is PLANNED and comes first.
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RR", MissionStatus.ACTIVE)
+        val current = insertSortie(mId, 0, SortieType.RUN, "easy", SortieState.PLANNED)
+        val inFlight = seedSortieInFlight(mId, 1, SortieType.RUN)
+        seedOpenPlan(inFlight)
+        assertEquals(current, currentSortie(sortieDao.getForMission(mId))!!.id)
+        assertUnlaunchRefused(inFlight, "for a sortie that is not the current one")
+
+        val draft = insertMission(LocalDate.of(2026, 1, 13), "R", MissionStatus.DRAFT)
+        assertUnlaunchRefused(seedSortieInFlight(draft, 0, SortieType.RUN), "for a DRAFT Mission")
+
+        val closed = insertMission(LocalDate.of(2026, 1, 14), "R", MissionStatus.CLOSED)
+        assertUnlaunchRefused(seedSortieInFlight(closed, 0, SortieType.RUN), "for a CLOSED Mission")
+    }
+
+    // PLANNED and PENDING are the states a current sortie can hold that isn't IN_FLIGHT, so they are the cases
+    // that reach the state check; a LANDED or SCRUBBED sortie is never the current one at all.
+    @Test
+    fun unlaunchIsRefusedForASortieThatIsNotInFlight() = runBlocking {
+        for ((week, state) in listOf(0 to SortieState.PLANNED, 1 to SortieState.PENDING)) {
+            val mId = insertMission(LocalDate.of(2026, 1, 12).plusWeeks(week.toLong()), "RR", MissionStatus.ACTIVE)
+            val sId = insertSortie(mId, 0, SortieType.LIFT, "easy", state)
+            seedOpenPlan(sId)
+            assertEquals(sId, currentSortie(sortieDao.getForMission(mId))!!.id)
+            assertUnlaunchRefused(sId, "for a $state current sortie")
+        }
+
+        for ((week, state) in listOf(2 to SortieState.LANDED, 3 to SortieState.SCRUBBED)) {
+            val mId = insertMission(LocalDate.of(2026, 1, 12).plusWeeks(week.toLong()), "RR", MissionStatus.ACTIVE)
+            val terminal = insertSortie(mId, 0, SortieType.RUN, "easy", state)
+            val next = insertSortie(mId, 1, SortieType.LIFT, "easy", SortieState.PLANNED)
+            assertEquals(next, currentSortie(sortieDao.getForMission(mId))!!.id)
+            assertUnlaunchRefused(terminal, "for a $state sortie")
+        }
+    }
+
+    // Not only a LIFT with a checklist: a run in flight, a sortie with no plan row at all, and a plan with no
+    // exercises are each un-launchable.
+    @Test
+    fun anInFlightRunOrASortieWithNoChecklistIsUnLaunchable() = runBlocking {
+        val runWeek = insertMission(LocalDate.of(2026, 1, 5), "R", MissionStatus.ACTIVE)
+        val runId = seedSortieInFlight(runWeek, 0, SortieType.RUN)
+        seedOpenPlan(runId)
+        assertEquals(100L, sortieDao.get(runId)!!.launchedAt)
+        manager.unlaunch(runId)
+        assertEquals(SortieState.PLANNED, sortieDao.get(runId)!!.state)
+        assertNull(sortieDao.get(runId)!!.launchedAt)
+
+        val bareWeek = insertMission(LocalDate.of(2026, 1, 6), "R", MissionStatus.ACTIVE)
+        val bareId = seedSortieInFlight(bareWeek, 0, SortieType.RUN)
+        assertNull(flightPlanDao.getPlan(bareId))
+        manager.unlaunch(bareId)
+        assertEquals(SortieState.PLANNED, sortieDao.get(bareId)!!.state)
+        assertNull(sortieDao.get(bareId)!!.launchedAt)
+
+        val emptyWeek = insertMission(LocalDate.of(2026, 1, 7), "L", MissionStatus.ACTIVE)
+        val emptyId = seedSortieInFlight(emptyWeek, 0, SortieType.LIFT)
+        flightPlanDao.writePlan(emptyId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "No exercises", estimatedMinutes = null,
+            warmup = null, notes = null, runKind = null, targetDistance = null,
+            targetPace = null, rawJson = "{}",
+            exercises = emptyList(), segments = emptyList()
+        ))
+        manager.unlaunch(emptyId)
+        assertEquals(SortieState.PLANNED, sortieDao.get(emptyId)!!.state)
+        assertNull(sortieDao.get(emptyId)!!.launchedAt)
+
+        assertEquals(0L, db.generationDao().countAll())
+    }
+
+    /** The week a regenerate is asked on, built the way the Launchpad builds it: settings first, because
+     * onAppOpen reads defaultPattern for the new Mission, then the week activated with no outline. The pattern
+     * starts with L so the current sortie is a LIFT, which the run toggle never refuses. */
+    private suspend fun activeWeekForUnLaunch(): Pair<Long, Sortie> {
+        configureCoach()
+        settingsStore.setDefaultPattern("LRL")
+        val mission = manager.onAppOpen()
+        manager.continueWithoutOutline(mission.id)
+        return mission.id to sortieAt(mission.id, 0)
+    }
+
+    /** The coach's plan that moves the PENDING sortie to PLANNED, which is what makes it launchable. */
+    private suspend fun planTheSortie(sortieId: Long) {
+        assertEquals(
+            StoreOutcome.Stored,
+            manager.storePlan(
+                sortieId,
+                CoachFixtures.validReply(CoachFixtures.LIFT_PLAN, CoachFixtures.LIFT_CONTEXT)
+            )
+        )
+        assertEquals(SortieState.PLANNED, sortieDao.get(sortieId)!!.state)
+    }
+
+    // Launch on the sortie an un-launch put back: the same row, taken in flight a second time.
+    @Test
+    fun launchWorksAgainAfterUnlaunch() = runBlocking {
+        val (mId, sortie) = activeWeekForUnLaunch()
+        assertEquals(SortieType.LIFT, sortie.type)
+        planTheSortie(sortie.id)
+
+        manager.launch(sortie.id)
+        val first = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.IN_FLIGHT, first.state)
+        assertNotNull(first.launchedAt)
+
+        manager.unlaunch(sortie.id)
+        assertEquals(SortieState.PLANNED, sortieDao.get(sortie.id)!!.state)
+        assertNull(sortieDao.get(sortie.id)!!.launchedAt)
+
+        manager.launch(sortie.id)
+
+        val again = sortieDao.get(sortie.id)!!
+        assertEquals("the same sortie row, not a replacement", sortie.id, again.id)
+        assertEquals(SortieState.IN_FLIGHT, again.state)
+        assertNotNull("a re-launch writes a launch time", again.launchedAt)
+        assertEquals(sortie.id, currentSortie(sortieDao.getForMission(mId))!!.id)
+    }
+
+    // Regenerate on that same sortie: accepted, one QUEUED FLIGHT_PLAN row for it, and the sortie still PLANNED
+    // with the plan it already holds. Activating this week queued a FLIGHT_PLAN row that nothing closed, so the
+    // ids the ask hands back to supersede are exactly that row's.
+    @Test
+    fun regenerateFlightPlanIsAcceptedAfterUnlaunch() = runBlocking {
+        val (mId, sortie) = activeWeekForUnLaunch()
+        assertEquals(SortieType.LIFT, sortie.type)
+        planTheSortie(sortie.id)
+        manager.launch(sortie.id)
+        manager.unlaunch(sortie.id)
+
+        val openBefore = db.generationDao().getOpenFlightPlanForSortie(sortie.id).map { it.id }
+        assertEquals(1, openBefore.size)
+        val planBefore = flightPlanDao.getPlan(sortie.id)!!
+
+        val queued = mutableListOf<Long>()
+        val superseded = manager.regenerateFlightPlan(sortie.id) { queued.add(it) }
+
+        assertEquals(openBefore, superseded)
+        assertEquals(1, queued.size)
+        val id = queued.single()
+        val row = db.generationDao().get(id)
+            ?: throw AssertionError("queued id $id has no generation row")
+        assertEquals(GenerationKind.FLIGHT_PLAN, row.kind)
+        assertEquals(GenerationStatus.QUEUED, row.status)
+        assertEquals(mId, row.missionId)
+        assertEquals(sortie.id, row.sortieId)
+        assertFalse("the row this ask queued is not one it superseded", id in superseded)
+
+        val after = sortieDao.get(sortie.id)!!
+        assertEquals(SortieState.PLANNED, after.state)
+        assertNull(after.launchedAt)
+        assertEquals(planBefore, flightPlanDao.getPlan(sortie.id)!!)
     }
 }

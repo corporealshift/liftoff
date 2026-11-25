@@ -309,6 +309,28 @@ class InFlightLeaveTest {
         assertNull(vm.message.value)
     }
 
+    // ── An Un-launch done on this screen leaves once, not twice ───────
+    // Driving the un-launch through the view model on the harness this class already uses (no Compose):
+    // the leave counter reaches 1 and stays 1, because the screen's own done callback and the watcher on
+    // the row it just wrote both want to leave. The row is back to PLANNED with launchedAt null. The shell
+    // already routes that leave to the Launchpad, so no shell change is tested here.
+
+    @Test
+    fun unlaunchOnThisScreenLeavesOnlyOnce() = runBlocking {
+        val (vm, ready) = launchSortie1()
+        val sortieId = ready.sortieId
+        val count = AtomicInteger(0)
+        watching(vm, count)
+
+        vm.unlaunch { count.incrementAndGet() }
+
+        awaitOneLeave(count)
+        val unlaunched = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.PLANNED, unlaunched.state)
+        assertNull("the launch time is cleared, so the Launchpad offers Launch again", unlaunched.launchedAt)
+        assertNull(vm.message.value)
+    }
+
     // ── The control: the sortie is still IN_FLIGHT, so the screen keeps writing ──
     // A checked set and a sortie note — the note rewrites the sortie row, so observeById does re-emit —
     // must not leave the screen, and both writes must land. Without this, a watcher that fired on any
