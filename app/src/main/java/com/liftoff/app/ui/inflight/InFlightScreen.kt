@@ -38,11 +38,18 @@ import com.liftoff.app.data.SetStatus
 import com.liftoff.app.settings.WeightUnit
 import com.liftoff.app.ui.sortie.formatWeight
 import com.liftoff.app.ui.theme.*
+import kotlinx.coroutines.CoroutineScope
 
 @Composable
 fun InFlightScreen(
     sortieId: Long,
     container: AppContainer,
+    /**
+     * The shell's scope, for the work that outlives this screen: a scrub's cancels. Required, as in
+     * LaunchpadScreen — a scrub takes this screen with it, so the screen's own scope is gone before a cancel
+     * that waits on the daemon has finished.
+     */
+    actionScope: CoroutineScope,
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -55,6 +62,8 @@ fun InFlightScreen(
             scope,
             container.missionManager,
             queueGeneration = { id -> container.generationEnqueuer().enqueue(id) },
+            cancelGeneration = { id -> container.generationCanceller().cancel(id) },
+            actionScope = actionScope,
         )
     }
     // The watcher outlives a change of the onBack this screen was handed, so it reads the latest one.

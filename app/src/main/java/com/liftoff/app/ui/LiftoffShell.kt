@@ -127,6 +127,7 @@ fun LiftoffShell() {
             InFlightScreen(
                 sortieId = nav.inFlightSortieId!!,
                 container = container,
+                actionScope = shellScope,
                 onBack = {
                     navigated = true
                     nav = nav.back() ?: nav
@@ -169,6 +170,7 @@ fun LiftoffShell() {
                     when (nav.tab) {
                         Tab.Launchpad -> LaunchpadScreen(
                             container,
+                            actionScope = shellScope,
                             onOpenInFlight = {
                                 navigated = true
                                 nav = nav.openInFlight(it)

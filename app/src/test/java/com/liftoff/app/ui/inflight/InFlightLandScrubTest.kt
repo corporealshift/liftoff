@@ -12,7 +12,10 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -52,11 +55,17 @@ class InFlightLandScrubTest {
     private lateinit var settingsStore: SettingsStore
     private lateinit var manager: MissionManager
     private val job = Job()
+    private val actionJob = Job()
     // The handler records anything a launched coroutine fails with, so a test can assert that nothing
     // escaped the view model instead of relying on the default handler cancelling the job.
     private val escaped = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
     private val scope = CoroutineScope(
         Dispatchers.Unconfined + job + CoroutineExceptionHandler { _, e -> escaped += e }
+    )
+    // The shell's scope in the app, and a separate object here so a cancel started on the wrong one is a
+    // difference a test can see. Unconfined, so each begins its work the moment it is handed it.
+    private val actionScope = CoroutineScope(
+        Dispatchers.Unconfined + actionJob + CoroutineExceptionHandler { _, e -> escaped += e }
     )
 
     private val fixedInstant = Instant.parse("2026-01-12T00:00:00Z")
@@ -86,6 +95,7 @@ class InFlightLandScrubTest {
     @After
     fun tearDown() {
         job.cancel()
+        actionJob.cancel()
         db.close()
         File(context.cacheDir, "settings.preferences_pb").delete()
     }
@@ -184,6 +194,82 @@ class InFlightLandScrubTest {
         val ready: InFlightState.Ready,
         val ids: CopyOnWriteArrayList<Long>,
     )
+
+    /**
+     * The same in-flight LIFT sortie 1, over a view model that records every cancel it is asked for and is given a
+     * separate action scope to run them on. Landing sortie 0 leaves sortie 1 PENDING with a QUEUED FLIGHT_PLAN row
+     * on it; writing its plan and launching it leaves an in-flight sortie that still holds that open generation,
+     * which is the row a scrub of it supersedes. cancelGate parks every cancel there until the test opens it — the
+     * daemon round trip GenerationCanceller would go on to make, and the reason a scrub must not wait for one.
+     */
+    private class Cancelling(
+        val vm: InFlightViewModel,
+        val ready: InFlightState.Ready,
+        val openRow: Generation,
+        val ids: CopyOnWriteArrayList<Long>,
+        val cancelledIds: CopyOnWriteArrayList<Long>,
+    )
+
+    private suspend fun launchSortie1WithCanceller(cancelGate: CompletableDeferred<Unit>): Cancelling {
+        settingsStore.setDaemonHost("127.0.0.1")
+        settingsStore.setDaemonToken("token-under-test")
+        val mission = seedMission()
+        landSortie0(mission.id)
+        settingsStore.setGenerateRunPlans(true)
+        val sortie = seedSortie1LiftPlan(mission.id)
+        manager.launch(sortie.id)
+        val rows = generationDao.getOpenFlightPlanForSortie(sortie.id)
+        assertEquals("the in-flight sortie must hold exactly one open generation", 1, rows.size)
+
+        val ids = CopyOnWriteArrayList<Long>()
+        val cancelledIds = CopyOnWriteArrayList<Long>()
+        val vm = InFlightViewModel(
+            db, settingsStore, sortie.id, scope, manager,
+            cancelGeneration = { id ->
+                // Marked the way GenerationCanceller marks it, so a cancel read back is real.
+                cancelledIds.add(id)
+                cancelGate.await()
+                generationDao.markCancelled(id, fixedInstant.toEpochMilli())
+            },
+            actionScope = actionScope,
+        ) { ids.add(it) }
+        return Cancelling(vm, awaitReady(vm), rows.single(), ids, cancelledIds)
+    }
+
+    /**
+     * The cancel had begun. Asked for rather than asserted straight after the completion callback: the action scope
+     * is Unconfined, and a nested unconfined loop defers a launch it is asked to start, so a cancel can begin a
+     * moment after onDone rather than before it. Asked for while the gate is still shut, so what it proves is still
+     * that a cancel is parked there and not skipped.
+     */
+    private suspend fun awaitCancelStarted(id: Long, cancelledIds: List<Long>) {
+        try {
+            withTimeout(5_000L) {
+                while (id !in cancelledIds) delay(25)
+            }
+        } catch (_: TimeoutCancellationException) {
+            throw AssertionError("no cancel was started for generation $id; cancelled=$cancelledIds escaped=$escaped")
+        }
+    }
+
+    /** The generation row once its cancel has marked it CANCELLED. */
+    private suspend fun awaitCancelledGeneration(id: Long, cancelledIds: List<Long>): Generation {
+        var current: Generation? = null
+        try {
+            withTimeout(5_000L) {
+                current = generationDao.get(id)
+                while (current == null || current!!.status != GenerationStatus.CANCELLED) {
+                    delay(25)
+                    current = generationDao.get(id)
+                }
+            }
+        } catch (_: TimeoutCancellationException) {
+            throw AssertionError(
+                "generation $id never read back CANCELLED; last=$current cancelled=$cancelledIds escaped=$escaped"
+            )
+        }
+        return current!!
+    }
 
     private suspend fun awaitReady(vm: InFlightViewModel) = withTimeout(5_000) {
         vm.state.first { it is InFlightState.Ready }
@@ -681,6 +767,96 @@ class InFlightLandScrubTest {
         assertEquals(GenerationKind.FLIGHT_PLAN, row!!.kind)
         assertEquals(GenerationStatus.QUEUED, row.status)
         assertEquals(sortieDao.getForMission(missionId)[2].id, row.sortieId)
+    }
+
+    // ── Scrub cancels the scrubbed sortie's open generation ──────────
+    // The in-flight lift still holds the QUEUED FLIGHT_PLAN row the landing that made it current queued. Scrubbing
+    // it hands that row to the canceller — the id reaches the cancel lambda and the row reads back CANCELLED from
+    // Room — and the scrub is not a failure: onDone ran, no message was raised, and the id scrub queued for the run
+    // it made current is still handed to the enqueue. The row is still QUEUED at the moment onDone has already
+    // fired, so the scrub cannot have waited on a cancel parked on the gate the whole time.
+
+    @Test
+    fun scrubFromInFlightCancelsTheSortiesOpenFlightPlanGenerationAndStillEnqueuesTheQueuedPlan() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val f = launchSortie1WithCanceller(cancelGate = gate)
+        val sortieId = f.ready.sortieId
+        val missionId = sortieDao.get(sortieId)!!.missionId
+        assertEquals(GenerationStatus.QUEUED, generationDao.get(f.openRow.id)!!.status)
+
+        val done = CompletableDeferred<Unit>()
+        var onDoneRuns = 0
+        f.vm.scrub("felt sick") { onDoneRuns++; done.complete(Unit) }
+        awaitDone(done)
+        assertEquals(1, onDoneRuns)
+
+        awaitCancelStarted(f.openRow.id, f.cancelledIds)
+        assertEquals(
+            "the scrub completed while its cancel was still parked on the gate, so it cannot have waited for one",
+            GenerationStatus.QUEUED,
+            generationDao.get(f.openRow.id)!!.status,
+        )
+        assertNull(
+            "a scrub that committed was turned into a message",
+            withTimeoutOrNull(2_000) { f.vm.message.first { it != null } },
+        )
+
+        gate.complete(Unit)
+        val cancelled = awaitCancelledGeneration(f.openRow.id, f.cancelledIds)
+        assertEquals(f.openRow.id, cancelled.id)
+        assertEquals(sortieId, cancelled.sortieId)
+        assertEquals(GenerationStatus.CANCELLED, cancelled.status)
+
+        val scrubbed = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.SCRUBBED, scrubbed.state)
+        assertEquals("felt sick", scrubbed.scrubReason)
+
+        // The id scrub queued for the sortie it made current is still handed to the enqueue, once, and it is not
+        // the row the scrub just cancelled.
+        assertEquals("the enqueue was handed ${f.ids}", 1, f.ids.size)
+        val queued = generationDao.get(f.ids[0])
+        assertNotNull("the queued id names no generation row", queued)
+        assertEquals(GenerationKind.FLIGHT_PLAN, queued!!.kind)
+        assertEquals(GenerationStatus.QUEUED, queued.status)
+        assertEquals(sortieDao.getForMission(missionId)[2].id, queued.sortieId)
+        assertNotEquals(f.openRow.id, f.ids[0])
+        assertTrue("a scrub's cancel escaped into a scope: $escaped", escaped.isEmpty())
+    }
+
+    // ── The cancel outlives the screen ───────────────────────────────
+    // In-Flight closes as soon as the scrub makes the sortie no longer in flight, so the screen's own scope is gone
+    // before a cancel that waits on the daemon has finished. Cancel the screen scope the instant onDone fires and
+    // keep the action scope alive: the parked cancel still resumes, and the row still reads back CANCELLED. Had the
+    // cancel been launched on the screen's scope, its job would have gone with the screen and the row would have
+    // stayed QUEUED.
+
+    @Test
+    fun scrubFromInFlightCancelsTheOpenGenerationAfterTheScreenScopeIsCancelled() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val f = launchSortie1WithCanceller(cancelGate = gate)
+        val openRowId = f.openRow.id
+        assertEquals(GenerationStatus.QUEUED, generationDao.get(openRowId)!!.status)
+
+        val done = CompletableDeferred<Unit>()
+        f.vm.scrub("felt sick") {
+            // The screen going away is what the shell does next: watchLeave navigates back the moment the scrub
+            // makes the sortie no longer IN_FLIGHT.
+            scope.cancel()
+            done.complete(Unit)
+        }
+        awaitDone(done)
+        awaitCancelStarted(openRowId, f.cancelledIds)
+        assertEquals(
+            "the cancel was still in flight when the screen's scope went away",
+            GenerationStatus.QUEUED,
+            generationDao.get(openRowId)!!.status,
+        )
+
+        gate.complete(Unit)
+        val cancelled = awaitCancelledGeneration(openRowId, f.cancelledIds)
+        assertEquals(openRowId, cancelled.id)
+        assertEquals(GenerationStatus.CANCELLED, cancelled.status)
+        assertTrue("the cancel escaped into a scope: $escaped", escaped.isEmpty())
     }
 
     // ── An un-launch the manager refuses is a message, not a crash ───

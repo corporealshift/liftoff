@@ -442,6 +442,33 @@ class MissionManagerTest {
         }
     }
 
+    // Launch on a PLANNED sortie a Regenerate is still working on: the plan the sortie already holds is the one it
+    // flies, so launch hands back that sortie's own open rows — the QUEUED and the RUNNING one alike, newest
+    // first — for the caller to cancel (DESIGN.md §7.3). Another sortie's open row is not among them, and launch
+    // leaves it open: the manager only names the ids, cancelling is the caller's.
+    @Test
+    fun launchingAPlannedSortieWithAnOpenFlightPlanGenerationReturnsThatRowsId() = runBlocking {
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "RL", MissionStatus.ACTIVE)
+        val s0 = insertSortie(mId, 0, SortieType.LIFT, "push", SortieState.PLANNED)
+        val s1 = insertSortie(mId, 1, SortieType.LIFT, "pull", SortieState.PENDING)
+
+        val queuedRow = seedFlightPlan(mId, s0, GenerationStatus.QUEUED, at = 1000L)
+        val runningRow = seedFlightPlan(mId, s0, GenerationStatus.RUNNING, at = 2000L)
+        val otherSortiesRow = seedFlightPlan(mId, s1, GenerationStatus.QUEUED, at = 1500L)
+
+        val superseded = manager.launch(s0)
+
+        assertEquals(SortieState.IN_FLIGHT, sortieDao.get(s0)!!.state)
+        assertEquals(listOf(runningRow.id, queuedRow.id), superseded)
+        assertFalse(
+            "the next sortie's open generation is not this launch's to cancel",
+            otherSortiesRow.id in superseded
+        )
+        assertEquals(listOf(otherSortiesRow), flightPlanRowsFor(s1))
+        assertEquals(GenerationStatus.QUEUED, db.generationDao().get(queuedRow.id)!!.status)
+        assertEquals(GenerationStatus.RUNNING, db.generationDao().get(runningRow.id)!!.status)
+    }
+
     // ── land ─────────────────────────────────────────────────────────────
 
     @Test
@@ -700,8 +727,9 @@ class MissionManagerTest {
         assertEquals(rows[0].id, queued)
     }
 
-    // The same through scrub: the sortie scrub made current gets one QUEUED FLIGHT_PLAN row, and scrub reports
-    // its id.
+    // The same through scrub: the sortie scrub made current gets one QUEUED FLIGHT_PLAN row, and scrub hands its
+    // id to onQueued once its transaction has committed. The scrubbed sortie held no open generation, so it hands
+    // back nothing to cancel.
     @Test
     fun scrubbingTheCurrentSortieQueuesTheNextSortiesFlightPlanAndReportsItsId() = runBlocking {
         configureCoach()
@@ -710,13 +738,93 @@ class MissionManagerTest {
         val s0 = sortieAt(mId, 0)
         assertEquals(0, flightPlanRows(mId).size)
 
-        val queued = manager.scrub(s0.id, "weather")
+        var queued: Long? = null
+        val superseded = manager.scrub(s0.id, "weather") { queued = it }
 
         val rows = flightPlanRows(mId)
         assertEquals(1, rows.size)
         assertEquals(GenerationStatus.QUEUED, rows[0].status)
         assertEquals(sortieAt(mId, 1).id, rows[0].sortieId)
         assertEquals(rows[0].id, queued)
+        assertEquals(emptyList<Long>(), superseded)
+    }
+
+    // Scrubbing a sortie that has its own open Flight Plan generation hands that row back for the caller to
+    // cancel, the way refly does: the coach turn is superseded the moment the owner scrubs the sortie. The manager
+    // only names the id, so the row stays open until the caller cancels it. The next sortie's open row is not this
+    // scrub's to cancel, even though advance found it and reported it to onQueued.
+    @Test
+    fun scrubbingASortieWithAnOpenFlightPlanGenerationReturnsThatRowsId() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "LL", MissionStatus.ACTIVE)
+        val s0 = insertSortie(mId, 0, SortieType.LIFT, "push", SortieState.PENDING)
+        val s1 = insertSortie(mId, 1, SortieType.LIFT, "pull", SortieState.PENDING)
+
+        val openRow = seedFlightPlan(mId, s0, GenerationStatus.QUEUED, at = 1000L)
+        val nextSortiesRow = seedFlightPlan(mId, s1, GenerationStatus.QUEUED, at = 1500L)
+
+        var queued: Long? = null
+        val superseded = manager.scrub(s0, "weather") { queued = it }
+
+        assertEquals(SortieState.SCRUBBED, sortieDao.get(s0)!!.state)
+        assertEquals(listOf(openRow.id), superseded)
+        assertEquals(nextSortiesRow.id, queued)
+        assertFalse("the next sortie's open generation is not this scrub's to cancel",
+            nextSortiesRow.id in superseded)
+        assertEquals("cancelling is the caller's", GenerationStatus.QUEUED, db.generationDao().get(openRow.id)!!.status)
+    }
+
+    // A coach turn already RUNNING on the sortie being scrubbed is the one the owner means to stop. Scrub is legal
+    // from PENDING, PLANNED and IN_FLIGHT, so each of those scrubs returns that sortie's own RUNNING row.
+    @Test
+    fun scrubbingASortieReturnsItsOpenRunningFlightPlanRowToo() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "LLL", MissionStatus.ACTIVE)
+        val s0 = insertSortie(mId, 0, SortieType.LIFT, "push", SortieState.PENDING)
+        val s1 = insertSortie(mId, 1, SortieType.LIFT, "pull", SortieState.PLANNED)
+        val s2 = insertSortie(mId, 2, SortieType.LIFT, "legs", SortieState.IN_FLIGHT)
+
+        val pendingRow = seedFlightPlan(mId, s0, GenerationStatus.RUNNING, at = 1000L)
+        val plannedRow = seedFlightPlan(mId, s1, GenerationStatus.RUNNING, at = 2000L)
+        val inFlightRow = seedFlightPlan(mId, s2, GenerationStatus.RUNNING, at = 3000L)
+
+        assertEquals(listOf(pendingRow.id), manager.scrub(s0, "weather"))
+        assertEquals(SortieState.SCRUBBED, sortieDao.get(s0)!!.state)
+
+        assertEquals(listOf(plannedRow.id), manager.scrub(s1, "weather"))
+        assertEquals(SortieState.SCRUBBED, sortieDao.get(s1)!!.state)
+
+        assertEquals(listOf(inFlightRow.id), manager.scrub(s2, "felt sick"))
+        assertEquals(SortieState.SCRUBBED, sortieDao.get(s2)!!.state)
+        assertEquals(MissionStatus.CLOSED, missionDao.get(mId)!!.status)
+    }
+
+    // Neither action gained a guard: with nothing open on the sortie, scrub still scrubs and launch still
+    // launches, each handing back an empty list rather than refusing. A generation that already finished is not
+    // superseded by anything, so a SUCCEEDED, FAILED or CANCELLED row on the sortie is not in the list either.
+    @Test
+    fun scrubbingOrLaunchingASortieWithNoOpenGenerationReturnsNothingAndStillWritesTheSortie() = runBlocking {
+        configureCoach()
+        val mId = insertMission(LocalDate.of(2026, 1, 12), "LLL", MissionStatus.ACTIVE)
+        val s0 = insertSortie(mId, 0, SortieType.LIFT, "push", SortieState.PLANNED)
+        val s1 = insertSortie(mId, 1, SortieType.LIFT, "pull", SortieState.PLANNED)
+
+        assertEquals(emptyList<Long>(), manager.launch(s0))
+        assertEquals(SortieState.IN_FLIGHT, sortieDao.get(s0)!!.state)
+
+        assertEquals(emptyList<Long>(), manager.scrub(s0, "felt sick"))
+        assertEquals(SortieState.SCRUBBED, sortieDao.get(s0)!!.state)
+
+        seedFlightPlan(mId, s1, GenerationStatus.SUCCEEDED, at = 1000L)
+        seedFlightPlan(mId, s1, GenerationStatus.FAILED, at = 2000L)
+        seedFlightPlan(mId, s1, GenerationStatus.CANCELLED, at = 3000L)
+
+        assertEquals(emptyList<Long>(), manager.scrub(s1, "weather"))
+        assertEquals(SortieState.SCRUBBED, sortieDao.get(s1)!!.state)
+        assertEquals(
+            setOf(GenerationStatus.SUCCEEDED, GenerationStatus.FAILED, GenerationStatus.CANCELLED),
+            flightPlanRowsFor(s1).map { it.status }.toSet()
+        )
     }
 
     // ── the guard cases: the toggle both ways, an unconfigured Mission Control, never a second row ──
@@ -820,9 +928,9 @@ class MissionManagerTest {
         assertEquals(0, flightPlanRows(mId).size)
     }
 
-    // No host, and again no token: Mission Control cannot be asked, so advance queues nothing, reports nothing,
-    // and leaves the sortie that needs a plan PENDING with no plan. Generate run plans are on, so both runs here
-    // are sorties that need a generation.
+    // No host, and again no token: Mission Control cannot be asked, so advance queues nothing, reports nothing to
+    // onQueued, hands back nothing to cancel, and leaves the sortie that needs a plan PENDING with no plan.
+    // Generate run plans are on, so both runs here are sorties that need a generation.
     @Test
     fun aCurrentSortieQueuesNothingWhenMissionControlHasNoHostOrToken() = runBlocking {
         settingsStore.setGenerateRunPlans(true)
@@ -839,17 +947,21 @@ class MissionManagerTest {
         assertEquals(0, generationRowsFor(mId).size)
 
         configureCoach(host = "coach.local", token = "")
-        val reported = manager.scrub(first.id, "weather")
+        var reportedQueued: Long? = null
+        val superseded = manager.scrub(first.id, "weather") { reportedQueued = it }
 
         val second = sortieAt(mId, 1)
         assertEquals(SortieState.PENDING, second.state)
         assertNull(flightPlanDao.getPlan(second.id))
-        assertNull(reported)
+        assertNull("nothing was queued, so onQueued was never asked", reportedQueued)
+        assertEquals("nothing was open on the scrubbed sortie", emptyList<Long>(), superseded)
         assertEquals(0, generationRowsFor(mId).size)
     }
 
     // A sortie that already has an open Flight Plan generation is not asked for a second one; advance reports the
-    // row it found instead. Once with that row QUEUED, once with it RUNNING.
+    // row it found instead. Once with that row QUEUED, once with it RUNNING. The scrub half shows the two channels
+    // apart: the scrubbed sortie's own open row comes back to cancel, and the row advance reused for the sortie
+    // that became current goes to onQueued.
     @Test
     fun aSortieWithAnOpenFlightPlanGenerationIsNotQueuedTwiceAndThatRowsIdIsReported() = runBlocking {
         val mId = insertMission(LocalDate.of(2026, 1, 12), "RLL", MissionStatus.DRAFT)
@@ -869,9 +981,13 @@ class MissionManagerTest {
         assertEquals(SortieState.PENDING, sortieAt(mId, 1).state)
         assertNull(flightPlanDao.getPlan(sortieAt(mId, 1).id))
 
-        val reportedAgain = manager.scrub(sortieAt(mId, 1).id, "weather") // sortie 2, with its row RUNNING
+        var queuedAgain: Long? = null
+        val s1 = sortieAt(mId, 1)
+        val superseded = manager.scrub(s1.id, "weather") { queuedAgain = it } // sortie 2 is now current, RUNNING
 
-        assertEquals(runningRow.id, reportedAgain)
+        assertEquals("the scrubbed sortie's own open row comes back to cancel", listOf(queuedRow.id), superseded)
+        assertEquals("advance reused the next sortie's open row, so onQueued gets that id", runningRow.id, queuedAgain)
+        assertEquals(listOf(queuedRow), flightPlanRowsFor(s1.id))
         assertEquals(listOf(runningRow), flightPlanRowsFor(sortieAt(mId, 2).id))
         assertEquals(2, flightPlanRows(mId).size)
     }
