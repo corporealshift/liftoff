@@ -146,11 +146,11 @@ class LandScrubDialogTest {
                 Column {
                     RunLandDialogContent(
                         sortieNumber = 2, distanceUnit = DistanceUnit.MI, errors = null,
-                        onLand = { _, _ -> }, onDismiss = {},
+                        onLand = { _, _, _ -> }, onDismiss = {},
                     )
                     RunLandDialogContent(
                         sortieNumber = 5, distanceUnit = DistanceUnit.KM, errors = null,
-                        onLand = { _, _ -> }, onDismiss = {},
+                        onLand = { _, _, _ -> }, onDismiss = {},
                     )
                 }
             }
@@ -165,9 +165,9 @@ class LandScrubDialogTest {
         composeRule.onAllNodesWithText("Distance (mi)").assertCountEquals(1)
         composeRule.onAllNodesWithText("Distance (km)").assertCountEquals(1)
 
-        // Two fields per card, every one of them empty.
+        // Three fields per card, every one of them empty.
         composeRule.onAllNodes(hasSetTextAction())
-            .assertCountEquals(4)
+            .assertCountEquals(6)
             .assertAll(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
     }
 
@@ -187,7 +187,7 @@ class LandScrubDialogTest {
             LiftoffTheme {
                 RunLandDialogContent(
                     sortieNumber = 1, distanceUnit = DistanceUnit.MI, errors = errors.value,
-                    onLand = { _, _ -> }, onDismiss = {},
+                    onLand = { _, _, _ -> }, onDismiss = {},
                 )
             }
         }
@@ -206,18 +206,25 @@ class LandScrubDialogTest {
         composeRule.onNodeWithText(durationError).assertIsDisplayed()
 
         // Each error is drawn between its own field and the next one down, not under the other field.
-        val fields = composeRule.onAllNodes(hasSetTextAction()).assertCountEquals(2)
+        // Duration and Seconds share a row, so "under its own field" is below that field's own bottom
+        // and inside its own column.
+        val fields = composeRule.onAllNodes(hasSetTextAction()).assertCountEquals(3)
         val distanceField = fields[0].getUnclippedBoundsInRoot()
         val durationField = fields[1].getUnclippedBoundsInRoot()
+        val secondsField = fields[2].getUnclippedBoundsInRoot()
         val distanceLine = composeRule.onNodeWithText(distanceError).getUnclippedBoundsInRoot()
         val durationLine = composeRule.onNodeWithText(durationError).getUnclippedBoundsInRoot()
         assertTrue(
             "the distance error must sit under the distance field",
-            distanceLine.top >= distanceField.bottom && distanceLine.bottom <= durationField.top,
+            distanceLine.top >= distanceField.bottom &&
+                distanceLine.bottom <= durationField.top &&
+                distanceLine.bottom <= secondsField.top,
         )
         assertTrue(
-            "the duration error must sit under the duration field",
-            durationLine.top >= durationField.bottom,
+            "the duration error must sit under the duration field and not under Seconds",
+            durationLine.top >= durationField.bottom &&
+                durationLine.left >= durationField.left &&
+                durationLine.left < secondsField.left,
         )
     }
 }

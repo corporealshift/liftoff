@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,7 +41,7 @@ internal fun RunLandDialog(
     sortieNumber: Int,
     distanceUnit: DistanceUnit,
     errors: RunEntry.Invalid?,
-    onLand: (distance: String, minutes: String) -> Unit,
+    onLand: (distance: String, minutes: String, seconds: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -54,17 +55,18 @@ internal fun RunLandDialog(
     }
 }
 
-/** Each field is remembered blank, so both start empty every time the card enters composition. */
+/** Each field is remembered blank, so all three start empty every time the card enters composition. */
 @Composable
 internal fun RunLandDialogContent(
     sortieNumber: Int,
     distanceUnit: DistanceUnit,
     errors: RunEntry.Invalid?,
-    onLand: (distance: String, minutes: String) -> Unit,
+    onLand: (distance: String, minutes: String, seconds: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var distance by remember { mutableStateOf("") }
     var minutes by remember { mutableStateOf("") }
+    var seconds by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -86,13 +88,31 @@ internal fun RunLandDialogContent(
             keyboardType = KeyboardType.Decimal,
             error = errors?.distanceError,
         )
-        LabeledTextField(
-            label = "Duration (min)",
-            value = minutes,
-            onChange = { minutes = it },
-            keyboardType = KeyboardType.Decimal,
-            error = errors?.minutesError,
-        )
+        // Minutes and seconds are one duration, so they share a row and read as a single value.
+        // LabeledTextField fills its own width and takes no Modifier, so each half needs a box.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                LabeledTextField(
+                    label = "Duration (min)",
+                    value = minutes,
+                    onChange = { minutes = it },
+                    keyboardType = KeyboardType.Decimal,
+                    error = errors?.minutesError,
+                )
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                LabeledTextField(
+                    label = "Seconds",
+                    value = seconds,
+                    onChange = { seconds = it },
+                    keyboardType = KeyboardType.Number,
+                    error = errors?.secondsError,
+                )
+            }
+        }
         Spacer(Modifier.height(16.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -100,11 +120,11 @@ internal fun RunLandDialogContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Both buttons fillMaxWidth() after the caller's modifier, so each needs a weight.
-            // Land is always enabled: both fields are optional, so blank lands with both null.
+            // Land is always enabled: all three fields are optional, so blank lands with both null.
             PrimaryButton(
                 text = "Land",
                 height = 48.dp,
-                onClick = { onLand(distance, minutes) },
+                onClick = { onLand(distance, minutes, seconds) },
                 modifier = Modifier.weight(1f),
             )
             UnderlinedTextButton(
