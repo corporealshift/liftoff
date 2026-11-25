@@ -25,6 +25,7 @@ import com.liftoff.app.ui.launchpad.OFFLINE_LINE
 import com.liftoff.app.ui.launchpad.PLANNING_LINE
 import com.liftoff.app.ui.sortie.FlightPlanSection
 import com.liftoff.app.ui.sortie.formatDistance
+import com.liftoff.app.ui.sortie.formatRecordedDuration
 import com.liftoff.app.ui.sortie.formatWeekDate
 import com.liftoff.app.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
@@ -224,7 +225,7 @@ private fun SortieDetailView(state: SortieDetailState, onBack: () -> Unit) {
 }
 
 @Composable
-private fun LandedDetailView(state: SortieDetailState.Landed) {
+internal fun LandedDetailView(state: SortieDetailState.Landed) {
     val landedDate = Instant.ofEpochMilli(state.landedAt)
         .atZone(java.time.ZoneId.systemDefault())
         .toLocalDate()
@@ -251,7 +252,7 @@ private fun LandedDetailView(state: SortieDetailState.Landed) {
     if (state.sortieType == SortieType.RUN) {
         Spacer(Modifier.height(8.dp))
         val distStr = state.runDistance?.let { formatDistance(it, state.distanceUnit) } ?: "—"
-        val minStr = state.runMinutes?.let { "%.0f min".format(it) } ?: "—"
+        val minStr = state.runMinutes?.let { formatRecordedDuration(it) } ?: "—"
         Text(
             text = "$distStr · $minStr",
             style = LiftoffType.note().copy(color = Muted),
