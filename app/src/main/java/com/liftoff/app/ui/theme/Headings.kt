@@ -10,7 +10,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 
@@ -25,15 +27,23 @@ fun Eyebrow(
     )
 }
 
+// The line cap and the layout callback default to Text's own (no maximum, Clip, no callback), so a caller
+// that does not ask for one draws exactly what it drew before they existed.
 @Composable
 fun DisplayTitle(
     text: String,
     style: TextStyle = LiftoffType.screenTitle(),
     color: Color = Ink,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+    onTextLayout: ((TextLayoutResult) -> Unit)? = null,
 ) {
     Text(
         text = text.uppercase(),
         style = style.copy(color = color),
+        maxLines = maxLines,
+        overflow = overflow,
+        onTextLayout = onTextLayout,
     )
 }
 
@@ -44,11 +54,21 @@ fun TitleBlock(
     eyebrowColor: Color = Muted,
     titleColor: Color = Ink,
     titleStyle: TextStyle = LiftoffType.screenTitle(),
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+    onTextLayout: ((TextLayoutResult) -> Unit)? = null,
 ) {
     Column {
         Eyebrow(text = eyebrow, color = eyebrowColor)
         Spacer(Modifier.height(4.dp))
-        DisplayTitle(text = title, style = titleStyle, color = titleColor)
+        DisplayTitle(
+            text = title,
+            style = titleStyle,
+            color = titleColor,
+            maxLines = maxLines,
+            overflow = overflow,
+            onTextLayout = onTextLayout,
+        )
     }
 }
 

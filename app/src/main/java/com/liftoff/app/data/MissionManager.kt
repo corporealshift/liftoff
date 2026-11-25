@@ -11,6 +11,7 @@ import com.liftoff.app.domain.chooseReflySource
 import com.liftoff.app.domain.coachIsConfigured
 import com.liftoff.app.domain.confirmWithoutOutline
 import com.liftoff.app.domain.currentSortie
+import com.liftoff.app.domain.effectiveWeekStart
 import com.liftoff.app.domain.launch
 import com.liftoff.app.domain.land
 import com.liftoff.app.domain.markPlanned
@@ -82,11 +83,12 @@ class MissionManager(
 
     suspend fun onAppOpen(): Mission {
         val settings = settingsStore.settings.first()
-        val weekStart = currentWeekOf(clock, zone)
+        val calendarWeek = calendarWeekStart()
         val mission = db.withTransaction {
-            for (pastMission in db.missionDao().getUnclosedBefore(weekStart)) {
+            // Rollover goes by the calendar: a week started early has not begun, let alone ended.
+            for (pastMission in db.missionDao().getUnclosedBefore(calendarWeek)) {
                 val sorties = db.sortieDao().getForMission(pastMission.id)
-                val result = rollover(pastMission, sorties, weekStart)
+                val result = rollover(pastMission, sorties, calendarWeek)
                 if (result != null) {
                     db.missionDao().update(result.mission)
                     for (s in result.scrubbed) {
@@ -94,6 +96,7 @@ class MissionManager(
                     }
                 }
             }
+            val weekStart = currentWeekOf()
             var mission = db.missionDao().getByWeekStart(weekStart)
             if (mission == null) {
                 val draft = newDraft(weekStart, settings.defaultPattern)
@@ -101,7 +104,28 @@ class MissionManager(
             }
             mission
         }
-        currentWeekStart.value = weekStart
+        currentWeekStart.value = mission.weekStart
+        return mission
+    }
+
+    /**
+     * Start next week's Mission now, as a DRAFT with the default pattern (DESIGN.md §4.2, amended 2026-11-08).
+     * Only once this calendar week's Mission is CLOSED, and never more than one week ahead. Next week's row
+     * existing is what makes it the current week, so nothing else is stored; a second call returns that row.
+     */
+    suspend fun startNextWeek(): Mission {
+        val settings = settingsStore.settings.first()
+        val mission = db.withTransaction {
+            val calendarWeek = calendarWeekStart()
+            val nextWeek = calendarWeek.plusWeeks(1)
+            db.missionDao().getByWeekStart(nextWeek)?.let { return@withTransaction it }
+            check(db.missionDao().getByWeekStart(calendarWeek)?.status == MissionStatus.CLOSED) {
+                "Can only start next week once this week is closed"
+            }
+            val draft = newDraft(nextWeek, settings.defaultPattern)
+            draft.copy(id = db.missionDao().insert(draft))
+        }
+        currentWeekStart.value = mission.weekStart
         return mission
     }
 
@@ -136,7 +160,7 @@ class MissionManager(
             return ConfirmOutcome.CoachNotConfigured
         }
         return db.withTransaction {
-            val weekStart = currentWeekOf(clock, zone)
+            val weekStart = currentWeekOf()
             val mission = db.missionDao().get(missionId)!!
             check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
                 "Can only confirm the current week's draft"
@@ -168,7 +192,7 @@ class MissionManager(
             return ConfirmOutcome.CoachNotConfigured
         }
         return db.withTransaction {
-            val weekStart = currentWeekOf(clock, zone)
+            val weekStart = currentWeekOf()
             val mission = db.missionDao().get(missionId)!!
             check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
                 "Can only retry the outline for the current week's draft"
@@ -199,7 +223,7 @@ class MissionManager(
         val settings = settingsStore.settings.first()
         var queued: Long? = null
         val openOutlineIds = db.withTransaction {
-            val weekStart = currentWeekOf(clock, zone)
+            val weekStart = currentWeekOf()
             val mission = db.missionDao().get(missionId)!!
             check(mission.status == MissionStatus.DRAFT && mission.weekStart == weekStart) {
                 "Can only continue with the current week's draft"
@@ -261,34 +285,53 @@ class MissionManager(
         return outcome
     }
 
-    /** Returns the Flight Plan id [advance] queued for the sortie scrub made current, or null if it queued none. */
-    suspend fun scrub(sortieId: Long, reason: String? = null): Long? {
+    /**
+     * Scrub the current sortie. Returns the ids of this sortie's Flight Plan generations still open, for the
+     * caller to cancel: the coach turn a scrubbed sortie had queued or running is superseded by the scrub, which
+     * is DESIGN.md §7.3's supersede rule. [onQueued] gets the id [advance] queued for the sortie scrub made
+     * current — or nothing, when it queued none — and only after this transaction commits.
+     */
+    suspend fun scrub(sortieId: Long, reason: String? = null, onQueued: (Long) -> Unit = {}): List<Long> {
         val settings = settingsStore.settings.first()
-        return db.withTransaction {
+        var queued: Long? = null
+        val supersededIds = db.withTransaction {
             val sortie = db.sortieDao().get(sortieId)!!
             val mission = db.missionDao().get(sortie.missionId)!!
             check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
             val sorties = db.sortieDao().getForMission(mission.id)
             val current = currentSortie(sorties)
             check(current != null && current.id == sortieId) { "Sortie must be current" }
+            // Read the open rows before the write, as regenerateFlightPlan does: advance keys its own lookup by
+            // the sortie that becomes current, so none of these rows is one this transaction just queued.
+            val toCancel = db.generationDao().getOpenFlightPlanForSortie(sortieId).map { it.id }
             val scrubbed = scrub(sortie, reason)
             db.sortieDao().update(scrubbed)
-            advance(mission.id, settings)
+            queued = advance(mission.id, settings)
+            toCancel
         }
+        queued?.let(onQueued)
+        return supersededIds
     }
 
-    suspend fun launch(sortieId: Long) {
-        db.withTransaction {
-            val sortie = db.sortieDao().get(sortieId)!!
-            val mission = db.missionDao().get(sortie.missionId)!!
-            check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
-            val sorties = db.sortieDao().getForMission(mission.id)
-            val current = currentSortie(sorties)
-            check(current != null && current.id == sortieId) { "Sortie must be current" }
-            requireNoneInFlight(db.sortieDao().getInFlight())
-            val launched = launch(sortie, clock.millis())
-            db.sortieDao().update(launched)
-        }
+    /**
+     * Take the current PLANNED sortie in flight. Returns the ids of this sortie's Flight Plan generations still
+     * open, for the caller to cancel: the plan the sortie already holds is the one it is now flying, so pressing
+     * Launch supersedes a Regenerate still queued or running on it (DESIGN.md §7.3's supersede rule).
+     */
+    suspend fun launch(sortieId: Long): List<Long> = db.withTransaction {
+        val sortie = db.sortieDao().get(sortieId)!!
+        val mission = db.missionDao().get(sortie.missionId)!!
+        check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
+        val sorties = db.sortieDao().getForMission(mission.id)
+        val current = currentSortie(sorties)
+        check(current != null && current.id == sortieId) { "Sortie must be current" }
+        requireNoneInFlight(db.sortieDao().getInFlight())
+        // Read the open rows before the write, as regenerateFlightPlan does: these are the rows the launch
+        // supersedes, and nothing this transaction writes belongs among them.
+        val superseded = db.generationDao().getOpenFlightPlanForSortie(sortieId).map { it.id }
+        val launched = launch(sortie, clock.millis())
+        db.sortieDao().update(launched)
+        superseded
     }
 
     /**
@@ -387,7 +430,7 @@ class MissionManager(
             val sortie = db.sortieDao().get(sortieId)!!
             val mission = db.missionDao().get(sortie.missionId)!!
             check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
-            check(mission.weekStart == currentWeekOf(clock, zone)) {
+            check(mission.weekStart == currentWeekOf()) {
                 "Can only regenerate a sortie of the current week"
             }
             val current = currentSortie(db.sortieDao().getForMission(mission.id))
@@ -445,7 +488,7 @@ class MissionManager(
             val sortie = db.sortieDao().get(sortieId)!!
             val mission = db.missionDao().get(sortie.missionId)!!
             check(mission.status == MissionStatus.ACTIVE) { "Mission must be ACTIVE" }
-            check(mission.weekStart == currentWeekOf(clock, zone)) {
+            check(mission.weekStart == currentWeekOf()) {
                 "Can only swap a sortie of the current week"
             }
             val current = currentSortie(db.sortieDao().getForMission(mission.id))
@@ -499,7 +542,7 @@ class MissionManager(
      */
     suspend fun resetWeek(missionId: Long): List<Long> = db.withTransaction {
         val mission = db.missionDao().get(missionId)!!
-        check(mission.weekStart == currentWeekOf(clock, zone)) { "Can only reset the current week" }
+        check(mission.weekStart == currentWeekOf()) { "Can only reset the current week" }
         check(mission.status == MissionStatus.ACTIVE || mission.status == MissionStatus.CLOSED) {
             "Only a confirmed week can be reset"
         }
@@ -605,6 +648,13 @@ class MissionManager(
         return null
     }
 
-    private fun currentWeekOf(clock: Clock, zone: () -> ZoneId): LocalDate =
-        weekStartOf(clock.instant().atZone(zone()).toLocalDate())
+    /** The Monday of today's calendar week, which a week started early runs ahead of. */
+    fun calendarWeekStart(): LocalDate = weekStartOf(clock.instant().atZone(zone()).toLocalDate())
+
+    /** The week the app works in (§4.2): the calendar week, or the next one once it has been started early. */
+    private suspend fun currentWeekOf(): LocalDate {
+        val calendarWeek = calendarWeekStart()
+        val started = db.missionDao().getByWeekStart(calendarWeek.plusWeeks(1)) != null
+        return effectiveWeekStart(calendarWeek, started)
+    }
 }

@@ -140,8 +140,10 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
   week ends. Any sortie not landed by the end of the week is marked `SCRUBBED`
   automatically, with the reason "week ended". **Unfinished sorties do not carry over** —
   each week starts clean.
-- A Mission is never created ahead of its week. Planning next week early is out of scope
-  for v1.
+- **Start next week.** A Mission is not created ahead of its week, with one exception. Once the current week's Mission is `CLOSED`, next week's
+  Mission can be started early from the Launchpad: a `DRAFT` with next Monday's `weekStart`
+  and the default pattern, which becomes the current week at once and is fully live
+  (Confirm, Flight Plans, Launch). Never more than one week ahead. (amended 2026-11-08)
 - **Reset week.** The current week, once confirmed (`ACTIVE` or `CLOSED`), can be started
   over from the Mission screen. Its Mission is deleted with every sortie, Flight Plan and
   recorded set in it, landed and scrubbed ones included, and its open generations are
@@ -381,7 +383,9 @@ Prompts are plain text in Markdown sections, built by a pure function: the same 
 produce the same text. Sections, in order:
 
 1. **Task.** One line: "Write the outline for this week" or "Write the Flight Plan for
-   sortie N of this week".
+   sortie 2 (index 1) of this week" — the sortie being planned named by the number the
+   screens print for it, its 1-based position, with its 0-based index beside it.
+   (amended 2026-11-21)
 2. **Instructions.** "Follow COACH.md in this workspace. Your final message must be only a
    JSON object matching the schema below."
 3. **Athlete profile.** Objectives (free text), constraints (free text), target session
@@ -390,9 +394,15 @@ produce the same text. Sections, in order:
    `db — dumbbells — pairs 5–50 lb in 5 lb steps`. Exercises may use only these ids.
    Bodyweight needs no id.
 5. **This week.**
-   - The pattern, with each sortie's index, type and state.
+   - The pattern, then each sortie named by the number the screens print for it — its
+     1-based position in the week, written plain, not the screens' zero-padded `02` — with
+     its 0-based index beside it, then its type and state:
+     `sortie 2 (index 1) — lift — pending`.
    - The outline, if it exists, with the focus of each sortie.
-   - For a Flight Plan, which sortie is being planned.
+   - For a Flight Plan, which sortie is being planned, under the same two numbers.
+   - One line telling the coach to name a sortie in its notes by its sortie number (as in
+     `sortie 2`) or by its type and focus, and never by its index — the number named outright,
+     because each sortie line now prints two. (amended 2026-11-21)
 6. **History.** Landed and scrubbed sorties from the last **28 days** (configurable), newest
    first, one block per sortie:
 
@@ -599,6 +609,8 @@ The visual design is direction B, "Space Age": colors, type, components and mock
     **Swap to lift** are available, plus "View in nabu", which shows the nabu session id so it
     can be opened in nabu's app.
   - **IN_FLIGHT:** a Resume button.
+  - **Mission closed:** the week's track and how many sorties landed, with **Start next
+    week** (§4.2) while the closed week is the calendar week. (amended 2026-11-08)
   - **No Mission this week:** the draft, with editable pattern chips and **Confirm**.
   - **Swap to run / Swap to lift** is offered only on the current sortie of an ACTIVE Mission
     while it is `PENDING` or `PLANNED`, and on no other card; it asks for confirmation only
@@ -853,6 +865,24 @@ inline in the section they affect: what changed, when, and why.
   default pattern, so a swapped letter does not carry forward and the default pattern is not
   touched. Reset week rebuilds the draft from the Mission's own pattern, so a reset after a
   swap keeps the swapped letter — the week as it now stands, to edit and confirm again.
+- **2026-11-21 — a prompt numbers a sortie the way the screens do (§7.4).** The coach's week
+  note had said "runs 0 and 2 stay easy … lift 3 is push/pull" about the same sorties the Mission
+  tab lists as 01–05, because every prompt line that named a sortie printed only its 0-based
+  index — `index 0 — run — pending` — and the Flight Plan's Task line read
+  `Write the Flight Plan for sortie 1 of this week` for the sortie the screens call 02. Each
+  sortie in a prompt now carries both numbers: the display number the screens print for it, its
+  1-based position in the week, written plain rather than the screens' zero-padded `02` because
+  the coach writes prose, with the 0-based index beside it — `sortie 2 (index 1) — lift —
+  pending` — the same pair on the `planning:` line and on the Task line, so a prompt no longer
+  calls one sortie two numbers. The `This week` section ends with a line telling the coach to
+  name a sortie in its notes by its sortie number (as in `sortie 2`) or by its type and focus,
+  and never by its index — the number named outright rather than "the number printed beside it",
+  which two numbers per line leave ambiguous. The rule is in the prompt rather than in
+  `coach/COACH.md`, because `coach/` is a template and the coach runs in a hand-made copy of
+  it; Decision 9 already puts the app-owned contract wording in the prompt. The reply schema's
+  0-based `index` (§7.5.1) is unchanged, so the coach still echoes the index back and the
+  validator's error lines still speak in it; only the prose it writes in its notes changes.
+  Notes stored from earlier weeks are left as the coach wrote them.
 - **2026-11-20 — §7.3 step 5: a repair of a turn that ended `completed` runs on a new session
   (§7.3, §10, §15).** Step 5 sent every repair prompt to the session that produced the refused
   reply. rho ends a session in `completed` for good, and answers `send_prompt` on it with
@@ -869,6 +899,16 @@ inline in the section they affect: what changed, when, and why.
   error list. The row's session id follows the turns, so it names the session that produced the
   accepted reply: that is what the Launchpad's link into rho opens and what a cancel stops.
   ARCHITECTURE.md's invariant 8 is reworded to match.
+- **2026-11-08 — §4.2 and §9: next week can be started early.** §4.2 said a Mission is never
+  created ahead of its week. The owner finished a week early and wanted to plan the next one
+  on the Sunday, but a closed week left the Launchpad with nothing to do until Monday. Once the current week is `CLOSED`, the
+  Launchpad's closed card offers **Start next week**: it makes next week's `DRAFT` (next
+  Monday's `weekStart`, the default pattern), and the app treats that week as current from
+  then on — the current week is the calendar week, unless a Mission already exists for the
+  week after it. Nothing else is stored, so Monday changes nothing, and rollover still goes by
+  the calendar. A sortie flown on the Sunday counts toward the new week, by the owner's
+  choice over holding Launch until Monday. Never more than one week ahead, and there is no
+  undo: the early draft is the one Monday would have made, and Reset week works on it.
 - **2026-11-02 — un-launch: an in-flight sortie can go back to PLANNED (§5.1, §6, §9).**
   In-Flight offered only Land and Scrub, so after Launch the only way to a different plan for
   that sortie was Scrub, which ended it. In-Flight now also offers **Back to Launchpad**: it

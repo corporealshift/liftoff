@@ -28,6 +28,12 @@ class LaunchpadViewModel(
     private val queueGeneration: (Long) -> Unit,
     /** Hands one generation id to the cancel helper: its work, its row, and its session. */
     private val cancelGeneration: suspend (Long) -> Unit,
+    /**
+     * Where the superseded generations are cancelled. The shell's scope, not this screen's: Launch opens In-Flight
+     * the moment the sortie is in flight, and that must not stop the cancels half-way and leave the coach turn the
+     * owner just superseded running.
+     */
+    private val actionScope: CoroutineScope = scope,
 ) {
     /** Scrub confirmation dialog state. The reason lives in the dialog, not here. */
     var scrubbing by mutableStateOf(false)
@@ -143,6 +149,19 @@ class LaunchpadViewModel(
         }
     }
 
+    /** Start next week's Mission early. The manager moves the current week, so the screen follows to its draft. */
+    fun startNextWeek(): Job? {
+        val s = state.value
+        if (s !is LaunchpadState.Closed || !s.canStartNextWeek) return null
+        return scope.launch {
+            try {
+                manager.startNextWeek()
+            } catch (_: IllegalStateException) {
+                runCatching { manager.onAppOpen() }
+            }
+        }
+    }
+
     /** Queued names the row to schedule; CoachNotConfigured is the draft being told nothing was queued. */
     private fun queueOrReport(outcome: ConfirmOutcome) {
         when (outcome) {
@@ -153,6 +172,12 @@ class LaunchpadViewModel(
 
     // ── Launch ───────────────────────────────────────────────────────
 
+    /**
+     * Take the current sortie in flight. The Flight Plan generations the manager found still open on it are the
+     * Regenerate this Launch supersedes, so each is cancelled on its own after the launch has committed — on its
+     * own, and without waiting: stopping a session can mean a daemon round trip, and the plan the sortie already
+     * holds is the one it is now flying either way.
+     */
     fun launch(onLaunched: (Long) -> Unit) {
         val s = state.value
         val sortieId = when (s) {
@@ -165,7 +190,10 @@ class LaunchpadViewModel(
                 if (s is LaunchpadState.InFlight) {
                     onLaunched(sortieId)
                 } else {
-                    manager.launch(sortieId)
+                    val supersededIds = manager.launch(sortieId)
+                    for (generationId in supersededIds) {
+                        actionScope.launch { cancelGeneration(generationId) }
+                    }
                     onLaunched(sortieId)
                 }
             } catch (_: IllegalStateException) {
@@ -180,8 +208,13 @@ class LaunchpadViewModel(
         scrubbing = true
     }
 
-    /** The reason arrives from the dialog's Confirm; blank or whitespace-only stores null. The Flight Plan id
-     * scrub queued for the sortie it made current is enqueued only after scrub has returned. */
+    /**
+     * The reason arrives from the dialog's Confirm; blank or whitespace-only stores null. The Flight Plan id scrub
+     * queued for the sortie it made current is enqueued only after scrub has returned. The Flight Plan generations
+     * scrub found still open on the sortie being scrubbed are the coach turn that scrub supersedes, so each is
+     * cancelled after the scrub has committed — each on its own, on the action scope, so a cancel that fails there
+     * cannot turn a scrub already written into a failure.
+     */
     fun confirmScrub(reason: String) {
         val s = state.value
         val sortieId = when (s) {
@@ -192,8 +225,14 @@ class LaunchpadViewModel(
         }
         scope.launch {
             try {
-                val queuedPlanId = manager.scrub(sortieId, reason.trim().takeIf { it.isNotEmpty() })
-                queuedPlanId?.let(queueGeneration)
+                val supersededIds = manager.scrub(
+                    sortieId,
+                    reason.trim().takeIf { it.isNotEmpty() },
+                    queueGeneration,
+                )
+                for (generationId in supersededIds) {
+                    actionScope.launch { cancelGeneration(generationId) }
+                }
             } catch (_: IllegalStateException) {
                 runCatching { manager.onAppOpen() }
             } finally {

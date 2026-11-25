@@ -90,11 +90,14 @@ class InFlightScreenTest {
             val sortieId = sorties[0].id  // db id is auto-generated, likely large (e.g. 999)
 
             composeRule.setContent {
+                // InFlightScreen takes the shell's scope, because that is where a scrub's cancels run. No test
+                // here taps Scrub, so the composition's own scope stands in for the shell's.
                 val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -149,6 +152,7 @@ class InFlightScreenTest {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -223,10 +227,12 @@ class InFlightScreenTest {
             }
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -296,10 +302,12 @@ class InFlightScreenTest {
             ))
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -368,11 +376,13 @@ class InFlightScreenTest {
             var backCalled by mutableStateOf(false)
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     if (!backCalled) {
                         InFlightScreen(
                             sortieId = sortieId,
                             container = container,
+                            actionScope = shellScope,
                             onBack = { backCalled = true },
                         )
                     }
@@ -454,11 +464,13 @@ class InFlightScreenTest {
             var sortieId by mutableStateOf(liftId)
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     key(sortieId) {
                         InFlightScreen(
                             sortieId = sortieId,
                             container = container,
+                            actionScope = shellScope,
                             onBack = {},
                         )
                     }
@@ -538,11 +550,13 @@ class InFlightScreenTest {
             var sortieId by mutableStateOf(untouchedId)
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     key(sortieId) {
                         InFlightScreen(
                             sortieId = sortieId,
                             container = container,
+                            actionScope = shellScope,
                             onBack = {},
                         )
                     }
@@ -614,10 +628,12 @@ class InFlightScreenTest {
             ))
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -714,10 +730,12 @@ class InFlightScreenTest {
             container.database.flightPlanDao().saveSetEdit(setId1, 8, null, null)
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -795,10 +813,12 @@ class InFlightScreenTest {
             ))
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -867,10 +887,12 @@ class InFlightScreenTest {
             )
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -928,10 +950,12 @@ class InFlightScreenTest {
             container.database.sortieDao().updateNotes(sortieId, "Bar felt balanced")
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -981,10 +1005,12 @@ class InFlightScreenTest {
             ))
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -1048,10 +1074,12 @@ class InFlightScreenTest {
             )
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -1103,10 +1131,12 @@ class InFlightScreenTest {
             ))
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }
@@ -1153,10 +1183,12 @@ class InFlightScreenTest {
             )
 
             composeRule.setContent {
+                val shellScope = rememberCoroutineScope()
                 com.liftoff.app.ui.theme.LiftoffTheme {
                     InFlightScreen(
                         sortieId = sortieId,
                         container = container,
+                        actionScope = shellScope,
                         onBack = {},
                     )
                 }

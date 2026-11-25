@@ -134,11 +134,13 @@ class PromptInputLoaderSwapTest {
         assertEquals(
             listOf(
                 "pattern: RRLR",
-                "index 0 — run — pending — focus: easy",
-                "index 1 — run — pending — focus: easy",
-                "index 2 — lift — pending — focus: full body",
-                "index 3 — run — pending — focus: easy",
-                "planning: index 0 — run",
+                "sortie 1 (index 0) — run — pending — focus: easy",
+                "sortie 2 (index 1) — run — pending — focus: easy",
+                "sortie 3 (index 2) — lift — pending — focus: full body",
+                "sortie 4 (index 3) — run — pending — focus: easy",
+                "planning: sortie 1 (index 0) — run",
+                "In your notes, name a sortie by its sortie number (as in \"sortie 2\") or by its type and " +
+                    "focus, never by its index.",
             ),
             sectionLines(rendered, "This week"),
         )
