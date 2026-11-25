@@ -227,4 +227,62 @@ class LandScrubDialogTest {
                 durationLine.left < secondsField.left,
         )
     }
+
+    // runLandDialogShowsSecondsBesideDurationAndItsErrorUnderItsOwnField — the card's third field is
+    // Seconds, on the same row as Duration rather than under it; all three fields are there and start
+    // empty; and a seconds value parseRunEntry refuses (its own Invalid, read back the way the case
+    // above reads its own) draws its error under the Seconds field alone — nothing is drawn under
+    // Distance or Duration.
+    @Test
+    fun runLandDialogShowsSecondsBesideDurationAndItsErrorUnderItsOwnField() {
+        val secondsBad = parseRunEntry("5.2", "27", "90") as RunEntry.Invalid
+        val secondsError = secondsBad.secondsError!!
+        // The other two fields' own strings, to show the card draws neither of them here.
+        val distanceError = (parseRunEntry("abc", "") as RunEntry.Invalid).distanceError!!
+        val durationError = (parseRunEntry("5.2", "-3") as RunEntry.Invalid).minutesError!!
+
+        composeRule.setContent {
+            LiftoffTheme {
+                RunLandDialogContent(
+                    sortieNumber = 1, distanceUnit = DistanceUnit.MI, errors = secondsBad,
+                    onLand = { _, _, _ -> }, onDismiss = {},
+                )
+            }
+        }
+
+        // Three fields on the card, each labelled and each blank when the card enters composition.
+        val fields = composeRule.onAllNodes(hasSetTextAction())
+            .assertCountEquals(3)
+            .assertAll(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+        composeRule.onNodeWithText("Distance (mi)").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Duration (min)").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Seconds").assertCountEquals(1)
+
+        val distanceField = fields[0].getUnclippedBoundsInRoot()
+        val durationField = fields[1].getUnclippedBoundsInRoot()
+        val secondsField = fields[2].getUnclippedBoundsInRoot()
+
+        // Seconds sits beside Duration, not under it: the two overlap vertically and Seconds starts
+        // to the right of where Duration ends.
+        assertTrue(
+            "Seconds must sit on Duration's row: ${durationField} vs ${secondsField}",
+            secondsField.top < durationField.bottom &&
+                durationField.top < secondsField.bottom &&
+                secondsField.left >= durationField.right,
+        )
+
+        composeRule.onNodeWithText(secondsError).assertIsDisplayed()
+        composeRule.onNodeWithText(distanceError).assertDoesNotExist()
+        composeRule.onNodeWithText(durationError).assertDoesNotExist()
+
+        val secondsLine = composeRule.onNodeWithText(secondsError).getUnclippedBoundsInRoot()
+        assertTrue(
+            "the seconds error must sit under the Seconds field and not under Distance or Duration: " +
+                "error ${secondsLine} seconds ${secondsField} " +
+                "duration ${durationField} distance ${distanceField}",
+            secondsLine.top >= secondsField.bottom &&
+                secondsLine.left >= secondsField.left &&
+                secondsLine.left >= durationField.right,
+        )
+    }
 }
