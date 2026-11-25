@@ -292,6 +292,48 @@ class CoachPromptBuilderTest {
         )
     }
 
+    /**
+     * Must show: the coach's History section writes the run line as "run: 3.1 mi in 27 min 34 s" for a
+     * sortie stored with runMinutes 27.566666..., where it writes "27.566666666666666 min" today, and
+     * writes a whole 28.0 as "28 min" exactly as it does now.
+     */
+    @Test
+    fun historyLineWritesARunDurationInMinutesAndSeconds() {
+        val prompt = CoachPromptBuilder.prompt(
+            flightPlan(
+                history = listOf(
+                    landed(
+                        date = LocalDate.parse("2026-10-05"),
+                        title = "Tempo 5k",
+                        type = SortieType.RUN,
+                        runDistance = 3.1,
+                        runMinutes = 27.566666666666666,
+                    ),
+                    landed(
+                        date = LocalDate.parse("2026-10-03"),
+                        title = "Easy 5k",
+                        type = SortieType.RUN,
+                        runDistance = 3.1,
+                        runMinutes = 28.0,
+                    ),
+                )
+            )
+        )
+
+        assertEquals(
+            listOf(
+                "2026-10-05 RUN \"Tempo 5k\" — landed",
+                "  run: 3.1 mi in 27 min 34 s",
+                "",
+                "2026-10-03 RUN \"Easy 5k\" — landed",
+                "  run: 3.1 mi in 28 min",
+            ),
+            historyLines(prompt),
+        )
+        // The stored value is a number of minutes, but a run's duration is not read out as one.
+        assertFalse(prompt.contains("27.566666666666666 min"))
+    }
+
     // ─── §7.4 item 7 / §7.7: exercises used before ──────────────────────────────
 
     /** Every name in the history, once, sorted; two spellings of one exercise collapse (§7.7). */

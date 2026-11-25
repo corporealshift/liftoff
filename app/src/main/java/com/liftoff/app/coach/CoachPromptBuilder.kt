@@ -173,7 +173,7 @@ object CoachPromptBuilder {
         if (sortie.runDistance == null && sortie.runMinutes == null) return null
         val parts = listOfNotNull(
             sortie.runDistance?.let { "${number(it)} ${word(profile.distanceUnit)}" },
-            sortie.runMinutes?.let { "${number(it)} min" },
+            sortie.runMinutes?.let { recordedDuration(it) },
         )
         return "  run: " + parts.joinToString(separator = " in ")
     }
@@ -312,6 +312,23 @@ object CoachPromptBuilder {
         if (value == null) return ""
         if (value == value.toLong().toDouble()) return String.format(Locale.ROOT, "%d", value.toLong())
         return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+    }
+
+    /**
+     * A run's recorded duration as minutes plus whole seconds: `28 min`, `27 min 34 s`, `45 s`; a zero
+     * part is dropped. The seconds come from rounding the whole duration, so the `27.566666…` a
+     * 27 min 34 s entry stores reads back as `27 min 34 s`. This is the reading
+     * `ui/sortie/PlanFormat.formatRecordedDuration` applies to the same value, written a second time
+     * here rather than imported: `coach/` never imports `ui/` (ARCHITECTURE.md invariant 2).
+     */
+    private fun recordedDuration(minutes: Double): String {
+        val totalSeconds = Math.round(minutes * 60)
+        val parts = listOfNotNull(
+            if (totalSeconds / 60 > 0) "${totalSeconds / 60} min" else null,
+            if (totalSeconds % 60 > 0) "${totalSeconds % 60} s" else null,
+        )
+        // A duration of exactly 0 is refused at entry; it still reads as minutes, as it does today.
+        return if (parts.isEmpty()) "0 min" else parts.joinToString(separator = " ")
     }
 
     private fun word(unit: WeightUnit): String = when (unit) {
