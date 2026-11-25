@@ -54,7 +54,7 @@ whole gate once before reading them. Scratch tests and gate logs go under `app/b
   Done when: that class compiles and its one case passes, and `MissionStatesTest` (which seeds
   `runMinutes = 18.5` at 329-344 and asserts the raw state fields) is still green. Commit.
 
-- [ ] 3. The Landed history's TIME and the coach's History line
+- [x] 3. The Landed history's TIME and the coach's History line
   `app/src/main/java/com/liftoff/app/ui/landed/LandedState.kt`: `recordedDuration` (245) uses task 1's
   formatter; the segments line (240) keeps `formatMinutes`.
   `app/src/main/java/com/liftoff/app/coach/CoachPromptBuilder.kt` (339 lines): `runLine` (172-179)
