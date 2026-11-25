@@ -38,7 +38,7 @@ whole gate once before reading them. Scratch tests and gate logs go under `app/b
   Done when: a run of `--tests "com.liftoff.app.ui.sortie.PlanFormatTest"` is BUILD SUCCESSFUL with
   that name in its report and the two existing `formatMinutes` cases (88, 94) still green. Commit.
 
-- [ ] 2. The Mission tab's landed run line, and the render that reads it
+- [x] 2. The Mission tab's landed run line, and the render that reads it
   `app/src/main/java/com/liftoff/app/ui/mission/MissionScreen.kt` (346 lines): the run line at 251-259
   replaces `state.runMinutes?.let { "%.0f min".format(it) }` (254) with task 1's formatter — that
   `%.0f` is the visible bug, printing `19 min` for a stored 18.5. `LandedDetailView` (227) becomes
