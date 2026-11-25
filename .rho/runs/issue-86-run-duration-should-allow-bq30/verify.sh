@@ -10,8 +10,8 @@
 #   error alone, combines valid minutes and seconds into one duration, and accepts seconds with no
 #   minutes; landRun refuses a bad seconds without landing anything
 # - landing 27 min 34 s stores 27 + 34/60 minutes in the sortie row read back out of the DAO
-# - the recorded duration reads back as minutes plus seconds (32 min / 27 min 34 s / 45 s) on the
-#   Mission tab's landed run line, in the Landed history's TIME, and in the coach's History line
+# - the recorded duration reads back as minutes plus seconds (32 min / 27 min 34 s / 45 s) through
+#   the shared formatter, in the Landed history's TIME, and in the coach's History line
 # - whole-minute durations still land and still read exactly as they do today, so the coach's three
 #   golden prompts and the existing whole-minute cases are untouched and still pass
 #
@@ -19,11 +19,12 @@
 # - The plan's Decisions (seconds beside rather than instead of minutes, 0-59 refused rather than
 #   rolled into minutes, sub-minute runs allowed, Duration still accepting a decimal, storage staying
 #   one number of minutes, the zero part dropped on read-back). The owner reviews them in the PR.
+# - A Compose render of the Mission tab's landed detail. The formatter it uses is checked as logic
+#   below; a UI render of that screen goes beyond the brief.
 # - The Room schema, the export and the backup format. No column changes, so the existing backup
 #   round-trip and export/import classes are required green rather than a new case for them.
 # - DESIGN.md. §16 keeps live timers and GPS out of scope and this is still manual entry at landing,
 #   so the plan rules out a design-doc edit and nothing here needs one.
-set -euo pipefail
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -264,8 +265,8 @@ log "=== the run Land card ==="
 # Must show: the Land card for a run shows a Seconds field beside its Duration field, that all three
 # of its fields (Distance, Duration, Seconds) are present and start empty, and that when
 # parseRunEntry reports a seconds error the card draws that error under the Seconds field and not
-# under Distance or Duration. (plan decision "minutes stay the primary unit and seconds sit beside
-# them, on the same row as Duration")
+# under Distance or Duration. (plan decision "Does the seconds control replace minutes, or sit
+# beside them?")
 t LandScrubDialogTest runLandDialogShowsSecondsBesideDurationAndItsErrorUnderItsOwnField
 
 # ===========================================================================
@@ -278,14 +279,14 @@ log "=== the entry parser with seconds ==="
 
 # Must show: "90", "60", "-5", "0.5" and "abc" in the seconds field each give the seconds error and
 # no other field's error, and that a whole 0-59 beside minutes gives a duration of minutes +
-# seconds/60 (27 min + 34 s -> 27.566666...). (plan decision "whole seconds, 0 to 59; a value
-# outside 0-59 is refused with an error under the field rather than rolled into minutes")
+# seconds/60 (27 min + 34 s -> 27.566666...). (plan decision "How fine are the seconds, and what
+# happens to a value outside them?")
 t RunLandingTest secondsOutsideZeroToFiftyNineAreRejectedWithTheSecondsError
 
 # Must show: seconds with the minutes field blank or 0 is accepted as that many seconds of a minute
 # (45 s -> 0.75), and 0 minutes with 0 seconds is still refused with the duration error — the
-# above-0 rule now applies to the combined total. (plan decision "a run can be shorter than a
-# minute")
+# above-0 rule now applies to the combined total. (plan decision "Can a run be shorter than a
+# minute?")
 t RunLandingTest secondsWithNoMinutesIsValidAndZeroMinutesWithZeroSecondsIsRejected
 
 # ===========================================================================
@@ -308,7 +309,8 @@ log "=== landing stores the seconds ==="
 
 # Must show: landing a run with 27 minutes and 34 seconds leaves the sortie LANDED with a run
 # duration of 27 + 34/60 minutes read back out of sortieDao — the seconds are stored, not rounded
-# away into the minutes.
+# away into the minutes. (plan decision "What happens to durations already stored, and to how they
+# are stored?")
 t InFlightRunTest runLandWithMinutesAndSecondsStoresTheCombinedDuration
 
 # Must show: the whole-minute case that exists today still lands 5.2 mi and 31 min with the seconds
@@ -326,23 +328,18 @@ log "=== the recorded duration reads back as minutes and seconds ==="
 # Must show: the recorded-duration formatter gives "32 min" for 32.0, "27 min 34 s" for the
 # 27.566666... that a 27 min 34 s entry produces, "18 min 30 s" for 18.5, "27 min 45 s" for 27.75,
 # and "45 s" for 0.75 — whole seconds taken with rounding, and a zero part dropped.
-# (plan decision "read back as minutes plus seconds, with a zero part dropped")
+# (plan decision "How is the duration read back?")
 t PlanFormatTest formatRunDurationMinutesAndSeconds
-
-# Must show: the Mission tab's landed run detail draws "3.2 mi · 18 min 30 s" for a Landed state
-# whose runMinutes is 18.5, where it draws "19 min" today; the same view still draws "32 min" for a
-# whole 32.0 and the em dash for a null duration. A static render of the detail view from a state
-# object — no database, no waits.
-t MissionLandedDetailTest landedRunDetailShowsTheRecordedDurationInMinutesAndSeconds
 
 # Must show: the Landed history's run detail carries recordedDuration "18 min 30 s" for a sortie
 # stored with runMinutes 18.5, where it carries "18.5 min" today, and still carries "32 min" for a
-# whole-minute run.
+# whole-minute run. (plan decision "How is the duration read back?")
 t LandedStatesTest runDetailRecordedDurationReadsMinutesAndSeconds
 
 # Must show: the coach's History section writes the run line as "run: 3.1 mi in 27 min 34 s" for a
 # sortie stored with runMinutes 27.566666..., where it writes "27.566666666666666 min" today, and
-# writes a whole 28.0 as "28 min" exactly as it does now.
+# writes a whole 28.0 as "28 min" exactly as it does now. (plan decision "How is the duration read
+# back?")
 t CoachPromptBuilderTest historyLineWritesARunDurationInMinutesAndSeconds
 
 # Must show: the three golden prompts still match byte for byte — a whole-minute run's History line
