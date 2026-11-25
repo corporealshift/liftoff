@@ -20,7 +20,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -218,7 +220,7 @@ private fun PendingContent(
     viewModel: LaunchpadViewModel,
     rhoSessionRevealed: Boolean,
 ) {
-    TitleBlock(eyebrow = state.eyebrow, title = state.title)
+    PendingTitleBlock(eyebrow = state.eyebrow, title = state.title)
     Spacer(Modifier.height(16.dp))
     PatternTrack(chips = state.chips)
     Spacer(Modifier.height(20.dp))
@@ -243,6 +245,47 @@ private fun PendingContent(
             style = LiftoffType.note().copy(color = Muted),
         )
     }
+}
+
+/**
+ * The PENDING card's title block. This title is the sortie's own focus, which the coach writes long and in
+ * all-caps, so it is the one title in the app that is measured and shrunk: capped at two lines from the first
+ * frame, and drawn at the largest of the display sizes that lays the whole focus out on those two lines. The
+ * ladder stops at 34 sp; past it the cap holds and the focus ellipsizes, rather than the title going
+ * note-sized. Every other card draws its title at one fixed size, with [TitleBlock].
+ */
+@Composable
+private fun PendingTitleBlock(eyebrow: String, title: String) {
+    val ladder = pendingTitleSizes()
+    // Keyed on the title alone because nothing can change the width this title is laid out in without recreating
+    // the activity — MainActivity declares no android:configChanges. If that stops being true the width belongs
+    // in this key, because the ladder only ever steps down.
+    var rung by remember(title) { mutableIntStateOf(0) }
+    TitleBlock(
+        eyebrow = eyebrow,
+        title = title,
+        titleStyle = ladder[rung],
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        onTextLayout = { result ->
+            // The cap is on from the first frame, so all the layout can report is whether it had to leave part of
+            // the focus out: an ellipsized last line means the type is still set too big for two lines.
+            val leftOut = result.isLineEllipsized(result.lineCount - 1)
+            if (leftOut && rung < ladder.lastIndex) rung++
+        },
+    )
+}
+
+/** The sizes the PENDING title may be set at, largest first: the display size the card draws today, then the
+ * two smaller display sizes the app already typesets at — headerTitle's 44 sp and launchLabel's 34 sp. */
+@Composable
+private fun pendingTitleSizes(): List<TextStyle> {
+    val screen = LiftoffType.screenTitle()
+    return listOf(
+        screen,
+        screen.copy(fontSize = LiftoffType.headerTitle().fontSize),
+        screen.copy(fontSize = LiftoffType.launchLabel().fontSize),
+    )
 }
 
 private class PendingLine(val text: String, val color: Color, val validatorErrors: List<String> = emptyList())
