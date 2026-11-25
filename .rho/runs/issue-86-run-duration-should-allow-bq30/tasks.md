@@ -78,7 +78,7 @@ whole gate once before reading them. Scratch tests and gate logs go under `app/b
   `CoachPromptBuilderTest` are green, task 2's `MissionLandedDetailTest` still passes, and
   `git status` shows no change under `app/src/test/resources/`. Commit.
 
-- [ ] 4. The entry: seconds through the parser, the card, the screen and the view model
+- [x] 4. The entry: seconds through the parser, the card, the screen and the view model
   Main code, all four files in one commit, because the extra text reaches them at once:
   `ui/inflight/RunLanding.kt` (51 lines) — `parseRunEntry` takes the seconds text, `RunEntry.Valid`
   keeps one `minutes: Double?` that is now minutes + seconds/60, `RunEntry.Invalid` gains a
