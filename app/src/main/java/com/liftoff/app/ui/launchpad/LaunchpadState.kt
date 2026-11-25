@@ -85,6 +85,8 @@ sealed interface LaunchpadState {
         val chips: List<com.liftoff.app.ui.theme.PatternChip>,
         val landedCount: Int,
         val total: Int,
+        /** Start next week is offered: the Mission is CLOSED and is the calendar week, not one started early. */
+        val canStartNextWeek: Boolean,
     ) : LaunchpadState
 }
 
@@ -172,6 +174,8 @@ class LaunchpadStates(
             chips = chips,
             landedCount = landedCount,
             total = mission.pattern.length,
+            canStartNextWeek = mission.status == MissionStatus.CLOSED &&
+                mission.weekStart == manager.calendarWeekStart(),
         )
     }
 
