@@ -124,3 +124,43 @@ the whole sortie — see the last section.)
   imports; `ARCHITECTURE.md:75` — the gate is `./gradlew :app:assembleDebug :app:testDebugUnitTest`.
 - No design mock in `design/screens/` mentions Duration, and DESIGN.md has no Land-dialog field
   spec, so no design-doc edit is needed for the new field.
+
+## The gate (verify.sh)
+
+`verify.sh` is the harness from issue 78's committed `verify.sh` (`f4e85b4`, CI green on PR #87) kept
+byte-for-byte — `set -euo pipefail`, the launcher order (`bash gradlew.sh` under MINGW/MSYS/CYGWIN,
+else `$HOME/android-toolchain/gradle/bin/gradle`, else `./gradlew`, else `bash gradlew.sh`; toolchain
+vars exported only when the dirs exist and only when unset), the one gate run
+(`:app:assembleDebug :app:testDebugUnitTest --no-build-cache`, 3 attempts), the JUnit-XML index, the
+FROM-CACHE guard, `transient_failure` (allowlist: `LiftoffShellTest`, `InFlightScreenTest`), `t`/`c`,
+and the result block. Only the header, `WORK="app/build/verify86"` and the `t`/`c` lists differ.
+
+Measured on the untouched tree (2026-11-25): attempt 1 failed on `LiftoffShellTest >
+systemBackFromMissionControlReturnsToTabItWasOpenedFrom` (the recorded flake) and was retried;
+attempt 2 green, `> Task :app:testDebugUnitTest` with no cache suffix, **780 test records across 92
+classes**; 17 checks ok, 9 FAIL, exit 1. `InFlightRunTest.runLandWithDistanceAndDurationStoresBoth`
+matched and passed, which is what shows the `t` matcher reads real report names.
+
+Names the work steps must spell exactly (a case in a differently-named class is never found):
+
+- `LandScrubDialogTest.runLandDialogShowsSecondsBesideDurationAndItsErrorUnderItsOwnField`
+- `RunLandingTest.secondsOutsideZeroToFiftyNineAreRejectedWithTheSecondsError`
+- `RunLandingTest.secondsWithNoMinutesIsValidAndZeroMinutesWithZeroSecondsIsRejected`
+- `InFlightViewModelTest.landRunRejectsInvalidSecondsWithoutTouchingTheManager`
+- `InFlightRunTest.runLandWithMinutesAndSecondsStoresTheCombinedDuration`
+- `InFlightRunTest.runLandWithDistanceAndDurationStoresBoth` — the existing case, kept
+- `PlanFormatTest.formatRunDurationMinutesAndSeconds`
+- `MissionLandedDetailTest.landedRunDetailShowsTheRecordedDurationInMinutesAndSeconds` — **new file**
+  `app/src/test/java/com/liftoff/app/ui/mission/MissionLandedDetailTest.kt`, static Compose render of
+  `LandedDetailView` (which becomes `internal` at `MissionScreen.kt:227`) from a
+  `SortieDetailState.Landed` built in the test
+- `LandedStatesTest.runDetailRecordedDurationReadsMinutesAndSeconds`
+- `CoachPromptBuilderTest.historyLineWritesARunDurationInMinutesAndSeconds`
+- `c CoachPromptGoldenFileTest`, plus `c` on `RunLandingTest`, `LandScrubDialogTest`,
+  `InFlightRunTest`, `InFlightViewModelTest`, `InFlightStatesTest`, `PlanFormatTest`,
+  `LandedStatesTest`, `MissionStatesTest`, `CoachPromptBuilderTest`, `SortieDaoTest`,
+  `MissionManagerTest`, `DatabaseExportTest`, `DatabaseImportTest`, `BackupRoundTripTest`
+
+Not checked, with the reason in the script's header: the plan's Decisions, the Room schema / export /
+backup format (no column changes — the existing data classes are required green instead), and any
+DESIGN.md edit (§16 rules out timers/GPS; this is still manual entry at landing).
