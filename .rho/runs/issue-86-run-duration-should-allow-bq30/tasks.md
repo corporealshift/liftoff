@@ -139,7 +139,7 @@ whole gate once before reading them. Scratch tests and gate logs go under `app/b
   "com.liftoff.app.ui.inflight.InFlightViewModelTest"` is BUILD SUCCESSFUL with both new names and
   `runLandWithDistanceAndDurationStoresBoth` in its reports, and both classes are green whole. Commit.
 
-- [ ] 7. The gate, and the brief read back against the tests
+- [x] 7. The gate, and the brief read back against the tests
   Run `bash .rho/runs/issue-86-run-duration-should-allow-bq30/verify.sh` end to end and read its
   output line by line: 8 named cases plus the existing whole-minute one, `CoachPromptGoldenFileTest`,
   and the 14 neighbour classes (`SortieDaoTest`, `MissionManagerTest`, `DatabaseExportTest`,
