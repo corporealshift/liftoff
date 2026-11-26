@@ -20,17 +20,12 @@ A week is planned up front as a pattern of at most seven sorties (DESIGN.md §4.
 **1. Domain — `domain/Sorties.kt`**
 
 ```kotlin
-enum class AddSortieRefusal { MISSION_NOT_CONFIRMED, PATTERN_FULL }
-
-sealed class AddOutcome {
-    data class Added(val mission: Mission, val sortie: Sortie) : AddOutcome()
-    data class Refused(val refusal: AddSortieRefusal) : AddOutcome()
-}
-
-fun addSortie(mission: Mission, type: SortieType): AddOutcome
+fun addSortie(mission: Mission, type: SortieType): Pair<Mission, Sortie>
 ```
 
-The mission must be `ACTIVE` or `CLOSED` (a `DRAFT` week is still being planned with Mission Control, and its pattern is edited through `overridePattern`/`confirm`). The pattern must be shorter than seven, because `Pattern.isValidPattern` caps a pattern at seven letters. On success the returned mission has `pattern + letter` and status `ACTIVE`, and the returned sortie is `Sortie(missionId = mission.id, index = mission.pattern.length, type = type, focus = DEFAULT_RUN_FOCUS | DEFAULT_LIFT_FOCUS, state = PENDING)` — the same default focus "Continue without outline" uses.
+Refusals come back as `require` failures, the way `swapSortieType` (same file), `overridePattern` and `confirmWithoutOutline` all refuse: the caller's gates are `check`s and the UI already catches `IllegalStateException` and re-reads the week. A sealed outcome with refusal codes was the first shape considered and dropped — nothing in the UI needs to name a reason, because the button is hidden when an add is impossible, and `domain/` holds no outcome types today (`ConfirmOutcome` lives in `data/MissionManager.kt`).
+
+The mission must be `ACTIVE` or `CLOSED` (a `DRAFT` week is still being planned with Mission Control, and its pattern is edited through `overridePattern`/`confirm`). The pattern must be shorter than seven, because `Pattern.isValidPattern` caps a pattern at seven letters; that cap is now the named `MAX_PATTERN_LENGTH` so the add and the validator can't drift. On success the returned mission has `pattern + letter` and status `ACTIVE`, and the returned sortie is `Sortie(missionId = mission.id, index = mission.pattern.length, type = type, focus = DEFAULT_RUN_FOCUS | DEFAULT_LIFT_FOCUS, state = PENDING)` — the same default focus "Continue without outline" uses.
 
 `domain/Missions.kt` gains `MissionStatus.CLOSED to MissionStatus.ACTIVE` in `MissionLifecycle.legalTransitions`. Without that edge a week whose planned sorties are all finished is `CLOSED`, and the most common reading of the brief — "I got a workout in that the week didn't plan" — would be refused.
 
@@ -40,7 +35,7 @@ The mission must be `ACTIVE` or `CLOSED` (a `DRAFT` week is still being planned 
 suspend fun addSortie(missionId: Long, type: SortieType, onQueued: (Long) -> Unit = {}): List<Long>
 ```
 
-Mirrors `swapSortieType`: refuse when the mission is missing or its `weekStart != currentWeekOf()`; inside one transaction run the domain call, `db.missionDao().update(updated)`, `db.sortieDao().insert(newSortie)`, then `advance(mission.id, settings)`. `advance` prepares the current sortie, so the new sortie is planned only when it is the current one — which is what happens on a reopened closed week, or when every earlier sortie has landed. It returns the generation ids it superseded so the caller can cancel them; `onQueued` is called for the generation `advance` queued, after the transaction commits.
+Mirrors `swapSortieType`: refuse when the mission is missing or its `weekStart != currentWeekOf()`; inside one transaction run the domain call, `db.missionDao().update(updated)`, `db.sortieDao().insert(newSortie)`, then `advance(mission.id, settings)`. `advance` prepares the current sortie, so the new sortie is planned only when it is the current one — which is what happens on a reopened closed week, or when every earlier sortie has landed. Nothing is deleted, so no open generation goes stale and there is nothing for the caller to cancel; `onQueued` is called for the generation `advance` queued, after the transaction commits.
 
 **3. Mission tab UI**
 

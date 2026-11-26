@@ -1,6 +1,7 @@
 package com.liftoff.app.domain
 
 import com.liftoff.app.data.Mission
+import com.liftoff.app.data.MissionStatus
 import com.liftoff.app.data.Sortie
 import com.liftoff.app.data.SortieState
 import com.liftoff.app.data.SortieType
@@ -97,4 +98,41 @@ fun swapSortieType(mission: Mission, sortie: Sortie): Pair<Mission, Sortie> {
         focusRationale = null,
         state = SortieState.PENDING,
     )
+}
+
+/**
+ * DESIGN.md §4.1, §4.2, §9 (amended 2026-11-26): add a sortie the week didn't plan.
+ * The letter goes on the end of the pattern and the sortie at the matching index, so every earlier
+ * sortie keeps its index, its Flight Plan and its history row. A CLOSED week reopens, because the
+ * workout that wasn't expected usually arrives after the planned ones have been done.
+ */
+fun addSortie(mission: Mission, type: SortieType): Pair<Mission, Sortie> {
+    // A draft's pattern is edited and confirmed as a whole (§4.2), so it takes no single sortie.
+    require(mission.status != MissionStatus.DRAFT) { "Can only add a sortie to a confirmed week" }
+    require(mission.pattern.length < MAX_PATTERN_LENGTH) {
+        "Pattern '${mission.pattern}' already holds $MAX_PATTERN_LENGTH sorties"
+    }
+    if (mission.status == MissionStatus.CLOSED) {
+        MissionLifecycle.requireTransition(MissionStatus.CLOSED, MissionStatus.ACTIVE)
+    }
+    // The letter is written from the type, so the pattern and the new sortie can't end up disagreeing.
+    val letter = if (type == SortieType.RUN) 'R' else 'L'
+    val pattern = mission.pattern + letter
+    require(isValidPattern(pattern)) { "Invalid pattern: '$pattern'" }
+    val sortie = Sortie(
+        id = 0, // set by DAO insert
+        missionId = mission.id,
+        index = mission.pattern.length,
+        type = type,
+        focus = if (type == SortieType.RUN) DEFAULT_RUN_FOCUS else DEFAULT_LIFT_FOCUS,
+        focusRationale = null,
+        state = SortieState.PENDING,
+        launchedAt = null,
+        landedAt = null,
+        scrubReason = null,
+        notes = null,
+        runDistance = null,
+        runMinutes = null,
+    )
+    return mission.copy(pattern = pattern, status = MissionStatus.ACTIVE) to sortie
 }
