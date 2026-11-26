@@ -15,6 +15,7 @@ import com.liftoff.app.domain.effectiveWeekStart
 import com.liftoff.app.domain.launch
 import com.liftoff.app.domain.land
 import com.liftoff.app.domain.markPlanned
+import com.liftoff.app.domain.MAX_PATTERN_LENGTH
 import com.liftoff.app.domain.newDraft
 import com.liftoff.app.domain.overridePattern
 import com.liftoff.app.domain.Preparation
@@ -554,6 +555,9 @@ class MissionManager(
             check(mission.weekStart == currentWeekOf()) { "Can only add a sortie to the current week" }
             check(mission.status == MissionStatus.ACTIVE || mission.status == MissionStatus.CLOSED) {
                 "Mission must be confirmed"
+            }
+            check(mission.pattern.length < MAX_PATTERN_LENGTH) {
+                "This week already holds $MAX_PATTERN_LENGTH sorties"
             }
 
             val (updatedMission, newSortie) = com.liftoff.app.domain.addSortie(mission, type)
