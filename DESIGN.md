@@ -116,15 +116,18 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
 - Each Mission's pattern can be **overridden** while the Mission is a draft, for example
   `L R L R L` for an alternate week. Once confirmed the pattern is frozen, except that the
   current sortie's type can be swapped mid-week while it is `PENDING` or `PLANNED`, which
-  rewrites the letter at its index (§9). (amended 2026-11-23)
+  rewrites the letter at its index, and that a sortie can be **added** to a confirmed week,
+  which appends its letter at the end and keeps the pattern within its 1-to-7 length (§9).
+  (amended 2026-11-23, 2026-11-26)
 
 ### 4.2 Lifecycle
 
 ```
            confirm (online)                last sortie landed/scrubbed, or week ends
  DRAFT ─────────────────────► ACTIVE ─────────────────────────────────────► CLOSED
-   │                            ▲
-   └── outline generation ──────┘ (ACTIVE begins when the outline is stored)
+   │                            ▲                                           │
+   └── outline generation ──────┘◄── add a sortie (§4.1) ───────────────────┘
+   (ACTIVE begins when the outline is stored)
 ```
 
 - **Draft.** When the app is opened in a week that has no Mission, it creates a `DRAFT` for
@@ -139,7 +142,9 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
 - **Closed.** A Mission closes when every sortie has landed or been scrubbed, or when its
   week ends. Any sortie not landed by the end of the week is marked `SCRUBBED`
   automatically, with the reason "week ended". **Unfinished sorties do not carry over** —
-  each week starts clean.
+  each week starts clean. A closed Mission reopens to `ACTIVE` when a sortie is added to it,
+  which can only happen while it is still the current week: a week closed by the rollover is
+  not the current week any more. (amended 2026-11-26)
 - **Start next week.** A Mission is not created ahead of its week, with one exception. Once the current week's Mission is `CLOSED`, next week's
   Mission can be started early from the Launchpad: a `DRAFT` with next Monday's `weekStart`
   and the default pattern, which becomes the current week at once and is fully live
@@ -159,7 +164,8 @@ Code names: `Mission`, `Sortie` (one slot in a Mission, holding a run or lift se
   Flight Plan generation is queued if it isn't already planned.
 - Sorties cannot be reordered within a Mission (v1). A swap changes one sortie's type and the
   letter at its own index; the count and the order are untouched, so the rolling order above
-  still holds. (amended 2026-11-23)
+  still holds. An added sortie joins the **end** of the pattern, so it is the last sortie in
+  the week and no existing sortie changes its index. (amended 2026-11-23, 2026-11-26)
 
 ---
 
@@ -178,7 +184,8 @@ PENDING ──generation stored──► PLANNED ──launch──► IN_FLIGHT
 ```
 
 - **PENDING:** the sortie has no Flight Plan yet. Its generation may be queued, running or
-  failed.
+  failed. A sortie added to a confirmed week starts here, and is prepared when it becomes the
+  week's current sortie. (amended 2026-11-26)
 - **PLANNED:** the Flight Plan is stored and the sortie can be launched. The owner can
   regenerate it from here, which replaces the plan. Swapping its type from here returns it to
   `PENDING` and deletes the plan it held (§4.1, §9). (amended 2026-11-23)
@@ -621,7 +628,10 @@ The visual design is direction B, "Space Age": colors, type, components and mock
 - **Mission.** This week's pattern, the outline and its notes, and each sortie with its
   state. Tapping a sortie shows its plan, or for a landed sortie its record. A confirmed
   week offers **Reset week** (§4.2), behind a confirmation that says how many landed or
-  scrubbed sorties it deletes. (amended 2026-10-31)
+  scrubbed sorties it deletes, and **Add sortie** (§4.1), behind a dialog that asks Lift or
+  Run and says the new sortie joins the end of the pattern. Both are absent on a draft
+  rather than dimmed, and Add sortie is absent on a week that already holds its seven
+  sorties. (amended 2026-10-31, 2026-11-26)
 - **Landed.** History, newest first, grouped by week, with a detail view per sortie.
 - **Mission Control.** Every setting in §8, plus:
   - equipment management (add, edit, deactivate)
@@ -722,8 +732,9 @@ It MUST pass before any piece of work is called done.
 
 - **Missions:**
   - A draft is created with the default pattern.
-  - The pattern can be overridden while a draft and is frozen on confirm; the swap of the
-    current sortie's type is the one override on an ACTIVE week (§4.1). (amended 2026-11-23)
+  - The pattern can be overridden while a draft and is frozen on confirm; on a confirmed week
+    the only changes are the swap of the current sortie's type and the adding of a sortie at
+    the end, both on the current week alone (§4.1). (amended 2026-11-23, 2026-11-26)
   - Rollover at the week boundary scrubs open sorties with "week ended".
   - No carry-over between weeks.
   - Time-zone handling of the Monday boundary.
@@ -805,7 +816,7 @@ Each milestone ends with the project gate passing.
 | 1 | Audience | One owner, installed directly on one phone | Multi-user / Play Store (several times the scope; no need) |
 | 2 | Platform | Native Kotlin + Compose, matching nabu's client | Flutter (no reuse of nabu's Kotlin client, cross-platform not needed); PWA (weaker offline and storage; owner asked for Android) |
 | 3 | LLM | Local model via a nabu session in a coach workspace | Claude API (billed separately from Pro); llama-server direct (no tools, memory or inspectability; kept as M0 fallback); on-device model (too weak) |
-| 4 | Schedule | Weekly pattern (default `RLRLR`, overridable per week before confirm), rolling order within the week, and the current sortie's type swappable mid-week (amended 2026-11-23) | Fixed weekday calendar (a missed day loses a session); strict alternation across weeks (owner wants explicit weekly control); asking each day (no structure) |
+| 4 | Schedule | Weekly pattern (default `RLRLR`, overridable per week before confirm), rolling order within the week, the current sortie's type swappable mid-week, and a sortie addable to a confirmed week (amended 2026-11-23, 2026-11-26) | Fixed weekday calendar (a missed day loses a session); strict alternation across weeks (owner wants explicit weekly control); asking each day (no structure) |
 | 5 | Carry-over | Unfinished sorties are scrubbed at week end | Carrying them into next week (pattern stops meaning anything) |
 | 6 | Generation timing | Outline on confirm, then each Flight Plan when the previous sortie lands | Whole week up front (weights can't adapt mid-week); one at a time with no outline (nothing balances the week) |
 | 7 | Logging | Pre-filled sets, one tap to check, edit only on deviation | Exercise-level checkboxes (no load data, no progression); full log with RPE (too much typing at the gym) |
@@ -836,6 +847,12 @@ Each milestone ends with the project gate passing.
   (§4.2) — and clears any focus rationale it held, because a lift's focus says nothing useful
   about a run day. The week's outline notes are left as they are: they still describe the rest
   of the week. (amended 2026-11-23)
+- **An added sortie takes the new type's default focus, and joins at the end.** "Add lift"
+  gives it "full body" and "Add run" gives it "easy" — the same defaults "Continue without
+  outline" uses (§4.2) — and the owner picks the type, so nothing is asked of the coach. It is
+  appended rather than inserted so that no existing sortie changes its index, and it is
+  prepared when it becomes the week's current sortie rather than at the moment it is added.
+  (amended 2026-11-26)
 
 ---
 
@@ -843,6 +860,24 @@ Each milestone ends with the project gate passing.
 
 Changes made to this document after approval are listed here, newest first, and marked
 inline in the section they affect: what changed, when, and why.
+
+- **2026-11-26 — add: a sortie can be added to a confirmed week (§4.1, §4.2, §4.3, §5.1, §9,
+  §13, §15, §16).** Issue #88: "I want to be able to add a workout to a week, sometimes I'm
+  able to get some in I didn't expect". A confirmed week gains one more sortie, chosen by the
+  owner as Lift or Run from a dialog on the Mission tab, which appends its letter to the
+  pattern and creates the sortie `PENDING` at the new index, in one transaction. What follows
+  is a set of decisions rather than consequences. The new sortie is **appended**, not
+  inserted, so no existing sortie changes its index and no plan or
+  history row is disturbed; inserting one before the current sortie would renumber everything
+  after it. A **closed week reopens** to `ACTIVE`, because the point of adding a sortie to a
+  finished week is to do it and a week that stayed closed could not launch one; the add is
+  offered only on the current week, so a week closed by the rollover is out of reach. The week
+  keeps its **cap of seven sorties**, which is §4.1's existing 1-to-7 pattern length rather than a
+  new rule, and above it the button is absent rather than disabled. The new sortie takes the
+  new type's default focus and is prepared when it becomes the week's current sortie rather
+  than at the moment it is added, so on an active week with an unfinished sortie before it, it
+  waits its turn. A draft is not offered the action at all: a draft already has a pattern to
+  edit, and the Launchpad's draft editor is where that is settled.
 
 - **2026-11-23 — swap: the current sortie's type can be flipped mid-week (§4.1, §4.3, §5.1, §9,
   §13, §15, §16).** Once a Mission was confirmed its pattern was frozen, so turning a lift day

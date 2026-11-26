@@ -168,7 +168,8 @@ private fun WeekContent(
 
 /**
  * What the draft says about Mission Control, in the Launchpad's own words. The actions stay on the
- * Launchpad — DESIGN.md §9 gives this tab only Reset week — so a failure says where to act.
+ * Launchpad — DESIGN.md §9 gives this tab only Reset week and Add sortie, and neither on a draft —
+ * so a failure says where to act.
  * Editable and NotConfigured mean nothing is in flight, which is what the tab's own sentence is for.
  */
 @Composable

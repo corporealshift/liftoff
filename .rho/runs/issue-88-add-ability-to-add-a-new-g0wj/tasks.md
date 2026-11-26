@@ -21,7 +21,7 @@ Plan: `.rho/runs/issue-88-add-ability-to-add-a-new-g0wj/plan.md`
   - Two behaviors the tests settled on the way: `advance` prepares the week's **current** sortie, so on an active week the appended one is planned only when it becomes current, and `onQueued` carries the **Generation row's** id, which is what `GenerationEnqueuer` takes.
   - Commit: `ui: add a sortie to the current week from the Mission tab`
 
-- [ ] Task 4 — DESIGN.md amendment
+- [x] Task 4 — DESIGN.md amendment
   - An amendment dated 2026-11-26 in the list after approval, in the style of the 2026-11-23 swap entry, covering §4.1 (a confirmed week can take a sortie, up to the seven cap), §4.2 (a closed week reopens when a sortie is added), and §9 (the Mission tab now offers **Add sortie** beside **Reset week**). `ARCHITECTURE.md` needs no change: it lists no per-tab actions.
   - Commit: `docs: amend DESIGN.md for adding a sortie to a week`
 
