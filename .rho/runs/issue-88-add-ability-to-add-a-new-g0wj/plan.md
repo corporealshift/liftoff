@@ -50,7 +50,8 @@ Mirrors `swapSortieType`: refuse when the mission is missing or its `weekStart !
 
 | File | Change |
 | --- | --- |
-| `app/src/main/java/com/liftoff/app/domain/Sorties.kt` | `addSortie`, `AddOutcome`, `AddSortieRefusal` |
+| `app/src/main/java/com/liftoff/app/domain/Pattern.kt` | `MAX_PATTERN_LENGTH`, used by `isValidPattern` and by the add's gate |
+| `app/src/main/java/com/liftoff/app/domain/Sorties.kt` | `addSortie`, refusing with `require` |
 | `app/src/main/java/com/liftoff/app/domain/Missions.kt` | `CLOSED → ACTIVE` edge in `MissionLifecycle` |
 | `app/src/main/java/com/liftoff/app/data/MissionManager.kt` | `addSortie` |
 | `app/src/main/java/com/liftoff/app/ui/mission/MissionState.kt` | `Week.canAdd` |
@@ -58,7 +59,8 @@ Mirrors `swapSortieType`: refuse when the mission is missing or its `weekStart !
 | `app/src/main/java/com/liftoff/app/ui/mission/AddSortieDialog.kt` | new |
 | `app/src/main/java/com/liftoff/app/ui/mission/MissionScreen.kt` | `Add sortie` button + dialog |
 | `DESIGN.md` | amendment |
-| tests | `SortieAddTest`, `MissionManagerAddSortieTest`, `MissionTabStateTest`, `MissionViewModelAddTest`, plus `MissionsTest`'s lifecycle table |
+| tests | `SortieAddTest`, `MissionManagerAddSortieTest`, `MissionTabStateTest`, `MissionViewModelAddTest`, `AddSortieDialogTest`, plus `MissionsTest`'s lifecycle table and `MissionStatesTest`'s derived `canAdd` |
+| read-back tests | `LaunchpadStatesTest`'s added-sortie case (the reopened week's card, then Launch and Land) and `PromptInputLoaderAddTest` (the added sortie in the prompt that gets sent) |
 
 ## Order
 
