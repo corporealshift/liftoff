@@ -81,11 +81,14 @@ class MissionsTest {
         MissionLifecycle.requireTransition(MissionStatus.DRAFT, MissionStatus.ACTIVE)
         MissionLifecycle.requireTransition(MissionStatus.ACTIVE, MissionStatus.CLOSED)
         MissionLifecycle.requireTransition(MissionStatus.DRAFT, MissionStatus.CLOSED)
+        // CLOSED → ACTIVE is legal for the add of §4.1 (amended 2026-11-26): a finished week can take a sortie.
+        MissionLifecycle.requireTransition(MissionStatus.CLOSED, MissionStatus.ACTIVE)
 
         // canTransition matches
         assertEquals(true, MissionLifecycle.canTransition(MissionStatus.DRAFT, MissionStatus.ACTIVE))
         assertEquals(true, MissionLifecycle.canTransition(MissionStatus.ACTIVE, MissionStatus.CLOSED))
         assertEquals(true, MissionLifecycle.canTransition(MissionStatus.DRAFT, MissionStatus.CLOSED))
+        assertEquals(true, MissionLifecycle.canTransition(MissionStatus.CLOSED, MissionStatus.ACTIVE))
 
         // Illegal transitions throw
         val illegalPairs = listOf(
@@ -93,7 +96,6 @@ class MissionsTest {
             MissionStatus.ACTIVE to MissionStatus.ACTIVE,
             MissionStatus.CLOSED to MissionStatus.CLOSED,
             MissionStatus.ACTIVE to MissionStatus.DRAFT,
-            MissionStatus.CLOSED to MissionStatus.ACTIVE,
             MissionStatus.CLOSED to MissionStatus.DRAFT,
         )
         for ((from, to) in illegalPairs) {

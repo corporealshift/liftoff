@@ -638,6 +638,28 @@ class MissionStatesTest {
         }
     }
 
+    // ── Add sortie is offered on a confirmed week with room left ───────
+    // §4.1, amended 2026-11-26. The tab's button follows the rule MissionManager.addSortie enforces, so a draft
+    // — which has a pattern to edit instead — and a week already holding seven sorties both hide it.
+
+    @Test
+    fun addSortieIsOfferedOnAConfirmedWeekWithRoomLeftAndNotOnADraftOrAFullWeek() = runBlocking {
+        val draft = manager.onAppOpen()
+        assertFalse("a draft has a pattern to edit, not a sortie to add", draftWeek().canAdd)
+
+        missionDao.update(draft.copy(status = MissionStatus.ACTIVE, pattern = "LLR"))
+        assertTrue(draftWeek().canAdd)
+
+        missionDao.update(draft.copy(status = MissionStatus.CLOSED, pattern = "LLR"))
+        assertTrue("a finished week can still take a sortie", draftWeek().canAdd)
+
+        missionDao.update(draft.copy(status = MissionStatus.ACTIVE, pattern = "LLRLRLR"))
+        assertFalse(draftWeek().canAdd)
+
+        missionDao.update(draft.copy(status = MissionStatus.CLOSED, pattern = "LLRLRLR"))
+        assertFalse(draftWeek().canAdd)
+    }
+
     private companion object {
         const val AWAIT_MS = 5_000L
         const val POLL_MS = 25L

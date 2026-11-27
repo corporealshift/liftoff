@@ -34,7 +34,7 @@ import java.time.Instant
 @Composable
 fun MissionScreen(
     container: AppContainer,
-    /** The shell's scope, for work that must outlive this tab: Reset week's cancels. */
+    /** The shell's scope, for work that must outlive this tab: Reset week's and Add sortie's cancels. */
     actionScope: CoroutineScope,
 ) {
     val scope = rememberCoroutineScope()
@@ -44,6 +44,7 @@ fun MissionScreen(
             container.missionManager,
             scope,
             cancelGeneration = { id -> container.generationCanceller().cancel(id) },
+            queueGeneration = { id -> container.generationEnqueuer().enqueue(id) },
             actionScope = actionScope,
         )
     }
@@ -70,6 +71,7 @@ fun MissionScreen(
             state = tabState,
             onSelect = { id -> selectedSortieId = id },
             onReset = viewModel::requestReset,
+            onAdd = viewModel::requestAdd,
         )
     }
 
@@ -81,6 +83,12 @@ fun MissionScreen(
             onDismiss = viewModel::cancelReset,
         )
     }
+    if (viewModel.adding && week != null) {
+        AddSortieDialog(
+            onAdd = { type -> viewModel.confirmAdd(type) },
+            onDismiss = viewModel::cancelAdd,
+        )
+    }
 }
 
 @Composable
@@ -88,6 +96,7 @@ private fun MissionTabContent(
     state: MissionTabState,
     onSelect: (Long) -> Unit = {},
     onReset: () -> Unit = {},
+    onAdd: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -99,7 +108,7 @@ private fun MissionTabContent(
         when (state) {
             is MissionTabState.Loading -> Unit
 
-            is MissionTabState.Week -> WeekContent(state, onSelect, onReset)
+            is MissionTabState.Week -> WeekContent(state, onSelect, onReset, onAdd)
         }
     }
 }
@@ -109,6 +118,7 @@ private fun WeekContent(
     state: MissionTabState.Week,
     onSelect: (Long) -> Unit = {},
     onReset: () -> Unit = {},
+    onAdd: () -> Unit = {},
 ) {
     // Title block
     val eyebrow = "WEEK OF ${formatWeekDate(state.weekStart)}"
@@ -144,7 +154,12 @@ private fun WeekContent(
         )
     }
 
-    // Absent on a draft rather than dimmed, the rule the Launchpad's actions follow.
+    // Absent on a draft rather than dimmed, the rule the Launchpad's actions follow. Add sortie is
+    // absent on a draft too, and once the week already holds its seven sorties.
+    if (state.canAdd) {
+        Spacer(Modifier.height(20.dp))
+        UnderlinedTextButton(text = "Add sortie", onClick = onAdd)
+    }
     if (state.canReset) {
         Spacer(Modifier.height(20.dp))
         UnderlinedTextButton(text = "Reset week", onClick = onReset)
@@ -154,7 +169,8 @@ private fun WeekContent(
 
 /**
  * What the draft says about Mission Control, in the Launchpad's own words. The actions stay on the
- * Launchpad — DESIGN.md §9 gives this tab only Reset week — so a failure says where to act.
+ * Launchpad — DESIGN.md §9 gives this tab only Reset week and Add sortie, and neither on a draft —
+ * so a failure says where to act.
  * Editable and NotConfigured mean nothing is in flight, which is what the tab's own sentence is for.
  */
 @Composable

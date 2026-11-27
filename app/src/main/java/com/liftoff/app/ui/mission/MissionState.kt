@@ -4,6 +4,7 @@ import com.liftoff.app.data.*
 import com.liftoff.app.domain.CoachStatus
 import com.liftoff.app.domain.currentSortie
 import com.liftoff.app.domain.deriveCoachStatus
+import com.liftoff.app.domain.MAX_PATTERN_LENGTH
 import com.liftoff.app.settings.DistanceUnit
 import com.liftoff.app.ui.sortie.deriveChips
 import com.liftoff.app.ui.sortie.formatWeekDate
@@ -34,6 +35,12 @@ sealed interface MissionTabState {
     ) : MissionTabState {
         /** MissionManager.resetWeek's own status rule; a draft has nothing to start over. */
         val canReset: Boolean = status != MissionStatus.DRAFT
+
+        /**
+         * Whether this week can take a sortie it didn't plan (§4.1, amended 2026-11-26): confirmed, and with room
+         * left in the pattern. [chips] is one chip per pattern letter, so its size is the days the week holds.
+         */
+        val canAdd: Boolean = status != MissionStatus.DRAFT && chips.size < MAX_PATTERN_LENGTH
     }
 }
 

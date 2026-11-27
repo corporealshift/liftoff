@@ -15,6 +15,7 @@ import com.liftoff.app.domain.effectiveWeekStart
 import com.liftoff.app.domain.launch
 import com.liftoff.app.domain.land
 import com.liftoff.app.domain.markPlanned
+import com.liftoff.app.domain.MAX_PATTERN_LENGTH
 import com.liftoff.app.domain.newDraft
 import com.liftoff.app.domain.overridePattern
 import com.liftoff.app.domain.Preparation
@@ -529,6 +530,43 @@ class MissionManager(
         }
         queued?.let(onQueued)
         return supersededIds
+    }
+
+    /**
+     * Add a sortie the week didn't plan (DESIGN.md §4.1, §4.2, §9, amended 2026-11-26): the type's letter goes on
+     * the end of [Mission.pattern] and a PENDING sortie takes the index that letter is at, so every earlier sortie
+     * keeps its index, its Flight Plan and its history row. Only the current week, and only once it has been
+     * confirmed — a DRAFT's pattern is edited and confirmed as a whole — and a week whose planned days are all
+     * done reopens to take it (§4.2).
+     *
+     * [advance] then prepares the sortie that is current, which is the new one when the week reopened or every
+     * earlier sortie has landed: the simple "Run" draft when run generation is off, otherwise a FLIGHT_PLAN
+     * generation, and only when the coach is configured. A week that still has a sortie waiting takes the add and
+     * nothing else.
+     *
+     * Nothing is deleted here, so no open generation goes stale and the caller has nothing to cancel; the one
+     * generation this can queue is handed to [onQueued] after the transaction commits.
+     */
+    suspend fun addSortie(missionId: Long, type: SortieType, onQueued: (Long) -> Unit = {}) {
+        val settings = settingsStore.settings.first()
+        var queued: Long? = null
+        db.withTransaction {
+            val mission = db.missionDao().get(missionId)!!
+            check(mission.weekStart == currentWeekOf()) { "Can only add a sortie to the current week" }
+            check(mission.status == MissionStatus.ACTIVE || mission.status == MissionStatus.CLOSED) {
+                "Mission must be confirmed"
+            }
+            check(mission.pattern.length < MAX_PATTERN_LENGTH) {
+                "This week already holds $MAX_PATTERN_LENGTH sorties"
+            }
+
+            val (updatedMission, newSortie) = com.liftoff.app.domain.addSortie(mission, type)
+            db.missionDao().update(updatedMission)
+            db.sortieDao().insert(newSortie)
+
+            queued = advance(missionId, settings)
+        }
+        queued?.let(onQueued)
     }
 
     /**

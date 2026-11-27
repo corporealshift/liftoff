@@ -327,6 +327,61 @@ class LaunchpadStatesTest {
         assertEquals(2, state.total)
     }
 
+    // ── A sortie added to a closed week (DESIGN.md §4.1, §4.2, amended 2026-11-26) ──
+    // The add reopens the Mission, so the Closed screen gives way to the added sortie's own card, and that card
+    // is the week's current sortie: the Launchpad's Launch and Land take it like any other.
+
+    @Test
+    fun addedSortieReopensAClosedWeekIntoItsOwnCard() = runBlocking {
+        settingsStore.setDefaultPattern("RL")
+
+        val mission = manager.onAppOpen()
+        manager.continueWithoutOutline(mission.id)
+
+        var sorties = sortieDao.getForMission(mission.id)
+        manager.launch(sorties[0].id)
+        manager.land(sorties[0].id)
+
+        sorties = sortieDao.getForMission(mission.id)
+        flightPlanDao.writePlan(sorties[1].id, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED, title = "Lift", estimatedMinutes = 45,
+            warmup = null, notes = null, runKind = null, targetDistance = null,
+            targetPace = null, rawJson = "{}",
+            exercises = emptyList(), segments = emptyList()
+        ))
+        sortieDao.update(com.liftoff.app.domain.markPlanned(sortieDao.get(sorties[1].id)!!))
+        manager.launch(sorties[1].id)
+        manager.land(sorties[1].id)
+
+        val closed = states.observe().first { it is LaunchpadState.Closed } as LaunchpadState.Closed
+        assertEquals(2, closed.total)
+        assertTrue("start next week is offered while the week stays closed", closed.canStartNextWeek)
+
+        manager.addSortie(mission.id, SortieType.RUN)
+
+        // The added run is the week's current sortie, so advance gives it the simple run plan the toggle is off
+        // for, and the card that replaces the Closed screen is its launchable one.
+        val card = withTimeout(10_000) {
+            states.observe().first { it is LaunchpadState.Planned && it.sortieIndex == 2 }
+        } as LaunchpadState.Planned
+        val added = sortieDao.getForMission(mission.id).single { it.index == 2 }
+        assertEquals(added.id, card.sortieId)
+        assertEquals(SortieType.RUN, card.sortieType)
+        assertEquals("Run", card.plan.plan.title)
+        assertEquals("WEEK OF JAN 12 · SORTIE 3 OF 3 · RUN", card.eyebrow)
+        assertEquals(3, card.chips.size)
+
+        // The card's sortie is the week's current one, so launching and landing it is the ordinary path.
+        manager.launch(added.id)
+        assertEquals(SortieState.IN_FLIGHT, sortieDao.get(added.id)!!.state)
+        manager.land(added.id, runDistance = 5.0, runMinutes = 30.0)
+        assertEquals(SortieState.LANDED, sortieDao.get(added.id)!!.state)
+
+        val landed = states.observe().first { it is LaunchpadState.Closed } as LaunchpadState.Closed
+        assertEquals(3, landed.total)
+        assertEquals(3, landed.landedCount)
+    }
+
     // ── Live update ────────────────────────────────────────────────────
     // Collect one subscription across confirm, scrub and launch.
 

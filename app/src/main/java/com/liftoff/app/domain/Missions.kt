@@ -11,6 +11,8 @@ object MissionLifecycle {
         MissionStatus.DRAFT to MissionStatus.ACTIVE,
         MissionStatus.ACTIVE to MissionStatus.CLOSED,
         MissionStatus.DRAFT to MissionStatus.CLOSED,
+        // DESIGN.md §4.2 (amended 2026-11-26): adding a sortie to a week whose planned days are done reopens it.
+        MissionStatus.CLOSED to MissionStatus.ACTIVE,
     )
 
     fun canTransition(from: MissionStatus, to: MissionStatus): Boolean =

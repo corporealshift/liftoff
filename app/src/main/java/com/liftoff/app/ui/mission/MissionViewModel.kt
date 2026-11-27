@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.liftoff.app.data.MissionManager
+import com.liftoff.app.data.SortieType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,6 +19,8 @@ class MissionViewModel(
     private val scope: CoroutineScope,
     /** Cancels one generation: its work, its row and its rho session. */
     private val cancelGeneration: suspend (Long) -> Unit = {},
+    /** Enqueues one generation the manager has already written a row for. */
+    private val queueGeneration: suspend (Long) -> Unit = {},
     /**
      * Where Reset week runs. The shell's scope, not this screen's: the owner leaves the tab right after a reset to
      * Confirm the new draft, and that must not stop the cancels half-way and leave the old week's turns running.
@@ -32,6 +35,10 @@ class MissionViewModel(
 
     /** Whether the Reset week confirmation is showing. */
     var resetting by mutableStateOf(false)
+        private set
+
+    /** Whether the Add sortie dialog is showing. */
+    var adding by mutableStateOf(false)
         private set
 
     fun requestReset() {
@@ -56,6 +63,34 @@ class MissionViewModel(
                     launch { cancelGeneration(generationId) }
                 }
             } catch (_: IllegalStateException) {
+                runCatching { manager.onAppOpen() }
+            }
+        }
+    }
+
+    fun requestAdd() {
+        if ((state.value as? MissionTabState.Week)?.canAdd == true) adding = true
+    }
+
+    fun cancelAdd() {
+        adding = false
+    }
+
+    /**
+     * Add a sortie the week didn't plan (§4.1, amended 2026-11-26): the type's letter on the end of the pattern,
+     * and a new day after the week's last one. On the shell's scope like Reset week, because the owner leaves
+     * this tab to Launch what was just added and the generation that prepares it must outlive the tab. The
+     * generation the manager queued is enqueued only after its transaction has committed.
+     */
+    fun confirmAdd(type: SortieType): Job? {
+        val s = state.value as? MissionTabState.Week ?: return null
+        adding = false
+        return actionScope.launch {
+            try {
+                manager.addSortie(s.missionId, type) { generationId -> launch { queueGeneration(generationId) } }
+            } catch (_: IllegalStateException) {
+                // The week moved under the tap — full, or reset — so re-read it rather than report a failure the
+                // owner can't act on.
                 runCatching { manager.onAppOpen() }
             }
         }
