@@ -94,6 +94,24 @@ class PlanFormatTest {
         assertEquals("2.5 min", formatMinutes(2.5))
     }
 
+    // ── formatRecordedDuration ──────────────────────────────────────────
+
+    // Must show: the recorded-duration formatter gives "32 min" for 32.0, "27 min 34 s" for the
+    // 27.566666... that a 27 min 34 s entry produces, "18 min 30 s" for 18.5, "27 min 45 s" for
+    // 27.75, and "45 s" for 0.75 — whole seconds taken with rounding, and a zero part dropped.
+    @Test
+    fun formatRunDurationMinutesAndSeconds() {
+        // The zero seconds part is dropped, so a whole-minute run reads as it does today.
+        assertEquals("32 min", formatRecordedDuration(32.0))
+        // 27.566666666666666 is 27 + 34/60, the duration a 27 min 34 s entry stores. Its own
+        // fraction is 33.999… seconds, so only rounding the whole duration to seconds reads 34 s.
+        assertEquals("27 min 34 s", formatRecordedDuration(27.566666666666666))
+        assertEquals("18 min 30 s", formatRecordedDuration(18.5))
+        assertEquals("27 min 45 s", formatRecordedDuration(27.75))
+        // Under a minute the zero minutes part is dropped.
+        assertEquals("45 s", formatRecordedDuration(0.75))
+    }
+
     // ── formatRunKind ─────────────────────────────────────────────────
 
     // The schema's lowercase kind reads as a label (Decision 7).

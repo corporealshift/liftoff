@@ -14,6 +14,7 @@ import com.liftoff.app.settings.WeightUnit
 import com.liftoff.app.ui.inflight.RunSegmentRow
 import com.liftoff.app.ui.sortie.formatDistance
 import com.liftoff.app.ui.sortie.formatMinutes
+import com.liftoff.app.ui.sortie.formatRecordedDuration
 import com.liftoff.app.ui.sortie.formatRunKind
 import com.liftoff.app.ui.sortie.formatWeight
 import com.liftoff.app.ui.sortie.formatWeekDate
@@ -242,7 +243,7 @@ fun deriveLandedDetail(
                 RunSegmentRow(description = segment.description, detail = detail)
             },
             recordedDistance = sortie.runDistance?.let { formatDistance(it, distanceUnit) },
-            recordedDuration = sortie.runMinutes?.let { formatMinutes(it) },
+            recordedDuration = sortie.runMinutes?.let { formatRecordedDuration(it) },
             planNote = planNote,
             sortieNote = sortie.notes,
         )

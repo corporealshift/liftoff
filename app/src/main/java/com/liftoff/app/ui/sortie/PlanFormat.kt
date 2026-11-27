@@ -58,6 +58,23 @@ internal fun formatDistance(value: Double, unit: DistanceUnit): String {
  */
 internal fun formatMinutes(value: Double): String = "${trimTrailingZero(value)} min"
 
+/**
+ * Format a run's **recorded** duration for display: `32 min`, `27 min 34 s`, `45 s`. Whole minutes
+ * plus whole seconds, and a zero part is dropped. The seconds come from rounding the total to whole
+ * seconds, so the `27.566666…` a 27 min 34 s entry stores reads as `27 min 34 s`; taking the
+ * fraction on its own would land on `27 min 33 s`. `formatMinutes` stays for coach-authored plan
+ * segments, which are planned values rather than the owner's actuals.
+ */
+internal fun formatRecordedDuration(minutes: Double): String {
+    val totalSeconds = Math.round(minutes * 60)
+    val parts = listOfNotNull(
+        if (totalSeconds / 60 > 0) "${totalSeconds / 60} min" else null,
+        if (totalSeconds % 60 > 0) "${totalSeconds % 60} s" else null,
+    )
+    // A duration of exactly 0 is refused at entry; it still reads as minutes, as it does today.
+    return if (parts.isEmpty()) "0 min" else parts.joinToString(" ")
+}
+
 /** Format a run kind as a label rather than the schema's lowercase word: `tempo` → `Tempo` (plan Decision 7). */
 internal fun formatRunKind(kind: String): String =
     kind.trim().lowercase(java.util.Locale.ROOT).replaceFirstChar { it.uppercase(java.util.Locale.ROOT) }

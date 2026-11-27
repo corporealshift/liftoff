@@ -120,4 +120,48 @@ class RunLandingTest {
         assertNotNull((entry as RunEntry.Invalid).distanceError)
         assertNotNull(entry.minutesError)
     }
+
+    // ── seconds ───────────────────────────────────────────────────────
+
+    // Seconds are whole and 0-59: `90` and `60` are not rolled into the minutes, and a negative, a
+    // fraction or text are refused. Each raises the seconds error alone, so the owner sees which of
+    // the three fields to fix.
+    @Test
+    fun secondsOutsideZeroToFiftyNineAreRejectedWithTheSecondsError() {
+        for (bad in listOf("90", "60", "-5", "0.5", "abc")) {
+            val entry = parseRunEntry("5.2", "27", bad)
+            assertTrue("$bad should be rejected, got $entry", entry is RunEntry.Invalid)
+            val invalid = entry as RunEntry.Invalid
+            assertNotNull("$bad must raise the seconds error", invalid.secondsError)
+            assertNull("$bad must not raise the distance error", invalid.distanceError)
+            assertNull("$bad must not raise the duration error", invalid.minutesError)
+        }
+
+        // A whole 0-59 beside minutes is one duration: minutes + seconds/60, so 27 min 34 s is the
+        // 27.566666... a sortie stores, not 27 and not 28.
+        assertEquals(valid(5.2, 27.0 + 34.0 / 60.0), parseRunEntry("5.2", "27", "34"))
+        assertEquals(valid(5.2, 27.0 + 59.0 / 60.0), parseRunEntry("5.2", "27", "59"))
+        // `0` is a legal seconds value, so it adds nothing to the minutes.
+        assertEquals(valid(5.2, 31.0), parseRunEntry("5.2", "31", "0"))
+    }
+
+    // The seconds field can carry the whole duration: minutes blank or `0` beside 45 s is 0.75 min.
+    // The above-0 rule moved to the combined total, so 0 minutes with 0 seconds is still refused —
+    // with the duration error, because a zero duration is the duration field's problem, not the
+    // seconds field's.
+    @Test
+    fun secondsWithNoMinutesIsValidAndZeroMinutesWithZeroSecondsIsRejected() {
+        assertEquals(valid(5.2, 45.0 / 60.0), parseRunEntry("5.2", "", "45"))
+        assertEquals(valid(5.2, 45.0 / 60.0), parseRunEntry("5.2", "0", "45"))
+        assertEquals(valid(3.1, 30.0 / 60.0), parseRunEntry("3.1", "  ", "30"))
+
+        for (zeroDuration in listOf("0", "")) {
+            val entry = parseRunEntry("5.2", zeroDuration, "0")
+            assertTrue("0 min + 0 s should be rejected, got $entry", entry is RunEntry.Invalid)
+            val invalid = entry as RunEntry.Invalid
+            assertNotNull("0 min + 0 s must raise the duration error", invalid.minutesError)
+            assertNull("0 min + 0 s must not raise the distance error", invalid.distanceError)
+            assertNull("0 min + 0 s must not raise the seconds error", invalid.secondsError)
+        }
+    }
 }

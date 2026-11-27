@@ -228,7 +228,7 @@ fun InFlightScreen(
             distanceUnit = run.distanceUnit,
             errors = runErrors,
             // The dialog closes on landRun's true, not in onDone.
-            onLand = { distance, minutes -> if (vm.landRun(distance, minutes, onBack)) landingRun = false },
+            onLand = { distance, minutes, seconds -> if (vm.landRun(distance, minutes, seconds, onBack)) landingRun = false },
             onDismiss = {
                 landingRun = false
                 vm.clearRunErrors()

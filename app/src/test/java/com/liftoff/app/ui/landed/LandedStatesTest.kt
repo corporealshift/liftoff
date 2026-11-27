@@ -349,6 +349,48 @@ class LandedStatesTest {
         assertEquals("32 min", bare.recordedDuration)
     }
 
+    // ── A recorded duration reads back as minutes and seconds ──────────────────
+
+    // Must show: the Landed history's run detail carries recordedDuration "18 min 30 s" for a sortie
+    // stored with runMinutes 18.5, where it carries "18.5 min" today, and still carries "32 min" for a
+    // whole-minute run.
+    @Test
+    fun runDetailRecordedDurationReadsMinutesAndSeconds() = runBlocking {
+        val jan12 = insertWeek(LocalDate.of(2026, 1, 12))
+        val fractionalId = insertSortie(jan12, 0, SortieType.RUN, SortieState.LANDED,
+            focus = null, landedAt = Instant.parse("2026-01-11T09:00:00Z"),
+            runDistance = 3.1, runMinutes = 18.5)
+        val wholeId = insertSortie(jan12, 1, SortieType.RUN, SortieState.LANDED,
+            focus = null, landedAt = Instant.parse("2026-01-12T09:00:00Z"),
+            runDistance = 3.1, runMinutes = 32.0)
+        // 27 + 34/60, the duration a Land entry of 27 minutes and 34 seconds stores.
+        val secondsId = insertSortie(jan12, 2, SortieType.RUN, SortieState.LANDED,
+            focus = null, landedAt = Instant.parse("2026-01-13T09:00:00Z"),
+            runDistance = 3.1, runMinutes = 27.566666666666666)
+        flightPlanDao.writePlan(secondsId, FlightPlanDraft(
+            source = FlightPlanSource.GENERATED,
+            title = "Intervals",
+            estimatedMinutes = 30,
+            warmup = null,
+            notes = null,
+            runKind = null,
+            targetDistance = null,
+            targetPace = null,
+            rawJson = "{}",
+            exercises = emptyList(),
+            segments = listOf(RunSegmentDraft(description = "Finisher", distance = null, minutes = 2.5)),
+        ))
+
+        assertEquals("18 min 30 s", runDetailOf(jan12, fractionalId).recordedDuration)
+        assertEquals("a whole-minute run reads exactly as it did before",
+            "32 min", runDetailOf(jan12, wholeId).recordedDuration)
+
+        val seconds = runDetailOf(jan12, secondsId)
+        assertEquals("the seconds survive the double the entry stores", "27 min 34 s", seconds.recordedDuration)
+        // The segments line is the coach's planned value, so it keeps formatMinutes' reading.
+        assertEquals(listOf("2.5 min"), seconds.segments.map { it.detail })
+    }
+
     // ── A scrub keeps only the sets that were already checked ─────────────────
 
     @Test
@@ -441,6 +483,13 @@ class LandedStatesTest {
         (received.last() as LandedDetail.Lift).sortieNote
 
     // ── Fixture ───────────────────────────────────────────────────────────────
+
+    /** One stored sortie's detail, derived straight from its row: no subscription, no waits. */
+    private suspend fun runDetailOf(missionId: Long, sortieId: Long): LandedDetail.Run =
+        deriveLandedDetail(
+            flightPlanDao.getPlan(sortieId), sortieDao.get(sortieId)!!, missionDao.get(missionId),
+            WeightUnit.LB, DistanceUnit.MI, ZoneOffset.UTC
+        ) as LandedDetail.Run
 
     private suspend fun insertWeek(weekStart: LocalDate): Long = missionDao.insert(
         Mission(

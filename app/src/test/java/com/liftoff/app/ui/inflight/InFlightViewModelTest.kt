@@ -654,6 +654,37 @@ class InFlightViewModelTest {
         assertNull(vm.message.value)
     }
 
+    // ── A run Land with a refused seconds value is refused on its own field ─
+    // A good distance and a good duration do not rescue bad seconds: the only error raised is the
+    // seconds one, so the Land card shows nothing under Distance or Duration. The manager is never
+    // reached, so the sortie is still IN_FLIGHT with neither run field stored, and no failure message.
+
+    @Test
+    fun landRunRejectsInvalidSecondsWithoutTouchingTheManager() = runBlocking {
+        val sortieId = (vm.state.first { it is InFlightState.Ready } as InFlightState.Ready).sortieId
+        var doneCalls = 0
+
+        for (typed in listOf("-5", "60", "90", "0.5", "abc")) {
+            assertFalse(
+                "landRun(seconds '$typed') was accepted",
+                vm.landRun("5.2", "31", typed) { doneCalls++ }
+            )
+            val errors = vm.runErrors.value
+            assertNotNull("landRun(seconds '$typed') raised no error", errors)
+            assertEquals("Seconds must be a whole number from 0 to 59", errors?.secondsError)
+            assertNull(errors?.distanceError)
+            assertNull(errors?.minutesError)
+            assertNull(vm.message.value)
+        }
+
+        assertEquals(0, doneCalls)
+        val row = sortieDao.get(sortieId)!!
+        assertEquals(SortieState.IN_FLIGHT, row.state)
+        assertNull(row.runDistance)
+        assertNull(row.runMinutes)
+        assertNull(vm.message.value)
+    }
+
     // ── No plan gives the no checklist state ─────────────────────────
     // The holder emits NoChecklist for a sortie with no plan.
 

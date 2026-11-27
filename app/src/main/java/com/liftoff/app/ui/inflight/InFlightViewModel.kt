@@ -122,13 +122,14 @@ class InFlightViewModel(
     fun clearRunErrors() { runErrors.value = null }
 
     /**
-     * A run's Land carries its own entry, so it is parsed before anything is written: a rejected
-     * field lands nothing. The return tells the dialog whether to close (Decision 16).
+     * A run's Land carries its own entry — distance, minutes and seconds — so it is parsed before
+     * anything is written: a rejected field lands nothing, and the two duration fields add up to the
+     * one number a sortie stores. The return tells the dialog whether to close (Decision 16).
      */
-    fun landRun(distanceText: String?, minutesText: String?, onDone: () -> Unit): Boolean {
+    fun landRun(distanceText: String?, minutesText: String?, secondsText: String? = null, onDone: () -> Unit): Boolean {
         if (left.get()) return false
         if (busy) return false
-        return when (val entry = parseRunEntry(distanceText, minutesText)) {
+        return when (val entry = parseRunEntry(distanceText, minutesText, secondsText)) {
             is RunEntry.Invalid -> {
                 runErrors.value = entry
                 false
